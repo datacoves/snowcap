@@ -1,6 +1,5 @@
 from setuptools import find_packages, setup
 
-
 setup(
     name="titan-core",
     # Package version is managed by the string inside version.md. By default,
@@ -38,8 +37,8 @@ setup(
         "inflection==0.5.1",
         "pyparsing==3.0.9",
         "pyyaml",
-        "snowflake-connector-python==3.12.3",
-        "snowflake-snowpark-python==1.24.0",
+        "snowflake-connector-python==3.13.1",
+        "snowflake-snowpark-python==1.25.0",
         "pyOpenSSL>=22.1.0",
         "jinja2",
         "pathspec",
