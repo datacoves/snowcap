@@ -1,6 +1,5 @@
 from setuptools import find_packages, setup
 
-
 setup(
     name="titan-core",
     # Package version is managed by the string inside version.md. By default,
