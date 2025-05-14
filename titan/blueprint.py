@@ -5,15 +5,38 @@ from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from queue import Queue
-from typing import Any, Generator, Iterable, Optional, Sequence, Set, TypeVar, Union, cast
+from typing import (
+    Any,
+    Generator,
+    Iterable,
+    Optional,
+    Sequence,
+    Set,
+    TypeVar,
+    Union,
+    cast,
+)
 
 import snowflake.connector
 
 from . import data_provider, lifecycle
 from .blueprint_config import BlueprintConfig
-from .client import ALREADY_EXISTS_ERR, DOES_NOT_EXIST_ERR, INVALID_GRANT_ERR, execute, reset_cache
+from .builtins import SYSTEM_ROLES
+from .client import (
+    ALREADY_EXISTS_ERR,
+    DOES_NOT_EXIST_ERR,
+    INVALID_GRANT_ERR,
+    execute,
+    reset_cache,
+)
 from .data_provider import SessionContext
-from .enums import AccountEdition, BlueprintScope, ResourceType, RunMode, resource_type_is_grant
+from .enums import (
+    AccountEdition,
+    BlueprintScope,
+    ResourceType,
+    RunMode,
+    resource_type_is_grant,
+)
 from .exceptions import (
     DuplicateResourceException,
     InvalidResourceException,
@@ -40,7 +63,13 @@ from .resources.resource import (
 )
 from .resources.role import Role
 from .resources.tag import Tag, TaggableResource
-from .scope import AccountScope, DatabaseScope, OrganizationScope, SchemaScope, TableScope
+from .scope import (
+    AccountScope,
+    DatabaseScope,
+    OrganizationScope,
+    SchemaScope,
+    TableScope,
+)
 
 T = TypeVar("T")
 ResourceRef = Union[tuple[ResourceType, str], str]
@@ -603,6 +632,28 @@ class Blueprint:
                 exception_block = "\n".join(exceptions)
             raise NonConformingPlanException("Non-conforming actions found in plan:\n" + exception_block)
 
+    def _warning_for_nonconforming_plan(self, session_ctx: SessionContext, plan: Plan):
+        warnings = []
+
+        for change in plan:
+            # System role exceptions
+            if isinstance(change, CreateResource) and change.resource_cls.resource_type == ResourceType.GRANT:
+                if change.after["to"] in SYSTEM_ROLES:
+                    warnings.append(
+                        f"Resource {change.urn} refers to a system role, grant will be always created since role is not managed by Titan"
+                    )
+
+            if isinstance(change, CreateResource) and change.resource_cls.resource_type == ResourceType.ROLE_GRANT:
+                if change.after["role"] in SYSTEM_ROLES:
+                    warnings.append(
+                        f"Resource {change.urn} refers to a system role, role grant will be always created since role is not managed by Titan"
+                    )
+
+        if warnings:
+            logger.warning("\nActions found in plan that should be revised:")
+            for warning in warnings:
+                logger.warning(" - " + warning)
+
     def fetch_remote_state(self, session, manifest: Manifest) -> State:
         """Fetch remote state with parallel resource retrieval."""
         state = {}
@@ -987,6 +1038,7 @@ class Blueprint:
             logger.error(manifest)
             raise
         self._raise_for_nonconforming_plan(session_ctx, finished_plan)
+        self._warning_for_nonconforming_plan(session_ctx, finished_plan)
         return finished_plan
 
     def apply(self, session, plan: Optional[Plan] = None) -> None:
@@ -1449,25 +1501,6 @@ def diff(remote_state: State, manifest: Manifest) -> list:
             )
 
     return changes
-
-
-def _sort_destructive_changes(
-    destructive_changes: Sequence[ResourceChange], sort_order: dict[URN, int]
-) -> list[ResourceChange]:
-    # Not quite right but close enough for now.
-    def sort_key(change: ResourceChange) -> tuple:
-        return (
-            # Put network policies first
-            change.urn.resource_type != ResourceType.NETWORK_POLICY,
-            # Put roles and role grants last
-            change.urn.resource_type == ResourceType.ROLE_GRANT,
-            change.urn.resource_type == ResourceType.ROLE,
-            change.urn.database is not None,
-            change.urn.schema is not None,
-            -1 * sort_order[change.urn],
-        )
-
-    return sorted(destructive_changes, key=sort_key)
 
 
 def _container_urn(resource_urn: URN) -> URN:
