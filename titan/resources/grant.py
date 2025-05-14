@@ -5,7 +5,12 @@ from typing import Any, Union
 from inflection import singularize
 
 from ..enums import ParseableEnum, ResourceType
-from ..identifiers import FQN, parse_FQN, resource_label_for_type, resource_type_for_label
+from ..identifiers import (
+    FQN,
+    parse_FQN,
+    resource_label_for_type,
+    resource_type_for_label,
+)
 from ..parse import format_collection_string, parse_grant
 from ..privs import all_privs_for_resource_type
 from ..props import FlagProp, IdentifierProp, Props
@@ -13,7 +18,7 @@ from ..resource_name import ResourceName
 from ..role_ref import RoleRef
 from ..scope import AccountScope
 from .resource import NamedResource, Resource, ResourcePointer, ResourceSpec
-from .role import Role, DatabaseRole
+from .role import DatabaseRole, Role
 from .user import User
 
 logger = logging.getLogger("titan")
@@ -39,6 +44,8 @@ class _Grant(ResourceSpec):
             self.priv = self.priv.upper()
         if self.on_type is None:
             raise ValueError("on_type must be set")
+        if "," in self.priv:
+            raise ValueError("priv must be a single privilege, not a list")
         if not self._privs:
             if self.priv == "ALL":
                 self._privs = sorted(all_privs_for_resource_type(self.on_type))
@@ -806,6 +813,7 @@ class DatabaseRoleGrant(Resource):
             to_role: somerole
         ```
     """
+
     resource_type = ResourceType.DATABASE_ROLE_GRANT
     props = Props(
         database_role=IdentifierProp("database role", eq=False),
