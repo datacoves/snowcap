@@ -640,13 +640,13 @@ class Blueprint:
             if isinstance(change, CreateResource) and change.resource_cls.resource_type == ResourceType.GRANT:
                 if change.after["to"] in SYSTEM_ROLES:
                     warnings.append(
-                        f"Resource {change.urn} refers to a system role, grant will be always created since role is not managed by Titan"
+                        f"Resource {change.urn} refers to a system role, grant will be always recreated since role is not managed by Titan"
                     )
 
             if isinstance(change, CreateResource) and change.resource_cls.resource_type == ResourceType.ROLE_GRANT:
                 if change.after["role"] in SYSTEM_ROLES:
                     warnings.append(
-                        f"Resource {change.urn} refers to a system role, role grant will be always created since role is not managed by Titan"
+                        f"Resource {change.urn} refers to a system role, role grant will be always recreated since role is not managed by Titan"
                     )
 
         if warnings:

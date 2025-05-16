@@ -13,7 +13,11 @@ import pyparsing as pp
 from titan.data_types import convert_to_simple_data_type
 
 from ..enums import AccountEdition, DataType, ParseableEnum, ResourceType
-from ..exceptions import ResourceHasContainerException, WrongContainerException, WrongEditionException
+from ..exceptions import (
+    ResourceHasContainerException,
+    WrongContainerException,
+    WrongEditionException,
+)
 from ..identifiers import FQN, URN, parse_identifier, resource_label_for_type
 from ..lifecycle import create_resource, drop_resource
 from ..parse import _parse_create_header, _parse_props, resolve_resource_class
@@ -274,6 +278,7 @@ class Resource(metaclass=_Resource):
     scope: ResourceScope
     spec: Type[ResourceSpec]
     serialize_inline: bool = False
+    shortcut_keys: list[str] = []
 
     def __init__(
         self,
@@ -288,6 +293,7 @@ class Resource(metaclass=_Resource):
         self.lifecycle = ResourceLifecycleConfig(**lifecycle) if lifecycle else ResourceLifecycleConfig()
         self.implicit = implicit
         self.refs: list[Resource] = []
+        self.shortcuts: dict = {}
 
         # Consume resource_type from kwargs if it exists
         resource_type = kwargs.pop("resource_type", None)
@@ -299,6 +305,10 @@ class Resource(metaclass=_Resource):
         database = kwargs.pop("database", None)
         schema = kwargs.pop("schema", None)
         self._register_scope(database=database, schema=schema)
+
+        # Process shortcut keys
+        for key in self.shortcut_keys:
+            self.shortcuts[key] = kwargs.pop(key, None)
 
         # If there are more kwargs, throw an error
         # Based on https://stackoverflow.com/questions/1603940/how-can-i-modify-a-python-traceback-object-when-raising-an-exception
@@ -501,6 +511,14 @@ class Resource(metaclass=_Resource):
     @property
     def fqn(self) -> FQN:
         raise NotImplementedError("Subclasses must implement fqn")
+
+    def process_shortcuts(self) -> list:
+        """
+        Process the shortcuts for this resource. This is a no-op for most resources, but
+        some resources may have shortcuts that need to be processed.
+        For example, a database may have a shortcut for its schemas.
+        """
+        return []
 
 
 class ResourceContainer:

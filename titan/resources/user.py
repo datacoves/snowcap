@@ -2,7 +2,15 @@ import logging
 from dataclasses import dataclass, field
 
 from ..enums import ParseableEnum, ResourceType
-from ..props import BoolProp, EnumProp, IntProp, Props, StringListProp, StringProp, TagsProp
+from ..props import (
+    BoolProp,
+    EnumProp,
+    IntProp,
+    Props,
+    StringListProp,
+    StringProp,
+    TagsProp,
+)
 from ..resource_name import ResourceName
 from ..scope import AccountScope
 from .resource import NamedResource, Resource, ResourceSpec
@@ -158,6 +166,7 @@ class User(NamedResource, TaggableResource, Resource):
     )
     scope = AccountScope()
     spec = _User
+    shortcut_keys = ["roles"]
 
     def __init__(
         self,
@@ -227,3 +236,17 @@ class User(NamedResource, TaggableResource, Resource):
     @property
     def owner(self):
         return self._data.owner
+
+    def process_shortcuts(self):
+        from .grant import RoleGrant
+
+        role_grants = []
+        for role in self.shortcuts["roles"] or []:
+            role_grants.append(
+                RoleGrant(
+                    role=role,
+                    to_user=self,
+                )
+            )
+
+        return role_grants

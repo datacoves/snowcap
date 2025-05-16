@@ -32,6 +32,22 @@ role_grants:
     to_role: someotherrole
   - role: somerole
     to_user: someuser
+  - role: somerole
+    to_users:
+      - user_a
+      - user_b
+  - role: somerole
+    to_roles:
+      - role_a
+      - role_b
+  - to_user: someuser
+    roles:
+      - role_a
+      - role_b
+  - to_role: somerole
+    roles:
+      - role_a
+      - role_b
 ```
 
 

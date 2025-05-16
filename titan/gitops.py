@@ -1,8 +1,8 @@
-import os
-import yaml
 import logging
+import os
 from typing import Any, Optional
 
+import yaml
 from inflection import pluralize
 from pathspec import PathSpec
 from pathspec.patterns.gitwildmatch import GitWildMatchPattern
@@ -10,16 +10,9 @@ from pathspec.patterns.gitwildmatch import GitWildMatchPattern
 from .blueprint_config import BlueprintConfig, set_vars_defaults
 from .enums import BlueprintScope, ResourceType, RunMode
 from .identifiers import resource_label_for_type, resource_type_for_label
-from .resources import (
-    Database,
-    DatabaseRoleGrant,
-    Resource,
-    RoleGrant,
-    Schema,
-    User,
-)
+from .resources import Database, DatabaseRoleGrant, Resource, RoleGrant, Schema, User
 from .resources.resource import ResourcePointer
-from .var import string_contains_var, process_for_each
+from .var import process_for_each, string_contains_var
 
 logger = logging.getLogger("titan")
 
@@ -34,34 +27,57 @@ def _resources_from_role_grants_config(role_grants_config: list) -> list:
         return []
     resources = []
     for role_grant in role_grants_config:
-
-        if "to_role" in role_grant:
-            resources.append(
-                RoleGrant(
-                    role=role_grant["role"],
-                    to_role=role_grant["to_role"],
-                )
-            )
-        elif "to_user" in role_grant:
-            resources.append(
-                RoleGrant(
-                    role=role_grant["role"],
-                    to_user=role_grant["to_user"],
-                )
-            )
-        else:
-            for user in role_grant.get("users", []):
+        # When only one role is being assigned
+        if "role" in role_grant:
+            # To one role
+            if "to_role" in role_grant:
                 resources.append(
                     RoleGrant(
                         role=role_grant["role"],
-                        to_user=user,
+                        to_role=role_grant["to_role"],
                     )
                 )
-            for to_role in role_grant.get("roles", []):
+            # To one user
+            elif "to_user" in role_grant:
                 resources.append(
                     RoleGrant(
                         role=role_grant["role"],
-                        to_role=to_role,
+                        to_user=role_grant["to_user"],
+                    )
+                )
+            else:
+                # To multiple users
+                for user in role_grant.get("to_users", []):
+                    resources.append(
+                        RoleGrant(
+                            role=role_grant["role"],
+                            to_user=user,
+                        )
+                    )
+                # To multiple roles
+                for to_role in role_grant.get("to_roles", []):
+                    resources.append(
+                        RoleGrant(
+                            role=role_grant["role"],
+                            to_role=to_role,
+                        )
+                    )
+        # When multiple roles are being assigned, to a single user
+        elif "to_user" in role_grant:
+            for role in role_grant.get("roles", []):
+                resources.append(
+                    RoleGrant(
+                        role=role,
+                        to_user=role_grant["to_user"],
+                    )
+                )
+        # When multiple roles are being assigned, to a single role
+        elif "to_role" in role_grant:
+            for role in role_grant.get("roles", []):
+                resources.append(
+                    RoleGrant(
+                        role=role,
+                        to_role=role_grant["to_role"],
                     )
                 )
     if len(resources) == 0:
@@ -92,40 +108,6 @@ def _resources_from_database_role_grants_config(database_role_grants_config: lis
     return resources
 
 
-def _resources_from_database_config(databases_config: list) -> list:
-    resources = []
-    for database in databases_config:
-        schemas = database.pop("schemas", [])
-        db = Database(**database)
-        resources.append(db)
-        for schema in schemas:
-            if "owner" not in schema:
-                schema["owner"] = db._data.owner
-            sch = Schema(**schema)
-            db.add(sch)
-            resources.append(sch)
-    return resources
-
-
-def _resources_from_users_config(users_config: list) -> list:
-    resources = []
-    for user in users_config:
-        if isinstance(user, dict):
-            roles = user.pop("roles", [])
-            titan_user = User(**user)
-            resources.append(titan_user)
-            for role in roles:
-                resources.append(
-                    RoleGrant(
-                        role=role,
-                        to_user=titan_user,
-                    )
-                )
-        elif isinstance(user, str):
-            resources.append(User.from_sql(user))
-    return resources
-
-
 def process_requires(resource: Resource, requires: list):
     for req in requires:
         resource.requires(ResourcePointer(name=req["name"], resource_type=ResourceType(req["resource_type"])))
@@ -133,10 +115,8 @@ def process_requires(resource: Resource, requires: list):
 
 def _resources_for_config(config: dict, vars: dict):
     # Special cases
-    database_config = config.pop("databases", [])
     role_grants = config.pop("role_grants", [])
     database_role_grants = config.pop("database_role_grants", [])
-    users = config.pop("users", [])
 
     resources = []
     config_blocks = []
@@ -175,12 +155,14 @@ def _resources_for_config(config: dict, vars: dict):
 
                         resource = resource_cls(**resource_instance)
                         resources.append(resource)
+                        resources += resource.process_shortcuts()
                 else:
                     requires = resource_data.pop("requires", [])
                     resource_cls = Resource.resolve_resource_cls(resource_type, resource_data)
                     resource = resource_cls(**resource_data)
                     process_requires(resource, requires)
                     resources.append(resource)
+                    resources += resource.process_shortcuts()
             elif isinstance(resource_data, str):
                 resource_cls = Resource.resolve_resource_cls(resource_type, {})
                 resource = resource_cls.from_sql(resource_data)
@@ -188,10 +170,8 @@ def _resources_for_config(config: dict, vars: dict):
             else:
                 raise Exception(f"Unknown resource data type: {resource_data}")
 
-    resources.extend(_resources_from_database_config(database_config))
     resources.extend(_resources_from_role_grants_config(role_grants))
     resources.extend(_resources_from_database_role_grants_config(database_role_grants))
-    resources.extend(_resources_from_users_config(users))
 
     # This code helps resolve grant references to the fully qualified name of the resource.
     # This probably belongs in blueprint as a finalization step.

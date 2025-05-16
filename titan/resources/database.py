@@ -135,6 +135,7 @@ class Database(NamedResource, TaggableResource, Resource, ResourceContainer):
     )
     scope = AccountScope()
     spec = _Database
+    shortcut_keys = ["schemas"]
 
     def __init__(
         self,
@@ -186,6 +187,16 @@ class Database(NamedResource, TaggableResource, Resource, ResourceContainer):
         super()._resolve_vars(vars)
         if name_uses_var and self._name == "SNOWFLAKE":
             raise Exception("Cannot resolve vars for system databases")
+
+    def process_shortcuts(self) -> list:
+        schemas = []
+        for schema in self.shortcuts["schemas"] or []:
+            if "owner" not in schema:
+                schema["owner"] = self._data.owner
+            sch = Schema(**schema)
+            self.add(sch)
+            schemas.append(sch)
+        return schemas
 
 
 def public_schema_urn(database_urn: URN) -> URN:
