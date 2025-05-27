@@ -1,6 +1,5 @@
-from typing import TYPE_CHECKING
-
 import re
+from typing import TYPE_CHECKING
 
 import pyparsing as pp
 
@@ -221,16 +220,16 @@ def _parse_priv_grant(sql: str):
             raise NotImplementedError("Multi-priv grants are not supported")
 
         on_stmt = results.pop("on_stmt").strip()
-        if on_stmt == "ACCOUNT":
-            on_keyword = "on"
-            on_arg = on_stmt
-        else:
-            on_keyword = "on_" + "_".join(on_stmt.split(" ")[:-1]).lower()
-            on_arg = on_stmt.split(" ")[-1]
+        # if on_stmt == "ACCOUNT":
+        #     on_keyword = "on"
+        #     on_arg = on_stmt
+        # else:
+        #     on_keyword = "on_" + "_".join(on_stmt.split(" ")[:-1]).lower()
+        #     on_arg = on_stmt.split(" ")[-1]
 
         return {
             "priv": privs[0].upper(),
-            on_keyword: on_arg,
+            "on": on_stmt,
             "to": results["to"],
         }
     except pp.ParseException as err:
@@ -703,22 +702,22 @@ def parse_collection_string(collection: str):
     parts = collection.split(".")
     if len(parts) == 2 and parts[1].startswith("<") and parts[1].endswith(">"):
         return {
-            "in_name": parts[0],
-            "in_type": "database",
-            "on_type": parts[1].strip("<>"),
+            "on": parts[0],
+            "on_type": "database",
+            "items_type": parts[1].strip("<>"),
         }
     elif len(parts) == 3 and parts[2].startswith("<") and parts[2].endswith(">"):
         return {
-            "in_name": f"{parts[0]}.{parts[1]}",
-            "in_type": "schema",
-            "on_type": parts[2].strip("<>"),
+            "on": f"{parts[0]}.{parts[1]}",
+            "on_type": "schema",
+            "items_type": parts[2].strip("<>"),
         }
     else:
         raise ValueError("Invalid collection string format")
 
 
-def format_collection_string(collection: dict):
-    return f"{collection['in_name']}.<{collection['on_type']}>"
+def format_collection_string(on_name, items_type):
+    return f"{on_name}.<{items_type}>"
 
 
 def parse_region(region_str: str) -> dict[str, str]:

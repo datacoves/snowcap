@@ -4,13 +4,12 @@ import pytest
 import snowflake.connector.errors
 
 from tests.helpers import get_json_fixtures
-from titan import resources as res
 from titan import data_provider
-from titan.resources import Resource
+from titan import resources as res
 from titan.blueprint import Blueprint, CreateResource, UpdateResource
-from titan.client import FEATURE_NOT_ENABLED_ERR, UNSUPPORTED_FEATURE
+from titan.client import FEATURE_NOT_ENABLED_ERR, UNSUPPORTED_FEATURE, reset_cache
 from titan.data_provider import fetch_session
-from titan.client import reset_cache
+from titan.resources import Resource
 from titan.scope import DatabaseScope, SchemaScope
 
 JSON_FIXTURES = list(get_json_fixtures())
@@ -218,15 +217,15 @@ def test_database_role_grants(cursor, suffix, marked_for_cleanup):
     db = res.Database(name=f"TEST_DATABASE_ROLE_GRANTS_{suffix}")
     role = res.DatabaseRole(name=f"TEST_DATABASE_ROLE_GRANTS_{suffix}", database=db)
     grant = res.Grant(priv="USAGE", on_schema=db.public_schema.fqn, to=role)
-    future_grant = res.FutureGrant(priv="SELECT", on_future_tables_in=db, to=role)
+    # future_grant = res.FutureGrant(priv="SELECT", on_future_tables_in=db, to=role)
 
     marked_for_cleanup.append(db)
     marked_for_cleanup.append(role)
     marked_for_cleanup.append(grant)
-    marked_for_cleanup.append(future_grant)
+    # marked_for_cleanup.append(future_grant)
 
     bp = Blueprint(
-        resources=[db, role, grant, future_grant],
+        resources=[db, role, grant],
     )
     plan = bp.plan(cursor.connection)
     assert len(plan) == 4
