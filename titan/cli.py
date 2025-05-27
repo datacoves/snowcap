@@ -5,7 +5,7 @@ import click
 import yaml
 
 from titan.blueprint import dump_plan
-from titan.enums import RunMode, BlueprintScope
+from titan.enums import BlueprintScope, RunMode
 from titan.gitops import (
     collect_configs_from_path,
     collect_vars_from_environment,
@@ -13,7 +13,11 @@ from titan.gitops import (
     merge_vars,
     parse_resources,
 )
-from titan.operations.blueprint import blueprint_apply, blueprint_apply_plan, blueprint_plan
+from titan.operations.blueprint import (
+    blueprint_apply,
+    blueprint_apply_plan,
+    blueprint_plan,
+)
 from titan.operations.connector import connect, get_env_vars
 from titan.operations.export import export_resources
 

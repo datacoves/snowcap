@@ -4,7 +4,7 @@ from typing import Any, Union
 
 from inflection import singularize
 
-from ..enums import ParseableEnum, ResourceType
+from ..enums import GrantType, ParseableEnum, ResourceType
 from ..identifiers import (
     FQN,
     parse_FQN,
@@ -30,8 +30,10 @@ class _Grant(ResourceSpec):
     on: str
     on_type: ResourceType
     to: RoleRef
+    items_type: ResourceType = None
     to_type: ResourceType = None
     grant_option: bool = False
+    grant_type: GrantType = GrantType.OBJECT
     owner: Role = field(default=None, metadata={"fetchable": False})
     _privs: list[str] = field(default_factory=list, metadata={"triggers_create": True})
 
@@ -86,6 +88,30 @@ class Grant(Resource):
 
         # Table Privs:
         grant = Grant(priv="SELECT", on_table="sometable", to="somerole")
+
+        future_grant = Grant(
+            priv="CREATE TABLE",
+            on=["FUTURE", "SCHEMAS", Database(name="somedb")],
+            to="somerole",
+        )
+        future_grant = Grant(
+            priv="CREATE TABLE",
+            on=["FUTURE", "SCHEMAS", "DATABASE", "somedb"],
+            to="somerole",
+        )
+
+        # Schema Object Privs:
+        grant_on_all = Grant(
+            priv="SELECT",
+            on=["ALL", "TABLES", Schema(name="someschema")],
+            to="somerole",
+        )
+        grant_on_all = Grant(
+            priv="READ",
+            on=["ALL", "IMAGE REPOSITORIES", "SCHEMA", "someschema"],
+            to="somerole",
+        )
+
         ```
 
     Yaml:
@@ -99,6 +125,12 @@ class Grant(Resource):
           - priv: "USAGE"
             on_schema: somedb.someschema
             to: somedb.somedbrole
+          - priv: SELECT
+            on: FUTURE TABLES IN SCHEMA someschema
+            to: somerole
+          - priv: SELECT
+            on: ALL IMAGE REPOSITORIES IN DATABASE somedb
+            to: somerole
         ```
     """
 
@@ -144,6 +176,9 @@ class Grant(Resource):
                 on_kwargs[keyword] = kwargs.pop(keyword)
 
         # Handle dynamic on_ kwargs
+        grant_type = GrantType.OBJECT
+        granted_in_ref = None
+        items_type = None
         if on_kwargs:
             for keyword, arg in on_kwargs.items():
                 if on is not None:
@@ -172,6 +207,45 @@ class Grant(Resource):
             elif isinstance(on, str) and on.upper() == "ACCOUNT":
                 on = "ACCOUNT"
                 on_type = ResourceType.ACCOUNT
+            elif (
+                isinstance(on, list)
+                or isinstance(on, str)
+                and (" IN " in on.upper() or "DATABASE " in on.upper() or "SCHEMA " in on.upper())
+            ):
+                on_items = (
+                    on if isinstance(on, list) else list(filter(lambda x: x and x != "IN", on.upper().split(" ")))
+                )
+                if len(on_items) < 2:
+                    raise ValueError("You must specify at least three parameters: [grant_type, items_type, object]")
+                elif on_items[0] in ["DATABASE", "SCHEMA"]:
+                    on_type = resource_type_for_label(on_items[0])
+                    on = on_items[1]
+                elif on_items[0] in [GrantType.FUTURE, GrantType.ALL]:
+                    grant_type = on_items[0]
+                    in_object = on_items[-1]
+
+                    if isinstance(in_object, Resource):
+                        if len(on_items) > 3:
+                            raise ValueError("You must specify only three paramters: [grant_type, items_type, object]")
+
+                        items_type = resource_type_for_label(singularize(" ".join(on_items[1:-1])))
+                        on_type = in_object.resource_type
+                        on = str(in_object.fqn)
+                        if grant_type == GrantType.FUTURE:
+                            granted_in_ref = in_object
+                    else:
+                        if len(on_items) > 4:
+                            raise ValueError(
+                                "You must specify only four paramters: [grant_type, items_type, object_type, object]"
+                            )
+                        items_type = resource_type_for_label(singularize(" ".join(on_items[1:-2])))
+                        on_type = ResourceType(on_items[2])
+                        on = in_object
+                        if grant_type == GrantType.FUTURE:
+                            granted_in_ref = ResourcePointer(name=on, resource_type=on_type)
+
+                else:
+                    raise ValueError(f"Grant type {on_items[0]} not recognized.")
 
         if owner is None:
             # Hacky fix
@@ -190,11 +264,14 @@ class Grant(Resource):
             priv=priv,
             on=on,
             on_type=on_type,
+            items_type=items_type,
             to=to,
             grant_option=grant_option,
+            grant_type=grant_type,
             owner=owner,
         )
-
+        if granted_in_ref:
+            self.requires(granted_in_ref)
         granted_on = None
         if on_type:
             granted_on = ResourcePointer(name=on, resource_type=on_type)
@@ -224,6 +301,14 @@ class Grant(Resource):
         return self._data.on_type
 
     @property
+    def items_type(self) -> ResourceType:
+        return self._data.items_type
+
+    @property
+    def grant_type(self) -> GrantType:
+        return self._data.grant_type
+
+    @property
     def to(self):
         return self._data.to
 
@@ -237,11 +322,16 @@ class Grant(Resource):
 
 
 def grant_fqn(grant: _Grant):
-    on = f"{resource_label_for_type(grant.on_type)}/{grant.on}"
+    if grant.items_type:
+        collection = format_collection_string(grant.on, grant.items_type)
+        on = f"{resource_label_for_type(grant.on_type)}/{collection}"
+    else:
+        on = f"{resource_label_for_type(grant.on_type)}/{grant.on}"
     to = f"{resource_label_for_type(grant.to_type)}/{grant.to.fqn}"
     return FQN(
         name=ResourceName("GRANT"),
         params={
+            "grant_type": grant.grant_type.value,
             "priv": grant.priv,
             "on": on,
             "to": to,
@@ -252,379 +342,383 @@ def grant_fqn(grant: _Grant):
 def grant_yaml(data: dict):
     grant = _Grant(**data)
     resource_label = resource_label_for_type(grant.on_type)
-    return {
+    yml = {
         "priv": grant.priv,
-        f"on_{resource_label}": grant.on,
         "to": str(grant.to.fqn),
         "to_type": str(grant.to_type),
         "grant_option": grant.grant_option,
     }
+    if grant.items_type:
+        yml["on"] = f"{grant.items_type} IN {resource_label} {grant.on}"
+    else:
+        yml[f"on_{resource_label}"] = grant.on
+    return yml
 
 
-@dataclass(unsafe_hash=True)
-class _FutureGrant(ResourceSpec):
-    priv: str
-    on_type: ResourceType
-    in_type: ResourceType
-    in_name: ResourceName
-    to: RoleRef
-    to_type: ResourceType = None
-    grant_option: bool = False
+# @dataclass(unsafe_hash=True)
+# class _FutureGrant(ResourceSpec):
+#     priv: str
+#     on_type: ResourceType
+#     in_type: ResourceType
+#     in_name: ResourceName
+#     to: RoleRef
+#     to_type: ResourceType = None
+#     grant_option: bool = False
 
-    def __post_init__(self):
-        super().__post_init__()
-        if isinstance(self.priv, str):
-            self.priv = self.priv.upper()
-        self.to_type = self.to.resource_type
-
-
-class FutureGrant(Resource):
-    """
-    Description:
-        Represents a future grant of privileges on a resource to a role in Snowflake.
-
-    Snowflake Docs:
-        https://docs.snowflake.com/en/sql-reference/sql/grant-privilege
-
-    Fields:
-        priv (string, required): The privilege to grant. Examples include 'SELECT', 'INSERT', 'CREATE TABLE'.
-        on_type (string or ResourceType, required): The type of resource on which the privilege is granted.
-        in_type (string or ResourceType, required): The type of container resource in which the privilege is granted.
-        in_name (string, required): The name of the container resource in which the privilege is granted.
-        to (string or Role, required): The role to which the privileges are granted.
-        grant_option (bool): Specifies whether the grantee can grant the privileges to other roles. Defaults to False.
-
-    Python:
-
-        ```python
-        # Database Object Privs:
-        future_grant = FutureGrant(
-            priv="CREATE TABLE",
-            on_future_schemas_in=Database(name="somedb"),
-            to="somerole",
-        )
-        future_grant = FutureGrant(
-            priv="CREATE TABLE",
-            on_future_schemas_in_database="somedb",
-            to="somerole",
-        )
-
-        # Schema Object Privs:
-        future_grant = FutureGrant(
-            priv="SELECT",
-            on_future_tables_in=Schema(name="someschema"),
-            to="somerole",
-        )
-        future_grant = FutureGrant(
-            priv="READ",
-            on_future_image_repositories_in_schema="someschema",
-            to="somerole",
-        )
-        ```
-
-    Yaml:
-
-        ```yaml
-        future_grants:
-          - priv: SELECT
-            on_future_tables_in_schema: someschema
-            to: somerole
-        ```
-    """
-
-    resource_type = ResourceType.FUTURE_GRANT
-    props = Props(
-        priv=IdentifierProp("priv", eq=False),
-        on_type=IdentifierProp("on type", eq=False),
-        database=IdentifierProp("database", eq=False),
-        to=IdentifierProp("to", eq=False),
-    )
-    scope = AccountScope()
-    spec = _FutureGrant
-
-    def __init__(
-        self,
-        priv: str,
-        to: Union[Role, DatabaseRole],
-        grant_option: bool = False,
-        **kwargs,
-    ):
-        on_type = kwargs.pop("on_type", None)
-        in_type = kwargs.pop("in_type", None)
-        in_name = kwargs.pop("in_name", None)
-        to_type = kwargs.pop("to_type", None)
-        granted_in_ref = None
-
-        if all([to_type, to]):
-            to_type = ResourceType(to_type)
-            to = ResourcePointer(name=to, resource_type=to_type)
-
-        if all([on_type, in_type, in_name]):
-            in_type = ResourceType(in_type)
-            on_type = ResourceType(on_type)
-            granted_in_ref = ResourcePointer(name=in_name, resource_type=in_type)
-        else:
-            # Collect on_ kwargs
-            on_kwargs = {}
-            for keyword, _ in kwargs.copy().items():
-                if keyword.startswith("on_future_"):
-                    on_kwargs[keyword] = kwargs.pop(keyword)
-
-            if len(on_kwargs) != 1:
-                raise ValueError("You must specify one 'on_future_' parameter")
-
-            # Handle on_future_ kwargs
-            if on_kwargs:
-                for keyword, arg in on_kwargs.items():
-
-                    # At some point we need to support _in_sometype=SomeType(blah)
-
-                    if isinstance(arg, Resource):
-                        on_type = resource_type_for_label(singularize(keyword[10:-3]))
-                        in_type = arg.resource_type
-                        in_name = str(arg.fqn)
-                        granted_in_ref = arg
-                    else:
-                        on_stmt, in_stmt = keyword.split("_in_")
-                        on_type = resource_type_for_label(singularize(on_stmt[10:]))
-                        in_type = ResourceType(in_stmt)
-                        in_name = arg
-                        granted_in_ref = ResourcePointer(name=in_name, resource_type=in_type)
-
-        super().__init__(**kwargs)
-        self._data: _FutureGrant = _FutureGrant(
-            priv=priv,
-            on_type=on_type,
-            in_type=in_type,
-            in_name=in_name,
-            to=to,
-            grant_option=grant_option,
-        )
-        if granted_in_ref:
-            self.requires(granted_in_ref)
-
-    @classmethod
-    def from_sql(cls, sql):
-        parsed = parse_grant(sql)
-        return cls(**parsed)
-
-    @property
-    def fqn(self):
-        return future_grant_fqn(self._data)
-
-    @property
-    def priv(self) -> str:
-        return self._data.priv
-
-    @property
-    def on_type(self) -> ResourceType:
-        return self._data.on_type
-
-    @property
-    def in_type(self) -> ResourceType:
-        return self._data.in_type
-
-    @property
-    def in_name(self) -> str:
-        return self._data.in_name
-
-    @property
-    def to(self):
-        return self._data.to
-
-    @property
-    def to_type(self) -> ResourceType:
-        return self._data.to_type
+#     def __post_init__(self):
+#         super().__post_init__()
+#         if isinstance(self.priv, str):
+#             self.priv = self.priv.upper()
+#         self.to_type = self.to.resource_type
 
 
-def future_grant_fqn(data: _FutureGrant):
-    in_type = resource_label_for_type(data.in_type)
-    in_name = data.in_name
-    on_type = resource_label_for_type(data.on_type).upper()
-    collection = format_collection_string({"in_name": in_name, "in_type": in_type, "on_type": on_type})
-    to = f"{resource_label_for_type(data.to_type)}/{data.to.fqn}"
-    return FQN(
-        name=ResourceName("FUTURE_GRANT"),
-        params={
-            "priv": data.priv,
-            "on": f"{in_type}/{collection}",
-            "to": to,
-        },
-    )
+# class FutureGrant(Resource):
+#     """
+#     Description:
+#         Represents a future grant of privileges on a resource to a role in Snowflake.
+
+#     Snowflake Docs:
+#         https://docs.snowflake.com/en/sql-reference/sql/grant-privilege
+
+#     Fields:
+#         priv (string, required): The privilege to grant. Examples include 'SELECT', 'INSERT', 'CREATE TABLE'.
+#         on_type (string or ResourceType, required): The type of resource on which the privilege is granted.
+#         in_type (string or ResourceType, required): The type of container resource in which the privilege is granted.
+#         in_name (string, required): The name of the container resource in which the privilege is granted.
+#         to (string or Role, required): The role to which the privileges are granted.
+#         grant_option (bool): Specifies whether the grantee can grant the privileges to other roles. Defaults to False.
+
+#     Python:
+
+#         ```python
+#         # Database Object Privs:
+#         future_grant = FutureGrant(
+#             priv="CREATE TABLE",
+#             on_future_schemas_in=Database(name="somedb"),
+#             to="somerole",
+#         )
+#         future_grant = FutureGrant(
+#             priv="CREATE TABLE",
+#             on_future_schemas_in_database="somedb",
+#             to="somerole",
+#         )
+
+#         # Schema Object Privs:
+#         future_grant = FutureGrant(
+#             priv="SELECT",
+#             on_future_tables_in=Schema(name="someschema"),
+#             to="somerole",
+#         )
+#         future_grant = FutureGrant(
+#             priv="READ",
+#             on_future_image_repositories_in_schema="someschema",
+#             to="somerole",
+#         )
+#         ```
+
+#     Yaml:
+
+#         ```yaml
+#         future_grants:
+#           - priv: SELECT
+#             on_future_tables_in_schema: someschema
+#             to: somerole
+#         ```
+#     """
+
+#     resource_type = ResourceType.FUTURE_GRANT
+#     props = Props(
+#         priv=IdentifierProp("priv", eq=False),
+#         on_type=IdentifierProp("on type", eq=False),
+#         database=IdentifierProp("database", eq=False),
+#         to=IdentifierProp("to", eq=False),
+#     )
+#     scope = AccountScope()
+#     spec = _FutureGrant
+
+#     def __init__(
+#         self,
+#         priv: str,
+#         to: Union[Role, DatabaseRole],
+#         grant_option: bool = False,
+#         **kwargs,
+#     ):
+#         on_type = kwargs.pop("on_type", None)
+#         in_type = kwargs.pop("in_type", None)
+#         in_name = kwargs.pop("in_name", None)
+#         to_type = kwargs.pop("to_type", None)
+#         granted_in_ref = None
+
+#         if all([to_type, to]):
+#             to_type = ResourceType(to_type)
+#             to = ResourcePointer(name=to, resource_type=to_type)
+
+#         if all([on_type, in_type, in_name]):
+#             in_type = ResourceType(in_type)
+#             on_type = ResourceType(on_type)
+#             granted_in_ref = ResourcePointer(name=in_name, resource_type=in_type)
+#         else:
+#             # Collect on_ kwargs
+#             on_kwargs = {}
+#             for keyword, _ in kwargs.copy().items():
+#                 if keyword.startswith("on_future_"):
+#                     on_kwargs[keyword] = kwargs.pop(keyword)
+
+#             if len(on_kwargs) != 1:
+#                 raise ValueError("You must specify one 'on_future_' parameter")
+
+#             # Handle on_future_ kwargs
+#             if on_kwargs:
+#                 for keyword, arg in on_kwargs.items():
+
+#                     # At some point we need to support _in_sometype=SomeType(blah)
+
+#                     if isinstance(arg, Resource):
+#                         on_type = resource_type_for_label(singularize(keyword[10:-3]))
+#                         in_type = arg.resource_type
+#                         in_name = str(arg.fqn)
+#                         granted_in_ref = arg
+#                     else:
+#                         on_stmt, in_stmt = keyword.split("_in_")
+#                         on_type = resource_type_for_label(singularize(on_stmt[10:]))
+#                         in_type = ResourceType(in_stmt)
+#                         in_name = arg
+#                         granted_in_ref = ResourcePointer(name=in_name, resource_type=in_type)
+
+#         super().__init__(**kwargs)
+#         self._data: _FutureGrant = _FutureGrant(
+#             priv=priv,
+#             on_type=on_type,
+#             in_type=in_type,
+#             in_name=in_name,
+#             to=to,
+#             grant_option=grant_option,
+#         )
+#         if granted_in_ref:
+#             self.requires(granted_in_ref)
+
+#     @classmethod
+#     def from_sql(cls, sql):
+#         parsed = parse_grant(sql)
+#         return cls(**parsed)
+
+#     @property
+#     def fqn(self):
+#         return future_grant_fqn(self._data)
+
+#     @property
+#     def priv(self) -> str:
+#         return self._data.priv
+
+#     @property
+#     def on_type(self) -> ResourceType:
+#         return self._data.on_type
+
+#     @property
+#     def in_type(self) -> ResourceType:
+#         return self._data.in_type
+
+#     @property
+#     def in_name(self) -> str:
+#         return self._data.in_name
+
+#     @property
+#     def to(self):
+#         return self._data.to
+
+#     @property
+#     def to_type(self) -> ResourceType:
+#         return self._data.to_type
 
 
-@dataclass(unsafe_hash=True)
-class _GrantOnAll(ResourceSpec):
-    priv: str
-    on_type: ResourceType
-    in_type: ResourceType
-    in_name: ResourceName
-    to: RoleRef
-    to_type: ResourceType = None
-    grant_option: bool = False
-
-    def __post_init__(self):
-        super().__post_init__()
-        if self.in_type not in [ResourceType.DATABASE, ResourceType.SCHEMA]:
-            raise ValueError(f"in_type must be either DATABASE or SCHEMA, not {self.in_type}")
-        self.to_type = self.to.resource_type
-
-
-class GrantOnAll(Resource):
-    """
-    Description:
-        Represents a grant of privileges on all resources of a specified type to a role in Snowflake.
-
-    Snowflake Docs:
-        https://docs.snowflake.com/en/sql-reference/sql/grant-privilege
-
-    Fields:
-        priv (string, required): The privilege to grant. Examples include 'SELECT', 'INSERT', 'CREATE TABLE'.
-        on_type (string or ResourceType, required): The type of resource on which the privileges are granted.
-        in_type (string or ResourceType, required): The type of container resource in which the privilege is granted.
-        in_name (string, required): The name of the container resource in which the privilege is granted.
-        to (string or Role, required): The role to which the privileges are granted.
-        grant_option (bool): Specifies whether the grantee can grant the privileges to other roles. Defaults to False.
-
-    Python:
-
-        ```python
-            # Schema Privs:
-            grant_on_all = GrantOnAll(
-                priv="CREATE TABLE",
-                on_all_schemas_in_database="somedb",
-                to="somerole",
-            )
-
-            grant_on_all = GrantOnAll(
-                priv="CREATE VIEW",
-                on_all_schemas_in=Database(name="somedb"),
-                to="somerole",
-            )
-
-            # Schema Object Privs:
-            grant_on_all = GrantOnAll(
-                priv="SELECT",
-                on_all_tables_in_schema="someschema",
-                to="somerole",
-            )
-
-            grant_on_all = GrantOnAll(
-                priv="SELECT",
-                on_all_views_in_database="somedb",
-                to="somerole",
-            )
-        ```
-
-    Yaml:
-
-        ```yaml
-        grants_on_all:
-            - priv: SELECT
-                on_all_tables_in_schema: someschema
-                to: somerole
-        ```
-
-    """
-
-    resource_type = ResourceType.GRANT_ON_ALL
-    props = Props(
-        priv=IdentifierProp("priv", eq=False),
-        on_type=IdentifierProp("on type", eq=False),
-        in_type=IdentifierProp("in type", eq=False),
-        in_name=IdentifierProp("in name", eq=False),
-        to=IdentifierProp("to", eq=False),
-        grant_option=FlagProp("with grant option"),
-    )
-    scope = AccountScope()
-    spec = _GrantOnAll
-
-    def __init__(
-        self,
-        priv: str,
-        to: Role,
-        grant_option: bool = False,
-        **kwargs,
-    ):
-        on_type = kwargs.pop("on_type", None)
-        in_type = kwargs.pop("in_type", None)
-        in_name = kwargs.pop("in_name", None)
-        to_type = kwargs.pop("to_type", None)
-
-        if all([to_type, to]):
-            to_type = ResourceType(to_type)
-            to = ResourcePointer(name=to, resource_type=to_type)
-
-        _owner = kwargs.pop("owner", None)
-        if _owner is not None:
-            logger.warning("owner attribute on GrantOnAll is deprecated and will be removed in a future release")
-
-        # Init from serialized
-        if all([on_type, in_type, in_name]):
-            in_type = ResourceType(in_type)
-            on_type = ResourceType(on_type)
-        else:
-
-            # Collect on_ kwargs
-            on_kwargs = {}
-            for keyword, _ in kwargs.copy().items():
-                if keyword.startswith("on_all_"):
-                    on_kwargs[keyword] = kwargs.pop(keyword)
-
-            if len(on_kwargs) != 1:
-                raise ValueError("You must specify one 'on_all_' parameter")
-
-            # Handle on_all_ kwargs
-            if on_kwargs:
-                for keyword, arg in on_kwargs.items():
-                    if isinstance(arg, Resource):
-                        # In type inferred from Resource class
-                        # on_all_schemas_in=Database(name="somedb")
-                        in_type = arg.resource_type
-                        in_name = str(arg.fqn)
-                        on_type = resource_type_for_label(singularize(keyword[7:-3]))
-                    else:
-                        # In type named in kwarg
-                        # on_all_schemas_in_database="somedb"
-                        on_stmt, in_stmt = keyword.split("_in_")
-                        in_type = ResourceType(in_stmt)
-                        in_name = arg
-                        on_type = resource_type_for_label(singularize(on_stmt[7:]))
-
-        super().__init__(**kwargs)
-        self._data: _GrantOnAll = _GrantOnAll(
-            priv=priv,
-            on_type=on_type,
-            in_type=in_type,
-            in_name=in_name,
-            to=to,
-            grant_option=grant_option,
-        )
-
-    @classmethod
-    def from_sql(cls, sql):
-        parsed = parse_grant(sql)
-        return cls(**parsed)
-
-    @property
-    def fqn(self):
-        return grant_on_all_fqn(self._data)
+# def future_grant_fqn(data: _FutureGrant):
+#     in_type = resource_label_for_type(data.in_type)
+#     in_name = data.in_name
+#     on_type = resource_label_for_type(data.on_type).upper()
+#     collection = format_collection_string({"in_name": in_name, "in_type": in_type, "on_type": on_type})
+#     to = f"{resource_label_for_type(data.to_type)}/{data.to.fqn}"
+#     return FQN(
+#         name=ResourceName("FUTURE_GRANT"),
+#         params={
+#             "priv": data.priv,
+#             "on": f"{in_type}/{collection}",
+#             "to": to,
+#         },
+#     )
 
 
-def grant_on_all_fqn(data: _GrantOnAll):
-    in_type = resource_label_for_type(data.in_type)
-    in_name = data.in_name
-    on_type = resource_label_for_type(data.on_type).upper()
-    collection = format_collection_string({"in_name": in_name, "in_type": in_type, "on_type": on_type})
-    to = f"{resource_label_for_type(data.to_type)}/{data.to.fqn}"
-    return FQN(
-        name=ResourceName("GRANT_ON_ALL"),
-        params={
-            "priv": data.priv,
-            "on": f"{in_type}/{collection}",
-            "to": to,
-        },
-    )
+# @dataclass(unsafe_hash=True)
+# class _GrantOnAll(ResourceSpec):
+#     priv: str
+#     on_type: ResourceType
+#     in_type: ResourceType
+#     in_name: ResourceName
+#     to: RoleRef
+#     to_type: ResourceType = None
+#     grant_option: bool = False
+
+#     def __post_init__(self):
+#         super().__post_init__()
+#         if self.in_type not in [ResourceType.DATABASE, ResourceType.SCHEMA]:
+#             raise ValueError(f"in_type must be either DATABASE or SCHEMA, not {self.in_type}")
+#         self.to_type = self.to.resource_type
+
+
+# class GrantOnAll(Resource):
+#     """
+#     Description:
+#         Represents a grant of privileges on all resources of a specified type to a role in Snowflake.
+
+#     Snowflake Docs:
+#         https://docs.snowflake.com/en/sql-reference/sql/grant-privilege
+
+#     Fields:
+#         priv (string, required): The privilege to grant. Examples include 'SELECT', 'INSERT', 'CREATE TABLE'.
+#         on_type (string or ResourceType, required): The type of resource on which the privileges are granted.
+#         in_type (string or ResourceType, required): The type of container resource in which the privilege is granted.
+#         in_name (string, required): The name of the container resource in which the privilege is granted.
+#         to (string or Role, required): The role to which the privileges are granted.
+#         grant_option (bool): Specifies whether the grantee can grant the privileges to other roles. Defaults to False.
+
+#     Python:
+
+#         ```python
+#             # Schema Privs:
+#             grant_on_all = GrantOnAll(
+#                 priv="CREATE TABLE",
+#                 on_all_schemas_in_database="somedb",
+#                 to="somerole",
+#             )
+
+#             grant_on_all = GrantOnAll(
+#                 priv="CREATE VIEW",
+#                 on_all_schemas_in=Database(name="somedb"),
+#                 to="somerole",
+#             )
+
+#             # Schema Object Privs:
+#             grant_on_all = GrantOnAll(
+#                 priv="SELECT",
+#                 on_all_tables_in_schema="someschema",
+#                 to="somerole",
+#             )
+
+#             grant_on_all = GrantOnAll(
+#                 priv="SELECT",
+#                 on_all_views_in_database="somedb",
+#                 to="somerole",
+#             )
+#         ```
+
+#     Yaml:
+
+#         ```yaml
+#         grants_on_all:
+#             - priv: SELECT
+#                 on_all_tables_in_schema: someschema
+#                 to: somerole
+#         ```
+
+#     """
+
+#     resource_type = ResourceType.GRANT_ON_ALL
+#     props = Props(
+#         priv=IdentifierProp("priv", eq=False),
+#         on_type=IdentifierProp("on type", eq=False),
+#         in_type=IdentifierProp("in type", eq=False),
+#         in_name=IdentifierProp("in name", eq=False),
+#         to=IdentifierProp("to", eq=False),
+#         grant_option=FlagProp("with grant option"),
+#     )
+#     scope = AccountScope()
+#     spec = _GrantOnAll
+
+#     def __init__(
+#         self,
+#         priv: str,
+#         to: Role,
+#         grant_option: bool = False,
+#         **kwargs,
+#     ):
+#         on_type = kwargs.pop("on_type", None)
+#         in_type = kwargs.pop("in_type", None)
+#         in_name = kwargs.pop("in_name", None)
+#         to_type = kwargs.pop("to_type", None)
+
+#         if all([to_type, to]):
+#             to_type = ResourceType(to_type)
+#             to = ResourcePointer(name=to, resource_type=to_type)
+
+#         _owner = kwargs.pop("owner", None)
+#         if _owner is not None:
+#             logger.warning("owner attribute on GrantOnAll is deprecated and will be removed in a future release")
+
+#         # Init from serialized
+#         if all([on_type, in_type, in_name]):
+#             in_type = ResourceType(in_type)
+#             on_type = ResourceType(on_type)
+#         else:
+
+#             # Collect on_ kwargs
+#             on_kwargs = {}
+#             for keyword, _ in kwargs.copy().items():
+#                 if keyword.startswith("on_all_"):
+#                     on_kwargs[keyword] = kwargs.pop(keyword)
+
+#             if len(on_kwargs) != 1:
+#                 raise ValueError("You must specify one 'on_all_' parameter")
+
+#             # Handle on_all_ kwargs
+#             if on_kwargs:
+#                 for keyword, arg in on_kwargs.items():
+#                     if isinstance(arg, Resource):
+#                         # In type inferred from Resource class
+#                         # on_all_schemas_in=Database(name="somedb")
+#                         in_type = arg.resource_type
+#                         in_name = str(arg.fqn)
+#                         on_type = resource_type_for_label(singularize(keyword[7:-3]))
+#                     else:
+#                         # In type named in kwarg
+#                         # on_all_schemas_in_database="somedb"
+#                         on_stmt, in_stmt = keyword.split("_in_")
+#                         in_type = ResourceType(in_stmt)
+#                         in_name = arg
+#                         on_type = resource_type_for_label(singularize(on_stmt[7:]))
+
+#         super().__init__(**kwargs)
+#         self._data: _GrantOnAll = _GrantOnAll(
+#             priv=priv,
+#             on_type=on_type,
+#             in_type=in_type,
+#             in_name=in_name,
+#             to=to,
+#             grant_option=grant_option,
+#         )
+
+#     @classmethod
+#     def from_sql(cls, sql):
+#         parsed = parse_grant(sql)
+#         return cls(**parsed)
+
+#     @property
+#     def fqn(self):
+#         return grant_on_all_fqn(self._data)
+
+
+# def grant_on_all_fqn(data: _GrantOnAll):
+#     in_type = resource_label_for_type(data.in_type)
+#     in_name = data.in_name
+#     on_type = resource_label_for_type(data.on_type).upper()
+#     collection = format_collection_string({"in_name": in_name, "in_type": in_type, "on_type": on_type})
+#     to = f"{resource_label_for_type(data.to_type)}/{data.to.fqn}"
+#     return FQN(
+#         name=ResourceName("GRANT_ON_ALL"),
+#         params={
+#             "priv": data.priv,
+#             "on": f"{in_type}/{collection}",
+#             "to": to,
+#         },
+#     )
 
 
 @dataclass(unsafe_hash=True)

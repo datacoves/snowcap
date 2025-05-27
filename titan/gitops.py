@@ -17,9 +17,21 @@ from .var import process_for_each, string_contains_var
 logger = logging.getLogger("titan")
 
 ALIASES = {
-    "grants_on_all": ResourceType.GRANT_ON_ALL,
+    # "grants_on_all": ResourceType.GRANT_ON_ALL,
     "account_parameters": ResourceType.ACCOUNT_PARAMETER,
 }
+
+
+def construct_string_on_off(loader, node):
+    """Custom constructor for YAML bool values to handle 'on' and 'off' as strings."""
+    value = loader.construct_scalar(node)
+    if value in ("on", "off"):
+        return value  # treat as string
+    # fallback to default bool constructor for other values
+    return yaml.constructor.SafeConstructor.construct_yaml_bool(loader, node)
+
+
+yaml.add_constructor("tag:yaml.org,2002:bool", construct_string_on_off, yaml.SafeLoader)
 
 
 def _resources_from_role_grants_config(role_grants_config: list) -> list:

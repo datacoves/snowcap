@@ -50,7 +50,7 @@ from .identifiers import URN, parse_identifier, parse_URN, resource_label_for_ty
 from .privs import CREATE_PRIV_FOR_RESOURCE_TYPE, system_role_for_priv
 from .resource_name import ResourceName
 from .resource_tags import ResourceTags
-from .resources import Database, FutureGrant, Grant, GrantOnAll, RoleGrant, Schema
+from .resources import Database, Grant, RoleGrant, Schema
 from .resources.database import public_schema_urn
 from .resources.resource import (
     RESOURCE_SCOPES,
@@ -698,7 +698,6 @@ class Blueprint:
                                 if isinstance(item, ManifestResource)
                                 else Resource.resolve_resource_cls(urn.resource_type, data)
                             )
-
                         state[urn] = resource_cls.spec(**data).to_dict(session_ctx["account_edition"])
                     else:
                         if self._config.run_mode == RunMode.SYNC:
@@ -930,8 +929,8 @@ class Blueprint:
 
     def _create_stage_privilege_refs(self) -> None:
         stage_grants: dict[str, list[Grant]] = {}
-        stage_future_grants: dict[ResourceName, list[FutureGrant]] = {}
-        stage_grant_on_all: dict[ResourceName, list[GrantOnAll]] = {}
+        # stage_future_grants: dict[ResourceName, list[FutureGrant]] = {}
+        # stage_grant_on_all: dict[ResourceName, list[GrantOnAll]] = {}
 
         for resource in _walk(self._root):
             if isinstance(resource, Grant):
@@ -939,16 +938,16 @@ class Blueprint:
                     if resource._data.on not in stage_grants:
                         stage_grants[resource._data.on] = []
                     stage_grants[resource._data.on].append(resource)
-            elif isinstance(resource, FutureGrant):
-                if resource._data.on_type == ResourceType.STAGE:
-                    if resource._data.in_name not in stage_future_grants:
-                        stage_future_grants[resource._data.in_name] = []
-                    stage_future_grants[resource._data.in_name].append(resource)
-            elif isinstance(resource, GrantOnAll):
-                if resource._data.on_type == ResourceType.STAGE:
-                    if resource._data.in_name not in stage_grant_on_all:
-                        stage_grant_on_all[resource._data.in_name] = []
-                    stage_grant_on_all[resource._data.in_name].append(resource)
+            # elif isinstance(resource, FutureGrant):
+            #     if resource._data.on_type == ResourceType.STAGE:
+            #         if resource._data.in_name not in stage_future_grants:
+            #             stage_future_grants[resource._data.in_name] = []
+            #         stage_future_grants[resource._data.in_name].append(resource)
+            # elif isinstance(resource, GrantOnAll):
+            #     if resource._data.on_type == ResourceType.STAGE:
+            #         if resource._data.in_name not in stage_grant_on_all:
+            #             stage_grant_on_all[resource._data.in_name] = []
+            #         stage_grant_on_all[resource._data.in_name].append(resource)
 
         def _apply_refs(stage_grants):
             for stage in stage_grants.keys():
@@ -965,8 +964,8 @@ class Blueprint:
                         w_grant.requires(r_grant)
 
         _apply_refs(stage_grants)
-        _apply_refs(stage_future_grants)
-        _apply_refs(stage_grant_on_all)
+        # _apply_refs(stage_future_grants)
+        # _apply_refs(stage_grant_on_all)
 
     def _finalize_resources(self) -> None:
         for resource in _walk(self._root):

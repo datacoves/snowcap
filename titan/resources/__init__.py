@@ -16,7 +16,7 @@ from .external_volume import ExternalVolume
 from .failover_group import FailoverGroup
 from .file_format import CSVFileFormat, JSONFileFormat, ParquetFileFormat
 from .function import JavascriptUDF, PythonUDF
-from .grant import DatabaseRoleGrant, FutureGrant, Grant, GrantOnAll, RoleGrant
+from .grant import DatabaseRoleGrant, Grant, RoleGrant
 from .hybrid_table import HybridTable
 from .iceberg_table import SnowflakeIcebergTable
 from .image_repository import ImageRepository
@@ -94,14 +94,14 @@ __all__ = [
     "ExternalStage",
     "ExternalVolume",
     "FailoverGroup",
-    "FutureGrant",
+    # "FutureGrant",
     "GCPInboundNotificationIntegration",
     "GCPOutboundNotificationIntegration",
     "GCSStorageIntegration",
     "GenericSecret",
     "GlueCatalogIntegration",
     "Grant",
-    "GrantOnAll",
+    # "GrantOnAll",
     "HybridTable",
     "ImageRepository",
     "InternalStage",

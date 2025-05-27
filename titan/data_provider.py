@@ -1254,6 +1254,11 @@ def fetch_future_grant(session: SnowflakeConnection, fqn: FQN):
 def fetch_grant(session: SnowflakeConnection, fqn: FQN):
     priv = fqn.params["priv"]
     on_type, on = fqn.params["on"].split("/", 1)
+    items_type = None
+    if "<" in on:
+        collection = parse_collection_string(on)
+        items_type = (collection["items_type"].upper(),)
+        on = collection["on"]
     on_type = on_type.upper()
 
     to_type, to = fqn.params["to"].split("/", 1)
@@ -1305,6 +1310,7 @@ def fetch_grant(session: SnowflakeConnection, fqn: FQN):
         "grant_option": data["grant_option"] == "true",
         "owner": data["granted_by"],
         "_privs": privs,
+        "items_type": items_type,
     }
 
 
@@ -2623,8 +2629,25 @@ def list_grants(session: SnowflakeConnection) -> list[FQN]:
                 FQN(
                     name=ResourceName("GRANT"),
                     params={
+                        "grant_type": "OBJECT",
                         "priv": data["privilege"],
                         "on": on,
+                        "to": to,
+                    },
+                )
+            )
+        grant_data = _show_future_grants_to_role(session, role_name)
+        for data in grant_data:
+            on_type = "database" if data["grant_on"] == "SCHEMA" else "schema"
+            collection = data["name"]
+            to = f"role/{role_name}"
+            grants.append(
+                FQN(
+                    name=ResourceName("GRANT"),
+                    params={
+                        "grant_type": "FUTURE",
+                        "priv": data["privilege"],
+                        "on": f"{on_type}/{collection}",
                         "to": to,
                     },
                 )
