@@ -929,8 +929,6 @@ class Blueprint:
 
     def _create_stage_privilege_refs(self) -> None:
         stage_grants: dict[str, list[Grant]] = {}
-        # stage_future_grants: dict[ResourceName, list[FutureGrant]] = {}
-        # stage_grant_on_all: dict[ResourceName, list[GrantOnAll]] = {}
 
         for resource in _walk(self._root):
             if isinstance(resource, Grant):
@@ -938,16 +936,6 @@ class Blueprint:
                     if resource._data.on not in stage_grants:
                         stage_grants[resource._data.on] = []
                     stage_grants[resource._data.on].append(resource)
-            # elif isinstance(resource, FutureGrant):
-            #     if resource._data.on_type == ResourceType.STAGE:
-            #         if resource._data.in_name not in stage_future_grants:
-            #             stage_future_grants[resource._data.in_name] = []
-            #         stage_future_grants[resource._data.in_name].append(resource)
-            # elif isinstance(resource, GrantOnAll):
-            #     if resource._data.on_type == ResourceType.STAGE:
-            #         if resource._data.in_name not in stage_grant_on_all:
-            #             stage_grant_on_all[resource._data.in_name] = []
-            #         stage_grant_on_all[resource._data.in_name].append(resource)
 
         def _apply_refs(stage_grants):
             for stage in stage_grants.keys():
@@ -964,8 +952,6 @@ class Blueprint:
                         w_grant.requires(r_grant)
 
         _apply_refs(stage_grants)
-        # _apply_refs(stage_future_grants)
-        # _apply_refs(stage_grant_on_all)
 
     def _finalize_resources(self) -> None:
         for resource in _walk(self._root):

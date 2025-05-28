@@ -104,24 +104,6 @@ def create_function(urn: URN, data: dict, props: Props, if_not_exists: bool = Fa
     )
 
 
-# def create_future_grant(urn: URN, data: dict, props: Props, if_not_exists: bool):
-#     on_type = data["on_type"]
-#     if "INTEGRATION" in on_type:
-#         on_type = "INTEGRATION"
-#     return tidy_sql(
-#         "GRANT",
-#         data["priv"],
-#         "ON FUTURE",
-#         pluralize(on_type).upper(),
-#         "IN",
-#         data["in_type"],
-#         data["in_name"],
-#         "TO",
-#         data["to_type"],
-#         data["to"],
-#     )
-
-
 def create_grant(urn: URN, data: dict, props: Props, if_not_exists: bool):
     on_type = data["on_type"]
     if "INTEGRATION" in str(on_type):
@@ -173,21 +155,6 @@ def create_grant(urn: URN, data: dict, props: Props, if_not_exists: bool):
         data["to"],
         "WITH GRANT OPTION" if data["grant_option"] else "",
     )
-
-
-# def create_grant_on_all(urn: URN, data: dict, props: Props, if_not_exists: bool):
-#     return tidy_sql(
-#         "GRANT",
-#         data["priv"],
-#         "ON ALL",
-#         pluralize(data["on_type"]),
-#         "IN",
-#         data["in_type"],
-#         data["in_name"],
-#         "TO",
-#         data["to_type"],
-#         data["to"],
-#     )
 
 
 def create_masking_policy(urn: URN, data: dict, props: Props, if_not_exists: bool = False) -> str:
@@ -487,21 +454,6 @@ def drop_function(urn: URN, data: dict, if_exists: bool) -> str:
     )
 
 
-# def drop_future_grant(urn: URN, data: dict, **kwargs):
-#     return tidy_sql(
-#         "REVOKE",
-#         data["priv"],
-#         "ON FUTURE",
-#         pluralize(data["on_type"]).upper(),
-#         "IN",
-#         data["in_type"],
-#         data["in_name"],
-#         "FROM",
-#         data["to"],
-#         # props.render(data), #TODO grant option
-#     )
-
-
 def drop_grant(urn: URN, data: dict, **kwargs):
     if data["priv"] == "OWNERSHIP":
         raise NotImplementedError
@@ -515,18 +467,6 @@ def drop_grant(urn: URN, data: dict, **kwargs):
         data["to"],
         # "CASCADE" if cascade else "RESTRICT",
     )
-
-
-# def drop_grant_on_all(urn: URN, data: dict, **kwargs):
-#     return tidy_sql(
-#         "REVOKE",
-#         data["priv"],
-#         "ON ALL",
-#         data["on_type"],
-#         "IN",
-#         data["in_type"],
-#         data["in_name"],
-#     )
 
 
 def drop_procedure(urn: URN, data: dict, if_exists: bool) -> str:

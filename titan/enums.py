@@ -74,10 +74,8 @@ class ResourceType(ParseableEnum):
     FAILOVER_GROUP = "FAILOVER GROUP"
     FILE_FORMAT = "FILE FORMAT"
     FUNCTION = "FUNCTION"
-    # FUTURE_GRANT = "FUTURE GRANT"
     GIT_REPOSITORY = "GIT REPOSITORY"
     GRANT = "GRANT"
-    # GRANT_ON_ALL = "GRANT ON ALL"
     HYBRID_TABLE = "HYBRID TABLE"
     ICEBERG_TABLE = "ICEBERG TABLE"
     IMAGE_REPOSITORY = "IMAGE REPOSITORY"
@@ -384,9 +382,7 @@ class BinaryFormat(ParseableEnum):
 def resource_type_is_grant(resource_type: ResourceType) -> bool:
     return resource_type in (
         ResourceType.GRANT,
-        # ResourceType.GRANT_ON_ALL,
         ResourceType.ROLE_GRANT,
-        # ResourceType.FUTURE_GRANT,
         ResourceType.DATABASE_ROLE_GRANT,
     )
 

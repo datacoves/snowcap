@@ -17,7 +17,6 @@ from .var import process_for_each, string_contains_var
 logger = logging.getLogger("titan")
 
 ALIASES = {
-    # "grants_on_all": ResourceType.GRANT_ON_ALL,
     "account_parameters": ResourceType.ACCOUNT_PARAMETER,
 }
 
