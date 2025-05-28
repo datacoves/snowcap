@@ -220,12 +220,6 @@ def _parse_priv_grant(sql: str):
             raise NotImplementedError("Multi-priv grants are not supported")
 
         on_stmt = results.pop("on_stmt").strip()
-        # if on_stmt == "ACCOUNT":
-        #     on_keyword = "on"
-        #     on_arg = on_stmt
-        # else:
-        #     on_keyword = "on_" + "_".join(on_stmt.split(" ")[:-1]).lower()
-        #     on_arg = on_stmt.split(" ")[-1]
 
         return {
             "priv": privs[0].upper(),
