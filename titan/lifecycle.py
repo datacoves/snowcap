@@ -457,16 +457,39 @@ def drop_function(urn: URN, data: dict, if_exists: bool) -> str:
 def drop_grant(urn: URN, data: dict, **kwargs):
     if data["priv"] == "OWNERSHIP":
         raise NotImplementedError
-    return tidy_sql(
-        "REVOKE",
-        data["priv"],
-        "ON",
-        data["on_type"],
-        data["on"] if data["on_type"] != "ACCOUNT" else "",
-        "FROM",
-        data["to"],
-        # "CASCADE" if cascade else "RESTRICT",
-    )
+    if data["grant_type"] == GrantType.FUTURE:
+        return tidy_sql(
+            "REVOKE",
+            data["priv"],
+            "ON FUTURE",
+            pluralize(data["items_type"]).upper(),
+            "IN",
+            data["on_type"],
+            data["on"],
+            "FROM",
+            data["to"],
+        )
+    elif data["grant_type"] == GrantType.ALL:
+        return tidy_sql(
+            "REVOKE",
+            data["priv"],
+            "ON ALL",
+            data["items_type"],
+            "IN",
+            data["on_type"],
+            data["on"],
+        )
+    else:
+        return tidy_sql(
+            "REVOKE",
+            data["priv"],
+            "ON",
+            data["on_type"],
+            data["on"] if data["on_type"] != "ACCOUNT" else "",
+            "FROM",
+            data["to"],
+            # "CASCADE" if cascade else "RESTRICT",
+        )
 
 
 def drop_procedure(urn: URN, data: dict, if_exists: bool) -> str:

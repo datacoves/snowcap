@@ -33,7 +33,7 @@ class _Grant(ResourceSpec):
     items_type: ResourceType = None
     to_type: ResourceType = None
     grant_option: bool = False
-    grant_type: GrantType = GrantType.OBJECT
+    grant_type: GrantType = field(default=GrantType.OBJECT, metadata={"fetchable": False})
     owner: Role = field(default=None, metadata={"fetchable": False})
     _privs: list[str] = field(default_factory=list, metadata={"triggers_create": True})
 
