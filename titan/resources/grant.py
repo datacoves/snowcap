@@ -102,7 +102,7 @@ class Grant(Resource):
 
         # Schema Object Privs:
         grant_on_all = Grant(
-            priv="SELECT",
+            priv=["SELECT", "INSERT"],
             on=["ALL", "TABLES", Schema(name="someschema")],
             to="somerole",
         )
@@ -125,7 +125,10 @@ class Grant(Resource):
           - priv: "USAGE"
             on_schema: somedb.someschema
             to: somedb.somedbrole
-          - priv: SELECT
+          - priv:
+              - SELECT
+              - INSERT
+              - DELETE
             on: FUTURE TABLES IN SCHEMA someschema
             to: somerole
           - priv: SELECT
@@ -141,16 +144,23 @@ class Grant(Resource):
     )
     scope = AccountScope()
     spec = _Grant
+    rest_of_privs = []
+    kwargs: dict
 
     def __init__(
         self,
-        priv: str = None,
+        priv: Any = None,
         on: Any = None,
         to: Role = None,
         grant_option: bool = False,
         owner: str = None,
         **kwargs,
     ):
+        self.kwargs = kwargs.copy()
+        self.kwargs["on"] = on
+        self.kwargs["to"] = to
+        self.kwargs["grant_option"] = grant_option
+        self.kwargs["owner"] = owner
 
         kwargs.pop("_privs", None)
         to_type = kwargs.pop("to_type", None)
@@ -158,6 +168,13 @@ class Grant(Resource):
         if all([to_type, to]):
             to_type = ResourceType(to_type)
             to = ResourcePointer(name=to, resource_type=to_type)
+
+        if isinstance(priv, list):
+            if len(priv) > 1:
+                self.rest_of_privs = priv[1:]
+                priv = priv[0]
+            else:
+                raise ValueError("You must specify at least one privilege")
 
         priv = priv.value if isinstance(priv, ParseableEnum) else priv
 
@@ -319,6 +336,13 @@ class Grant(Resource):
     @property
     def priv(self):
         return self._data.priv
+
+    def process_shortcuts(self):
+        """When grant is created using a list of privileges, we need to create multiple grants."""
+        grants = []
+        for priv in self.rest_of_privs:
+            grants.append(Grant(priv=priv, **self.kwargs))
+        return grants
 
 
 def grant_fqn(grant: _Grant):
