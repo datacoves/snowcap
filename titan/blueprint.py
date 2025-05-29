@@ -650,7 +650,7 @@ class Blueprint:
                     )
 
         if warnings:
-            logger.warning("\nActions found in plan that should be revised:")
+            logger.warning("\nActions found in plan that should be reviewed:")
             for warning in warnings:
                 logger.warning(" - " + warning)
 

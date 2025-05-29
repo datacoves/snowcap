@@ -23,7 +23,7 @@ from .client import (
     UNSUPPORTED_FEATURE,
     execute,
 )
-from .enums import AccountEdition, ResourceType, WarehouseSize
+from .enums import AccountEdition, GrantType, ResourceType, WarehouseSize
 from .identifiers import FQN, URN, parse_FQN, resource_type_for_label
 from .parse import (
     _parse_column,
@@ -159,9 +159,6 @@ def _fail_if_not_granted(result, *args):
         raise Exception(result[0]["status"], *args)
 
 
-_INDEX: dict[int, dict[tuple[str, str, str], dict[str, Any]]] = {}
-
-
 def _fetch_grant_to_role(
     session: SnowflakeConnection,
     role: ResourceName,
@@ -170,23 +167,14 @@ def _fetch_grant_to_role(
     privilege: str,
     role_type: ResourceType = ResourceType.ROLE,
 ):
-    grants = _show_grants_to_role(session, role, role_type=role_type, cacheable=True)
-    if id(grants) not in _INDEX:
-        local_index: dict[tuple[str, str, str], dict[str, Any]] = {}
-        _INDEX[id(grants)] = local_index
-        for grant in grants:
-            name = "ACCOUNT" if grant["granted_on"] == "ACCOUNT" else grant["name"]
-            index_key = (grant["granted_on"], grant["privilege"], name)
-            if index_key not in local_index:
-                local_index[index_key] = grant
-    else:
-        local_index = _INDEX[id(grants)]
-
-    needle = (granted_on, privilege, on_name)
-    if needle in local_index:
-        return local_index[needle]
-    else:
-        return None
+    grants = _show_grants_to_role(session, role, role_type=role_type, cacheable=True) + _show_future_grants_to_role(
+        session, role, cacheable=True
+    )
+    for grant in grants:
+        name = "ACCOUNT" if grant["granted_on"] == "ACCOUNT" else grant["name"]
+        if (grant["granted_on"], grant["privilege"], name) == (granted_on, privilege, on_name):
+            return grant
+    return None
 
 
 def _filter_result(result, **kwargs):
@@ -585,6 +573,8 @@ def _show_future_grants_to_role(
         cacheable=cacheable,
         empty_response_codes=[DOES_NOT_EXIST_ERR],
     )
+    for grant in grants:
+        grant["granted_on"] = "DATABASE" if len(grant["name"].split(".")) == 2 else "SCHEMA"
     return grants
 
 
@@ -1186,79 +1176,9 @@ def fetch_function(session: SnowflakeConnection, fqn: FQN):
         }
 
 
-def fetch_future_grant(session: SnowflakeConnection, fqn: FQN):
-
-    to_type, to = fqn.params["to"].split("/", 1)
-    to_type = resource_type_for_label(to_type)
-
-    try:
-        show_result = execute(session, f"SHOW FUTURE GRANTS TO {to_type} {to}", cacheable=True)
-        """
-        {
-            'created_on': datetime.datetime(2024, 2, 5, 19, 39, 50, 146000, tzinfo=<DstTzInfo 'America/Los_Angeles' PST-1 day, 16:00:00 STD>),
-            'privilege': 'USAGE',
-            'grant_on': 'SCHEMA',
-            'name': 'STATIC_DATABASE.<SCHEMA>',
-            'grant_to': 'ROLE',
-            'grantee_name': 'THATROLE',
-            'grant_option': 'false'
-        }
-        """
-
-    except ProgrammingError as err:
-        if err.errno == DOES_NOT_EXIST_ERR:
-            return None
-        raise
-
-    _, collection_str = fqn.params["on"].split("/")
-    collection = parse_collection_string(collection_str)
-
-    # If the resource we want to grant on isn't fully qualified in the FQN for the future grant, this filter step will fail.
-    # For example:
-    # fetch_future_grant(...,
-    #   FQN(name=FUTURE_GRANT_ROLE_CBDBE971?priv=SELECT&on=schema/PUBLIC.<TABLE>)
-    # )
-    # name = "PUBLIC.<TABLE>"
-    #
-    # Whereas in SHOW FUTURE GRANTS
-    # - name: 'TEST_DB_RUN_CBDBE971.PUBLIC.<TABLE>'
-
-    # 'STATIC_DATABASE.<TABLE>'
-
-    grants = _filter_result(
-        show_result,
-        privilege=fqn.params["priv"],
-        name=collection_str,
-        grant_to=str(to_type),
-        grantee_name=to,
-    )
-
-    if len(grants) == 0:
-        return None
-    elif len(grants) > 1:
-        raise Exception(f"Found multiple future grants matching {fqn}")
-
-    data = grants[0]
-
-    return {
-        "priv": data["privilege"],
-        "on_type": str(resource_type_for_label(data["grant_on"])),
-        "in_type": collection["in_type"].upper(),
-        "in_name": collection["in_name"],
-        "to": to,
-        "to_type": resource_type_for_label(data["grant_to"]),
-        "grant_option": data["grant_option"] == "true",
-    }
-
-
 def fetch_grant(session: SnowflakeConnection, fqn: FQN):
     priv = fqn.params["priv"]
     on_type, on = fqn.params["on"].split("/", 1)
-    items_type = None
-    if "<" in on:
-        collection = parse_collection_string(on)
-        items_type = (collection["items_type"].upper(),)
-        on = collection["on"]
     on_type = on_type.upper()
 
     to_type, to = fqn.params["to"].split("/", 1)
@@ -1301,16 +1221,29 @@ def fetch_grant(session: SnowflakeConnection, fqn: FQN):
     #     # handled in the future.
     #     raise Exception(f"Found multiple grants matching {fqn}")
 
+    items_type = None
+    if fqn.params["grant_type"] == GrantType.FUTURE:
+        collection = parse_collection_string(on)
+        items_type = collection["items_type"].upper()
+        on_type = collection["on_type"]
+        on = collection["on"]
+        to_type = resource_type_for_label(data["grant_to"])
+        owner = ""
+    else:
+        to_type = resource_type_for_label(data["granted_to"])
+        owner = data["granted_by"]
+
     return {
         "priv": priv,
-        "on": "ACCOUNT" if on_type == "ACCOUNT" else data["name"],
-        "on_type": data["granted_on"].replace("_", " "),
+        "on": "ACCOUNT" if on_type == "ACCOUNT" else on,
+        "on_type": on_type,
         "to": to,
-        "to_type": resource_type_for_label(data["granted_to"]),
+        "to_type": to_type,
         "grant_option": data["grant_option"] == "true",
-        "owner": data["granted_by"],
+        "owner": owner,
         "_privs": privs,
         "items_type": items_type,
+        "grant_type": fqn.params["grant_type"],
     }
 
 
@@ -2562,31 +2495,6 @@ def list_external_volumes(session: SnowflakeConnection) -> list[FQN]:
     return list_account_scoped_resource(session, "EXTERNAL VOLUMES")
 
 
-def list_future_grants(session: SnowflakeConnection) -> list[FQN]:
-    roles = execute(session, "SHOW ROLES")
-    grants = []
-    for role in roles:
-        role_name = resource_name_from_snowflake_metadata(role["name"])
-        if role_name in SYSTEM_ROLES:
-            continue
-        grant_data = _show_future_grants_to_role(session, role_name)
-        for data in grant_data:
-            in_type = "database" if data["grant_on"] == "SCHEMA" else "schema"
-            collection = data["name"]
-            to = f"role/{role_name}"
-            grants.append(
-                FQN(
-                    name=ResourceName("FUTURE_GRANT"),
-                    params={
-                        "priv": data["privilege"],
-                        "on": f"{in_type}/{collection}",
-                        "to": to,
-                    },
-                )
-            )
-    return grants
-
-
 def list_functions(session: SnowflakeConnection) -> list[FQN]:
     show_result = execute(session, "SHOW USER FUNCTIONS IN ACCOUNT")
     functions = []
@@ -2638,7 +2546,7 @@ def list_grants(session: SnowflakeConnection) -> list[FQN]:
             )
         grant_data = _show_future_grants_to_role(session, role_name)
         for data in grant_data:
-            on_type = "database" if data["grant_on"] == "SCHEMA" else "schema"
+            on_type = data["granted_on"].lower()
             collection = data["name"]
             to = f"role/{role_name}"
             grants.append(
