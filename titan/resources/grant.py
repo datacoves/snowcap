@@ -145,6 +145,7 @@ class Grant(Resource):
     scope = AccountScope()
     spec = _Grant
     rest_of_privs = []
+    rest_of_ons = []
     kwargs: dict
 
     def __init__(
@@ -157,6 +158,7 @@ class Grant(Resource):
         **kwargs,
     ):
         self.kwargs = kwargs.copy()
+        self.kwargs["priv"] = priv
         self.kwargs["on"] = on
         self.kwargs["to"] = to
         self.kwargs["grant_option"] = grant_option
@@ -169,12 +171,26 @@ class Grant(Resource):
             to_type = ResourceType(to_type)
             to = ResourcePointer(name=to, resource_type=to_type)
 
+        # Process priv and on shortcuts
         if isinstance(priv, list):
-            if len(priv) > 1:
+            if len(priv) > 0:
                 self.rest_of_privs = priv[1:]
                 priv = priv[0]
             else:
                 raise ValueError("You must specify at least one privilege")
+        if isinstance(on, list):
+            has_many_ons = True
+            for item in on:
+                if isinstance(item, str):
+                    if item.upper().find(GrantType.FUTURE) == -1 and item.upper().find(GrantType.ALL) == -1:
+                        has_many_ons = False
+                        break
+                elif isinstance(item, list):
+                    if item[0].upper() not in (GrantType.FUTURE, GrantType.ALL):
+                        raise ValueError("You must specify a valid Grant Type when specifying a list of grants")
+            if has_many_ons:
+                self.rest_of_ons = on[1:]
+                on = on[0]
 
         priv = priv.value if isinstance(priv, ParseableEnum) else priv
 
@@ -253,7 +269,7 @@ class Grant(Resource):
                     else:
                         if len(on_items) > 4:
                             raise ValueError(
-                                "You must specify only four paramters: [grant_type, items_type, object_type, object]"
+                                "You must specify only four parameters: [grant_type, items_type, object_type, object]"
                             )
                         items_type = resource_type_for_label(singularize(" ".join(on_items[1:-2])))
                         on_type = ResourceType(on_items[2])
@@ -338,10 +354,14 @@ class Grant(Resource):
         return self._data.priv
 
     def process_shortcuts(self):
-        """When grant is created using a list of privileges, we need to create multiple grants."""
+        """When grant is created using a list of privileges or `on`s we need to create multiple grants."""
         grants = []
         for priv in self.rest_of_privs:
-            grants.append(Grant(priv=priv, **self.kwargs))
+            for on in self.rest_of_ons:
+                grants.append(Grant(**(self.kwargs | {"priv": priv, "on": on})))
+            grants.append(Grant(**(self.kwargs | {"priv": priv})))
+        for on in self.rest_of_ons:
+            grants.append(Grant(**(self.kwargs | {"on": on})))
         return grants
 
 

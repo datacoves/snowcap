@@ -163,6 +163,14 @@ def _resources_for_config(config: dict, vars: dict):
                         for key, value in resource_data.items():
                             if isinstance(value, str) and string_contains_var(value):
                                 resource_instance[key] = process_for_each(value, each_value)
+                            elif isinstance(value, list):
+                                new_value = []
+                                for v in value:
+                                    if isinstance(v, str) and string_contains_var(v):
+                                        new_value.append(process_for_each(v, each_value))
+                                    else:
+                                        new_value.append(v)
+                                resource_instance[key] = new_value
 
                         resource = resource_cls(**resource_instance)
                         resources.append(resource)
