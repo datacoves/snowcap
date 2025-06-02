@@ -112,7 +112,9 @@ grants:
   - priv:
       - SELECT
       - INSERT
-    on: future tables in schema someschema
+    on:
+      - future tables in schema someschema
+      - future views in schema someschema
     to: somerole
 ```
 
@@ -123,7 +125,9 @@ grants:
   - priv:
       - SELECT
       - INSERT
-    on: all tables in schema someschema
+    on:
+      - all tables in schema someschema
+      - all views in schema someschema
     to: somerole
 ```
 
@@ -140,6 +144,9 @@ grants:
     - **container object type**: `"Database"` or `"Schema"`
     - **container object name**: The name of the database or schema
   - The list items can be joined using whitespace and provided as a single string (e.g., `"future tables in schema someschema"`).
+  - Also, multiple grants can be specified at once using a list of strings e.g.:
+    - `"future tables in schema someschema"`
+    - `"all views in schema someschema"`
 
 - **`to`** (`string` or [Role](role.md), required):  
   The role to which the privileges are granted.
