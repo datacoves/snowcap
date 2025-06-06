@@ -162,7 +162,10 @@ def _resources_for_config(config: dict, vars: dict):
                     for each_value in for_each_input:
                         for key, value in resource_data.items():
                             if isinstance(value, str) and string_contains_var(value):
+                                key_type = getattr(resource_cls.spec, key, None)
                                 resource_instance[key] = process_for_each(value, each_value)
+                                if key_type and type(key_type) is int:
+                                    resource_instance[key] = int(resource_instance[key])
                             elif isinstance(value, list):
                                 new_value = []
                                 for v in value:
