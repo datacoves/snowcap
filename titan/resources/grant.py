@@ -212,6 +212,7 @@ class Grant(Resource):
         grant_type = GrantType.OBJECT
         granted_in_ref = None
         items_type = None
+
         if on_kwargs:
             for keyword, arg in on_kwargs.items():
                 if on is not None:
@@ -243,17 +244,17 @@ class Grant(Resource):
             elif (
                 isinstance(on, list)
                 or isinstance(on, str)
-                and (" IN " in on.upper() or "DATABASE " in on.upper() or "SCHEMA " in on.upper())
+                and (" IN " in on.upper() or any([e.value + " " in on.upper() for e in ResourceType]))
             ):
                 on_items = (
                     on if isinstance(on, list) else list(filter(lambda x: x and x != "IN", on.upper().split(" ")))
                 )
                 if len(on_items) < 2:
                     raise ValueError("You must specify at least three parameters: [grant_type, items_type, object]")
-                elif on_items[0] in ["DATABASE", "SCHEMA"]:
+                elif on_items[0].upper() in [e.value for e in ResourceType]:
                     on_type = resource_type_for_label(on_items[0])
                     on = on_items[1]
-                elif on_items[0] in [GrantType.FUTURE, GrantType.ALL]:
+                elif on_items[0].upper() in [GrantType.FUTURE, GrantType.ALL]:
                     grant_type = on_items[0]
                     in_object = on_items[-1]
 
