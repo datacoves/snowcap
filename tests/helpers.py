@@ -4,7 +4,12 @@ import os
 import re
 
 from titan import data_provider
-from titan.blueprint import CreateResource, UpdateResource, DropResource, TransferOwnership
+from titan.blueprint import (
+    CreateResource,
+    DropResource,
+    TransferOwnership,
+    UpdateResource,
+)
 from titan.client import reset_cache
 from titan.parse import _split_statements
 from titan.resource_name import ResourceName
@@ -51,7 +56,7 @@ def _get_resource_cls(resource_name):
     for resource_cls in Resource.__subclasses__():
         if resource_cls.__name__.lower() == resource_name:
             return resource_cls
-    raise ValueError(f"Resource class {resource_name} not found")
+    raise ValueError(f"Resource class `{resource_name}` not found")
 
 
 def camelcase_to_snakecase(name: str) -> str:
@@ -65,11 +70,11 @@ def get_json_fixture(resource_name):
     with open(os.path.join(FIXTURES_DIR, "json", f"{resource_name}.json"), "r") as file:
         content = file.read()
         if not content:
-            raise ValueError(f"Empty JSON fixture for {resource_name}")
+            raise ValueError(f"Empty JSON fixture for `{resource_name}`")
         try:
             return json.loads(content)
         except Exception as err:
-            raise ValueError(f"Failed to decode JSON for {resource_name}: {err}")
+            raise ValueError(f"Failed to decode JSON for `{resource_name}`: {err}")
 
 
 def get_json_fixtures():

@@ -92,7 +92,7 @@ def _resources_from_role_grants_config(role_grants_config: list) -> list:
                     )
                 )
     if len(resources) == 0:
-        raise ValueError(f"No role grants found in config: {role_grants_config}")
+        raise ValueError(f"No role grants found in config: `{role_grants_config}`")
     return resources
 
 
@@ -154,10 +154,10 @@ def _resources_for_config(config: dict, vars: dict):
                     if isinstance(for_each, str) and for_each.startswith("var."):
                         var_name = for_each.split(".")[1]
                         if var_name not in vars:
-                            raise ValueError(f"Var {var_name} not found")
+                            raise ValueError(f"Var `{var_name}` not found in for_each")
                         for_each_input = vars[var_name]
                     else:
-                        raise ValueError(f"for_each must be a var reference. Got: {for_each}")
+                        raise ValueError(f"for_each must be a var reference. Got: `{for_each}`")
 
                     for each_value in for_each_input:
                         for key, value in resource_data.items():
@@ -267,7 +267,7 @@ def collect_blueprint_config(yaml_config: dict, cli_config: Optional[dict[str, A
     blueprint_args["resources"] = resources
 
     if yaml_config_:
-        raise ValueError(f"Unknown keys in config: {yaml_config_.keys()}")
+        raise ValueError(f"Unknown keys in config: `{yaml_config_.keys()}`")
 
     return BlueprintConfig(**blueprint_args)
 
@@ -300,7 +300,7 @@ def read_config(config_path) -> dict:
         try:
             config = yaml.safe_load(f)
         except yaml.YAMLError as e:
-            raise ValueError(f"Error parsing YAML file: {config_path}") from e
+            raise ValueError(f"Error parsing YAML file: `{config_path}`") from e
     return config
 
 

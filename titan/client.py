@@ -1,13 +1,11 @@
 import logging
 import os
 import time
-
 from typing import Optional, Union
 
 import snowflake.connector
-
-from snowflake.connector.cursor import SnowflakeCursor
 from snowflake.connector.connection import SnowflakeConnection
+from snowflake.connector.cursor import SnowflakeCursor
 from snowflake.connector.errors import ProgrammingError
 
 logger = logging.getLogger("titan")
@@ -95,4 +93,4 @@ def execute(
                 _EXECUTION_CACHE[session.role][sql_text] = []
             return []
         logger.error(f"{session_header}    \033[31m(err {err.errno}, {time.time() - start:.2f}s)\033[0m")
-        raise ProgrammingError(f"failed to execute sql, [{sql_text}]", errno=err.errno) from err
+        raise ProgrammingError(f"{err} on {sql_text}", errno=err.errno) from err

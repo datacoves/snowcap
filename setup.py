@@ -33,7 +33,7 @@ setup(
         "Topic :: Database",
     ],
     install_requires=[
-        "click==8.1.7",
+        "rich-click==1.8.9",
         "inflection==0.5.1",
         "pyparsing==3.0.9",
         "pyyaml",
