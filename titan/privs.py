@@ -489,7 +489,7 @@ GLOBAL_PRIV_DEFAULT_OWNERS = {
     AccountPriv.CREATE_COMPUTE_POOL: "SYSADMIN",
     AccountPriv.CREATE_CREDENTIAL: "ACCOUNTADMIN",
     AccountPriv.CREATE_DATA_EXCHANGE_LISTING: "ACCOUNTADMIN",
-    AccountPriv.CREATE_DATABASE: "SYSADMIN",
+    AccountPriv.CREATE_DATABASE: "ACCOUNTADMIN",
     AccountPriv.CREATE_EXTERNAL_VOLUME: "ACCOUNTADMIN",
     AccountPriv.CREATE_FAILOVER_GROUP: "ACCOUNTADMIN",
     AccountPriv.CREATE_INTEGRATION: "ACCOUNTADMIN",
@@ -546,5 +546,4 @@ def system_role_for_priv(priv: str):
         account_priv = AccountPriv(priv)
     except ValueError:
         return None
-    return GLOBAL_PRIV_DEFAULT_OWNERS.get(account_priv)
     return GLOBAL_PRIV_DEFAULT_OWNERS.get(account_priv)
