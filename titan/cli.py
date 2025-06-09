@@ -1,7 +1,7 @@
 import json
 from typing import Any
 
-import click
+import rich_click as click
 import yaml
 
 from titan.blueprint import dump_plan
@@ -20,6 +20,8 @@ from titan.operations.blueprint import (
 )
 from titan.operations.connector import connect, get_env_vars
 from titan.operations.export import export_resources
+
+click.rich_click.ERRORS_SUGGESTION = "Try using the '--debug' flag for more information.\n"
 
 
 class RunModeParamType(click.ParamType):
@@ -134,6 +136,15 @@ def schema_option():
     )
 
 
+def debug_option():
+    return click.option(
+        "--debug",
+        is_flag=True,
+        default=False,
+        help="Enable debug mode, which will print additional information to the console",
+    )
+
+
 @titan_cli.command("plan", no_args_is_help=True)
 @config_path_option()
 @click.option("--json", "json_output", is_flag=True, help="Output plan in machine-readable JSON format")
@@ -144,7 +155,8 @@ def schema_option():
 @scope_option()
 @database_option()
 @schema_option()
-def plan(config_path, json_output, output_file, vars: dict, allowlist, run_mode, scope, database, schema):
+@debug_option()
+def plan(config_path, json_output, output_file, vars: dict, allowlist, run_mode, scope, database, schema, debug):
     """Compare a resource config to the current state of Snowflake"""
 
     if not config_path:
@@ -173,17 +185,23 @@ def plan(config_path, json_output, output_file, vars: dict, allowlist, run_mode,
     if env_vars:
         cli_config["vars"] = merge_vars(cli_config.get("vars", {}), env_vars)
 
-    plan_obj = blueprint_plan(yaml_config, cli_config)
-    if output_file:
-        with open(output_file, "w") as f:
-            f.write(dump_plan(plan_obj, format="json"))
-    else:
-        output = None
-        if json_output:
-            output = dump_plan(plan_obj, format="json")
+    try:
+        plan_obj = blueprint_plan(yaml_config, cli_config)
+        if output_file:
+            with open(output_file, "w") as f:
+                f.write(dump_plan(plan_obj, format="json"))
         else:
-            output = dump_plan(plan_obj, format="text")
-        print(output)
+            output = None
+            if json_output:
+                output = dump_plan(plan_obj, format="json")
+            else:
+                output = dump_plan(plan_obj, format="text")
+            print(output)
+    except Exception as e:
+        if debug:
+            raise e
+        else:
+            raise click.UsageError(str(e))
 
 
 @titan_cli.command("apply", no_args_is_help=True)
@@ -196,7 +214,8 @@ def plan(config_path, json_output, output_file, vars: dict, allowlist, run_mode,
 @database_option()
 @schema_option()
 @click.option("--dry-run", is_flag=True, help="When dry run is true, Titan will not make any changes to Snowflake")
-def apply(config_path, plan_file, vars, allowlist, run_mode, scope, database, schema, dry_run):
+@debug_option()
+def apply(config_path, plan_file, vars, allowlist, run_mode, scope, database, schema, dry_run, debug):
     """Apply a resource config to a Snowflake account"""
 
     if config_path and plan_file:
@@ -220,21 +239,27 @@ def apply(config_path, plan_file, vars, allowlist, run_mode, scope, database, sc
     if schema:
         cli_config["schema"] = schema
 
-    env_vars = collect_vars_from_environment()
-    if env_vars:
-        cli_config["vars"] = merge_vars(cli_config.get("vars", {}), env_vars)
+    try:
+        env_vars = collect_vars_from_environment()
+        if env_vars:
+            cli_config["vars"] = merge_vars(cli_config.get("vars", {}), env_vars)
 
-    if config_path:
-        yaml_config: dict[str, Any] = {}
-        configs = collect_configs_from_path(config_path)
-        for config in configs:
-            yaml_config = merge_configs(yaml_config, config[1])
-        blueprint_apply(yaml_config, cli_config)
-    elif plan_file:
-        plan_obj = load_plan(plan_file)
-        blueprint_apply_plan(plan_obj, cli_config)
-    else:
-        raise Exception("No config or plan file specified")
+        if config_path:
+            yaml_config: dict[str, Any] = {}
+            configs = collect_configs_from_path(config_path)
+            for config in configs:
+                yaml_config = merge_configs(yaml_config, config[1])
+            blueprint_apply(yaml_config, cli_config)
+        elif plan_file:
+            plan_obj = load_plan(plan_file)
+            blueprint_apply_plan(plan_obj, cli_config)
+        else:
+            raise click.UsageError("No config or plan file specified")
+    except Exception as e:
+        if debug:
+            raise e
+        else:
+            raise click.UsageError(str(e))
 
 
 @titan_cli.command("export", context_settings={"show_default": True}, no_args_is_help=True)
@@ -297,7 +322,7 @@ def export(resources, export_all, exclude_resources, out, format):
     elif format == "yml":
         output = yaml.dump(resource_config, sort_keys=False)
     else:
-        raise ValueError(f"Unsupported format: {format}")
+        raise ValueError(f"Unsupported format: `{format}`")
 
     if out:
         with open(out, "w") as f:
