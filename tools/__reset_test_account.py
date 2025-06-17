@@ -54,10 +54,7 @@ def configure_test_account(conn, cloud: str):
 
 
 def configure_aws_heavy(conn):
-    bp = Blueprint(
-        name="reset-test-account",
-        run_mode="CREATE-OR-UPDATE",
-    )
+    bp = Blueprint(name="reset-test-account")
 
     roles = [res.Role(name=f"ROLE_{i}") for i in range(50)]
     databases = []
@@ -93,10 +90,7 @@ def configure_aws_heavy(conn):
     print("Staged resources:", staged_count)
     bp.apply(conn, plan)
 
-    bp = Blueprint(
-        name="reset-test-account",
-        run_mode="CREATE-OR-UPDATE",
-    )
+    bp = Blueprint(name="reset-test-account")
     for database in databases:
         for role in roles:
             bp.add(res.Grant(priv="USAGE", to=role.name, on_database=database.name))

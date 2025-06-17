@@ -7,8 +7,13 @@ import snowflake.connector
 from titan.blueprint import Blueprint, print_plan
 from titan.blueprint_config import print_blueprint_config
 from titan.data_provider import fetch_session
-from titan.enums import AccountEdition, AccountCloud, ResourceType
-from titan.gitops import collect_blueprint_config, collect_vars_from_environment, merge_configs, read_config
+from titan.enums import AccountCloud, AccountEdition, ResourceType
+from titan.gitops import (
+    collect_blueprint_config,
+    collect_vars_from_environment,
+    merge_configs,
+    read_config,
+)
 
 SCRIPT_DIR = pathlib.Path(__file__).parent.resolve()
 
@@ -72,9 +77,9 @@ def teardown_test_account():
     blueprint_config = collect_blueprint_config(config, {"vars": titan_vars})
     # will break when BlueprintConfig is frozen
     blueprint_config.resources = []
-    blueprint_config.allowlist = [
+    blueprint_config.sync_resources = [
         item
-        for item in blueprint_config.allowlist
+        for item in blueprint_config.sync_resources
         if item not in [ResourceType.USER, ResourceType.ROLE_GRANT, ResourceType.WAREHOUSE]
     ]
     print_blueprint_config(blueprint_config)
@@ -103,6 +108,11 @@ def teardown():
 @main.command("teardown-and-reset")
 def teardown_and_reset():
     teardown_test_account()
+    reset_test_account()
+
+
+if __name__ == "__main__":
+    main()
     reset_test_account()
 
 

@@ -8,7 +8,7 @@ from pathspec import PathSpec
 from pathspec.patterns.gitwildmatch import GitWildMatchPattern
 
 from .blueprint_config import BlueprintConfig, set_vars_defaults
-from .enums import BlueprintScope, ResourceType, RunMode
+from .enums import BlueprintScope, ResourceType
 from .identifiers import resource_label_for_type, resource_type_for_label
 from .resources import Database, DatabaseRoleGrant, Resource, RoleGrant, Schema, User
 from .resources.resource import ResourcePointer
@@ -216,22 +216,21 @@ def collect_blueprint_config(yaml_config: dict, cli_config: Optional[dict[str, A
     cli_config_ = cli_config.copy() if cli_config else {}
     blueprint_args: dict[str, Any] = {}
 
-    for key in ["allowlist", "dry_run", "name", "run_mode"]:
+    for key in ["sync_resources", "dry_run", "name"]:
         if key in yaml_config_ and key in cli_config_:
             raise ValueError(f"Cannot specify `{key}` in both yaml config and cli")
 
-    allowlist = yaml_config_.pop("allowlist", None) or cli_config_.pop("allowlist", None)
+    sync_resources = yaml_config_.pop("sync_resources", None) or cli_config_.pop("sync_resources", None)
     database = yaml_config_.pop("database", None) or cli_config_.pop("database", None)
     dry_run = yaml_config_.pop("dry_run", None) or cli_config_.pop("dry_run", None)
     name = yaml_config_.pop("name", None) or cli_config_.pop("name", None)
-    run_mode = yaml_config_.pop("run_mode", None) or cli_config_.pop("run_mode", None)
     scope = yaml_config_.pop("scope", None) or cli_config_.pop("scope", None)
     schema = yaml_config_.pop("schema", None) or cli_config_.pop("schema", None)
     input_vars = cli_config_.pop("vars", {}) or {}
     vars_spec = yaml_config_.pop("vars", [])
 
-    if allowlist:
-        blueprint_args["allowlist"] = [ResourceType(resource_type) for resource_type in allowlist]
+    if sync_resources:
+        blueprint_args["sync_resources"] = [ResourceType(resource_type) for resource_type in sync_resources]
 
     if database:
         blueprint_args["database"] = database
@@ -241,9 +240,6 @@ def collect_blueprint_config(yaml_config: dict, cli_config: Optional[dict[str, A
 
     if name:
         blueprint_args["name"] = name
-
-    if run_mode:
-        blueprint_args["run_mode"] = RunMode(run_mode)
 
     if scope:
         blueprint_args["scope"] = BlueprintScope(scope)

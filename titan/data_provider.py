@@ -161,14 +161,17 @@ def _fail_if_not_granted(result, *args):
 
 def _fetch_grant_to_role(
     session: SnowflakeConnection,
+    grant_type: GrantType,
     role: ResourceName,
     granted_on: str,
     on_name: str,
     privilege: str,
     role_type: ResourceType = ResourceType.ROLE,
 ):
-    grants = _show_grants_to_role(session, role, role_type=role_type, cacheable=True) + _show_future_grants_to_role(
-        session, role, cacheable=True
+    grants = (
+        _show_future_grants_to_role(session, role, cacheable=True)
+        if grant_type == GrantType.FUTURE
+        else _show_grants_to_role(session, role, role_type=role_type, cacheable=True)
     )
     for grant in grants:
         name = "ACCOUNT" if grant["granted_on"] == "ACCOUNT" else grant["name"]
@@ -1205,6 +1208,7 @@ def fetch_grant(session: SnowflakeConnection, fqn: FQN):
     else:
         data = _fetch_grant_to_role(
             session,
+            grant_type=fqn.params["grant_type"],
             role=to,
             granted_on=on_type,
             on_name=on,
@@ -1461,7 +1465,7 @@ def fetch_packages_policy(session: SnowflakeConnection, fqn: FQN):
     return {
         "name": _quote_snowflake_identifier(data["name"]),
         "language": properties["language"],
-        "allowlist": _parse_packages(properties["allowlist"]),
+        "sync_resources": _parse_packages(properties["sync_resources"]),
         "blocklist": _parse_packages(properties["blocklist"]),
         "additional_creation_blocklist": _parse_packages(properties["additional_creation_blocklist"]),
         "comment": data["comment"] or None,
