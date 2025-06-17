@@ -33,6 +33,7 @@ from .data_provider import SessionContext
 from .enums import (
     AccountEdition,
     BlueprintScope,
+    GrantType,
     ResourceType,
     RunMode,
     resource_type_is_grant,
@@ -635,19 +636,33 @@ class Blueprint:
     def _warning_for_nonconforming_plan(self, session_ctx: SessionContext, plan: Plan):
         warnings = []
 
+        grant_to_system = False
+        role_grant_to_system = False
+        grant_on_all = False
         for change in plan:
             # System role exceptions
             if isinstance(change, CreateResource) and change.resource_cls.resource_type == ResourceType.GRANT:
                 if change.after["to"] in SYSTEM_ROLES:
-                    warnings.append(
-                        f"Resource {change.urn} refers to a system role, grant will be always recreated since role is not managed by Titan"
-                    )
+                    grant_to_system = True
+                if change.after["grant_type"] == GrantType.ALL.value:
+                    grant_on_all = True
 
             if isinstance(change, CreateResource) and change.resource_cls.resource_type == ResourceType.ROLE_GRANT:
                 if change.after["role"] in SYSTEM_ROLES:
-                    warnings.append(
-                        f"Resource {change.urn} refers to a system role, role grant will be always recreated since role is not managed by Titan"
-                    )
+                    role_grant_to_system = True
+
+        if grant_to_system:
+            warnings.append(
+                f"Grants to system role found. They will be always recreated since system roles are not managed by Titan"
+            )
+        if role_grant_to_system:
+            warnings.append(
+                f"Role grants to system role found. They will be always recreated since system roles are not managed by Titan"
+            )
+        if grant_on_all:
+            warnings.append(
+                f"Grants of type ALL found. They will be always recreated since Titan does not compare the affected objects."
+            )
 
         if warnings:
             logger.warning("\nActions found in plan that should be reviewed:")
@@ -1388,9 +1403,31 @@ def diff(remote_state: State, manifest: Manifest) -> list:
     state_urns = set(remote_state.keys())
     manifest_urns = set(manifest.urns)
 
+    grant_on_all_resources = [
+        r
+        for r in manifest.resources
+        if not isinstance(r, ResourcePointer)
+        and r.resource_cls == Grant
+        and r.data["grant_type"] == GrantType.ALL.value
+    ]
+
     # Resources in remote state but not in the manifest should be removed
     for urn in state_urns - manifest_urns:
-        changes.append(DropResource(urn, remote_state[urn]))
+        remote_res = remote_state[urn]
+        # If there are ALL grants and the current resource is included we should not drop it
+        if grant_on_all_resources and remote_res.get("grant_type") == GrantType.OBJECT.value:
+            matching_grants = [
+                r
+                for r in grant_on_all_resources
+                if r.data["priv"] == remote_res["priv"]
+                and r.data["to"] == remote_res["to"]
+                and r.data["items_type"] == remote_res["on_type"]
+                and r.data["on"] == ".".join(remote_res["on"].split(".")[:-1])
+            ]
+            if matching_grants:
+                continue
+        else:
+            changes.append(DropResource(urn, remote_state[urn]))
 
     # Resources in the manifest but not in remote state should be added
     for urn in manifest_urns - state_urns:
