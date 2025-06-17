@@ -35,7 +35,6 @@ from .enums import (
     BlueprintScope,
     GrantType,
     ResourceType,
-    RunMode,
     resource_type_is_grant,
 )
 from .exceptions import (
@@ -554,9 +553,8 @@ class Blueprint:
         self,
         name: Optional[str] = None,
         resources: Optional[list[Resource]] = None,
-        run_mode: RunMode = RunMode.CREATE_OR_UPDATE,
         dry_run: bool = False,
-        allowlist: Optional[list] = None,
+        sync_resources: Optional[list[ResourceType]] = None,
         vars: Optional[dict] = None,
         vars_spec: Optional[list[dict]] = None,
         scope: Optional[str] = None,
@@ -567,9 +565,8 @@ class Blueprint:
         self._config = BlueprintConfig(
             name=name,
             resources=resources,
-            run_mode=RunMode(run_mode) if run_mode else RunMode.CREATE_OR_UPDATE,
             dry_run=dry_run,
-            allowlist=[ResourceType(item) for item in allowlist] if allowlist else None,
+            sync_resources=[ResourceType(item) for item in sync_resources] if sync_resources else None,
             vars=vars or {},
             vars_spec=vars_spec or [],
             scope=BlueprintScope(scope) if scope else None,
@@ -597,22 +594,11 @@ class Blueprint:
         exceptions = []
 
         for change in plan:
-            # Run Mode exceptions
-            if self._config.run_mode == RunMode.CREATE_OR_UPDATE:
-                if isinstance(change, DropResource):
-                    exceptions.append(
-                        f"Create-or-update mode does not allow resources to be removed (ref: {change.urn})"
-                    )
             if isinstance(change, UpdateResource):
                 if "name" in change.delta:
-                    exceptions.append(f"Create-or-update mode does not allow renaming resources (ref: {change.urn})")
+                    exceptions.append(f"Renaming resources is not allowed (ref: {change.urn})")
                 if change.resource_cls.resource_type == ResourceType.GRANT:
                     exceptions.append(f"Grants cannot be updated (ref: {change.urn})")
-
-            # Valid Resource Types exceptions
-            if self._config.allowlist:
-                if change.urn.resource_type not in self._config.allowlist:
-                    exceptions.append(f"Resource type {change.urn.resource_type} not allowed in blueprint")
 
             # Edition exceptions
             if session_ctx["account_edition"] == AccountEdition.STANDARD:
@@ -677,25 +663,21 @@ class Blueprint:
 
         data_provider.use_secondary_roles(session, all=True)
 
-        urns = manifest.urns
-        if self._config.run_mode == RunMode.SYNC:
-            if not self._config.allowlist:
-                raise RuntimeError("Sync mode requires an allowlist")
-            urns = [URN.from_resource(account_locator=manifest._account_locator, resource=self._root)]
-            for resource_type in self._config.allowlist:
-                for fqn in data_provider.list_resource(session, resource_label_for_type(resource_type)):
-                    if self._config.scope == BlueprintScope.DATABASE and fqn.database != self._config.database:
-                        continue
-                    if self._config.scope == BlueprintScope.SCHEMA and fqn.schema != self._config.schema:
-                        continue
+        urns = [item for item in manifest.urns if item.resource_type not in self._config.sync_resources]
+        for resource_type in self._config.sync_resources:
+            for fqn in data_provider.list_resource(session, resource_label_for_type(resource_type)):
+                if self._config.scope == BlueprintScope.DATABASE and fqn.database != self._config.database:
+                    continue
+                if self._config.scope == BlueprintScope.SCHEMA and fqn.schema != self._config.schema:
+                    continue
 
-                    urns.append(
-                        URN(
-                            resource_type=resource_type,
-                            fqn=fqn,
-                            account_locator=session_ctx["account_locator"],
-                        )
+                urns.append(
+                    URN(
+                        resource_type=resource_type,
+                        fqn=fqn,
+                        account_locator=session_ctx["account_locator"],
                     )
+                )
 
         with ThreadPoolExecutor(max_workers=self._config.threads) as executor:
             future_to_urn = {executor.submit(data_provider.fetch_resource, session, urn): urn for urn in urns}
@@ -704,7 +686,7 @@ class Blueprint:
                 try:
                     data = future.result()
                     if data:
-                        if self._config.run_mode == RunMode.SYNC:
+                        if urn.resource_type in self._config.sync_resources:
                             resource_cls = Resource.resolve_resource_cls(urn.resource_type, data)
                         else:
                             item = manifest[urn]
@@ -715,27 +697,27 @@ class Blueprint:
                             )
                         state[urn] = resource_cls.spec(**data).to_dict(session_ctx["account_edition"])
                     else:
-                        if self._config.run_mode == RunMode.SYNC:
+                        if urn.resource_type in self._config.sync_resources:
                             raise MissingResourceException(f"Resource {urn} not found")
                 except Exception as e:
                     logger.error(f"Failed to fetch resource {urn}: {e}")
                     raise  # Stop processing if any fetch fails
 
-        if self._config.run_mode != RunMode.SYNC:
-            for parent, reference in manifest.refs:
-                if reference in manifest or reference in state:
-                    continue
-                is_public_schema = (
-                    reference.resource_type == ResourceType.SCHEMA and reference.fqn.name == ResourceName("PUBLIC")
-                )
-                try:
-                    data = data_provider.fetch_resource(session, reference)
-                    if data is None and not is_public_schema:
-                        raise MissingResourceException(f"Resource {reference} required by {parent} not found")
-                except Exception as e:
-                    if not is_public_schema:
-                        logger.error(f"Error fetching reference {reference}: {e}")
-                        raise
+        # Check for references that are not in the state
+        for parent, reference in manifest.refs:
+            if reference in manifest or reference in state:
+                continue
+            is_public_schema = reference.resource_type == ResourceType.SCHEMA and reference.fqn.name == ResourceName(
+                "PUBLIC"
+            )
+            try:
+                data = data_provider.fetch_resource(session, reference)
+                if data is None and not is_public_schema:
+                    raise MissingResourceException(f"Resource {reference} required by {parent} not found")
+            except Exception as e:
+                if not is_public_schema:
+                    logger.error(f"Error fetching reference {reference}: {e}")
+                    raise
         return state
 
     def _resolve_vars(self):
@@ -1123,8 +1105,6 @@ class Blueprint:
             raise Exception(f"Expected a Resource, got {type(resource)} -> {resource}")
         if resource._finalized:
             raise Exception("Cannot add a finalized resource to a blueprint")
-        if self._config.allowlist and resource.resource_type not in self._config.allowlist:
-            raise InvalidResourceException(f"Resource {resource} is not in the allowlist")
         self._staged.append(resource)
 
     def add(self, *resources):

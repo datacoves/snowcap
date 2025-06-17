@@ -1,7 +1,13 @@
 import pytest
 
 from titan import resources as res
-from titan.blueprint import Blueprint, CreateResource, DropResource, NonConformingPlanException, RunMode, UpdateResource
+from titan.blueprint import (
+    Blueprint,
+    CreateResource,
+    DropResource,
+    NonConformingPlanException,
+    UpdateResource,
+)
 from titan.enums import AccountEdition, ResourceType
 from titan.identifiers import parse_URN
 
@@ -68,7 +74,7 @@ def test_plan_remove_action(session_ctx, remote_state):
         "comment": "old comment",
         "owner": "USERADMIN",
     }
-    bp = Blueprint(run_mode=RunMode.SYNC, allowlist=[ResourceType.ROLE])
+    bp = Blueprint(sync_resources=[ResourceType.ROLE])
     manifest = bp.generate_manifest(session_ctx)
     plan = bp._plan(remote_state, manifest)
     assert len(plan) == 1
@@ -77,15 +83,21 @@ def test_plan_remove_action(session_ctx, remote_state):
     assert change.urn == parse_URN("urn::ABCD123:role/REMOVED_ROLE")
 
 
-def test_plan_no_removes_in_run_mode_create_or_update(session_ctx, remote_state):
+def test_plan_no_removes_in_resources_not_in_sync_resources(session_ctx, remote_state):
     remote_state[parse_URN("urn::ABCD123:role/REMOVED_ROLE")] = {
         "name": "REMOVED_ROLE",
         "comment": "old comment",
         "owner": "USERADMIN",
     }
-    bp = Blueprint(run_mode=RunMode.CREATE_OR_UPDATE)
+    bp = Blueprint()
     manifest = bp.generate_manifest(session_ctx)
     plan = bp._plan(remote_state, manifest)
+    assert len(plan) == 1
+    change = plan[0]
+    assert isinstance(change, DropResource)
+    assert change.urn == parse_URN("urn::ABCD123:role/REMOVED_ROLE")
+    with pytest.raises(NonConformingPlanException):
+        bp._raise_for_nonconforming_plan(session_ctx, plan)
     assert len(plan) == 1
     change = plan[0]
     assert isinstance(change, DropResource)

@@ -5,7 +5,7 @@ import rich_click as click
 import yaml
 
 from titan.blueprint import dump_plan
-from titan.enums import BlueprintScope, RunMode
+from titan.enums import BlueprintScope
 from titan.gitops import (
     collect_configs_from_path,
     collect_vars_from_environment,
@@ -22,13 +22,6 @@ from titan.operations.connector import connect, get_env_vars
 from titan.operations.export import export_resources
 
 click.rich_click.ERRORS_SUGGESTION = "Try using the '--debug' flag for more information.\n"
-
-
-class RunModeParamType(click.ParamType):
-    name = "run_mode"
-
-    def convert(self, value, param, ctx):
-        return RunMode(value)
 
 
 class ScopeParamType(click.ParamType):
@@ -89,23 +82,12 @@ def vars_option():
     )
 
 
-def allowlist_option():
+def sync_resources_option():
     return click.option(
-        "--allowlist",
+        "--sync_resources",
         type=CommaSeparatedListParamType(),
-        help="List of resources types allowed in the plan. If not specified, all resources are allowed.",
+        help="List of resources types to sync in the plan. If not specified, all resources are created or updated, never deleted.",
         metavar="<resource_types>",
-    )
-
-
-def run_mode_option():
-    return click.option(
-        "--mode",
-        "run_mode",
-        type=RunModeParamType(),
-        metavar="<run_mode>",
-        show_default=True,
-        help="Run mode",
     )
 
 
@@ -150,13 +132,12 @@ def debug_option():
 @click.option("--json", "json_output", is_flag=True, help="Output plan in machine-readable JSON format")
 @click.option("--out", "output_file", type=str, help="Write plan to a file", metavar="<filename>")
 @vars_option()
-@allowlist_option()
-@run_mode_option()
+@sync_resources_option()
 @scope_option()
 @database_option()
 @schema_option()
 @debug_option()
-def plan(config_path, json_output, output_file, vars: dict, allowlist, run_mode, scope, database, schema, debug):
+def plan(config_path, json_output, output_file, vars: dict, sync_resources, scope, database, schema, debug):
     """Compare a resource config to the current state of Snowflake"""
 
     if not config_path:
@@ -170,10 +151,8 @@ def plan(config_path, json_output, output_file, vars: dict, allowlist, run_mode,
     cli_config: dict[str, Any] = {}
     if vars:
         cli_config["vars"] = vars
-    if run_mode:
-        cli_config["run_mode"] = RunMode(run_mode)
-    if allowlist:
-        cli_config["allowlist"] = allowlist
+    if sync_resources:
+        cli_config["sync_resources"] = sync_resources
     if scope:
         cli_config["scope"] = scope
     if database:
@@ -208,14 +187,13 @@ def plan(config_path, json_output, output_file, vars: dict, allowlist, run_mode,
 @config_path_option()
 @click.option("--plan", "plan_file", type=str, help="Path to plan JSON file", metavar="<filename>")
 @vars_option()
-@allowlist_option()
-@run_mode_option()
+@sync_resources_option()
 @scope_option()
 @database_option()
 @schema_option()
 @click.option("--dry-run", is_flag=True, help="When dry run is true, Titan will not make any changes to Snowflake")
 @debug_option()
-def apply(config_path, plan_file, vars, allowlist, run_mode, scope, database, schema, dry_run, debug):
+def apply(config_path, plan_file, vars, sync_resources, scope, database, schema, dry_run, debug):
     """Apply a resource config to a Snowflake account"""
 
     if config_path and plan_file:
@@ -226,12 +204,10 @@ def apply(config_path, plan_file, vars, allowlist, run_mode, scope, database, sc
     cli_config: dict[str, Any] = {}
     if vars:
         cli_config["vars"] = vars
-    if run_mode:
-        cli_config["run_mode"] = RunMode(run_mode)
     if dry_run:
         cli_config["dry_run"] = dry_run
-    if allowlist:
-        cli_config["allowlist"] = allowlist
+    if sync_resources:
+        cli_config["sync_resources"] = sync_resources
     if scope:
         cli_config["scope"] = scope
     if database:

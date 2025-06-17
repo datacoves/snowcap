@@ -253,8 +253,7 @@ def test_blueprint_sync_dont_remove_system_schemas(cursor, suffix):
         blueprint = Blueprint(
             name="blueprint",
             resources=[],
-            run_mode="sync",
-            allowlist=[ResourceType.SCHEMA],
+            sync_resources=[ResourceType.SCHEMA],
             scope="DATABASE",
             database=db_name,
         )
@@ -275,8 +274,7 @@ def test_blueprint_sync_resource_missing_from_remote_state(cursor, suffix):
                 res.Schema(name="ABSENT", database=db_name),
                 res.Schema(name="INFORMATION_SCHEMA", database=db_name),
             ],
-            run_mode="sync",
-            allowlist=[ResourceType.SCHEMA],
+            sync_resources=[ResourceType.SCHEMA],
             scope="DATABASE",
             database=db_name,
         )
@@ -299,8 +297,7 @@ def test_blueprint_sync_plan_matches_remote_state(cursor, suffix):
             resources=[
                 res.Schema(name="PRESENT", owner=TEST_ROLE),
             ],
-            run_mode="sync",
-            allowlist=[ResourceType.SCHEMA],
+            sync_resources=[ResourceType.SCHEMA],
             scope="DATABASE",
             database=db_name,
         )
@@ -319,8 +316,7 @@ def test_blueprint_sync_remote_state_contains_extra_resource(cursor, suffix):
         blueprint = Blueprint(
             name="blueprint",
             resources=[res.Schema(name="INFORMATION_SCHEMA", database=db_name)],
-            run_mode="sync",
-            allowlist=[ResourceType.SCHEMA],
+            sync_resources=[ResourceType.SCHEMA],
             scope="DATABASE",
             database=db_name,
         )
@@ -501,8 +497,7 @@ def test_blueprint_account_parameters_sync_drift(cursor):
     try:
         blueprint = Blueprint(
             name="test_account_parameters_sync_drift",
-            run_mode="sync",
-            allowlist=[ResourceType.ACCOUNT_PARAMETER],
+            sync_resources=[ResourceType.ACCOUNT_PARAMETER],
         )
         plan = blueprint.plan(session)
         assert len(plan) > 0

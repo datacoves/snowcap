@@ -190,7 +190,7 @@ def resource_fixtures() -> list:
         ),
         res.PackagesPolicy(
             name="TEST_FETCH_PACKAGES_POLICY",
-            allowlist=["numpy", "pandas"],
+            sync_resources=["numpy", "pandas"],
             blocklist=["os", "sys"],
             additional_creation_blocklist=["numpy.random.randint"],
             comment="Example packages policy",

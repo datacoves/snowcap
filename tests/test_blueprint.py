@@ -13,7 +13,7 @@ from titan.blueprint import (
     dump_plan,
 )
 from titan.blueprint_config import BlueprintConfig
-from titan.enums import AccountEdition, BlueprintScope, ResourceType, RunMode
+from titan.enums import AccountEdition, BlueprintScope, ResourceType
 from titan.exceptions import (
     DuplicateResourceException,
     InvalidResourceException,
@@ -551,7 +551,7 @@ def test_blueprint_dump_plan_drop(session_ctx):
             "comment": None,
         },
     }
-    blueprint = Blueprint(resources=[], run_mode="SYNC", allowlist=[ResourceType.ROLE])
+    blueprint = Blueprint(resources=[], sync_resources=[ResourceType.ROLE])
     manifest = blueprint.generate_manifest(session_ctx)
     plan = blueprint._plan(remote_state, manifest)
     plan_json_str = dump_plan(plan, format="json")
@@ -646,47 +646,25 @@ def test_blueprint_vars_in_owner(session_ctx):
     assert blueprint.generate_manifest(session_ctx)
 
 
-def test_blueprint_allowlist(session_ctx, remote_state):
+def test_blueprint_sync_resources(session_ctx, remote_state):
     blueprint = Blueprint(
         resources=[res.Role(name="role1")],
-        allowlist=[ResourceType.ROLE],
+        sync_resources=[ResourceType.ROLE],
     )
     manifest = blueprint.generate_manifest(session_ctx)
     plan = blueprint._plan(remote_state, manifest)
     assert len(plan) == 1
 
-    blueprint = Blueprint(allowlist=["ROLE"])
-    assert blueprint._config.allowlist == [ResourceType.ROLE]
+    blueprint = Blueprint(sync_resources=["ROLE"])
+    assert blueprint._config.sync_resources == [ResourceType.ROLE]
     with pytest.raises(InvalidResourceException):
         blueprint.add(res.Database(name="db1"))
 
     with pytest.raises(InvalidResourceException):
         blueprint = Blueprint(
             resources=[res.Role(name="role1")],
-            allowlist=[ResourceType.DATABASE],
+            sync_resources=[ResourceType.DATABASE],
         )
-
-
-def test_blueprint_config_validation():
-    with pytest.raises(ValueError):
-        BlueprintConfig(run_mode=None)
-    with pytest.raises(ValueError):
-        BlueprintConfig(run_mode="non-existent-mode")
-    with pytest.raises(ValueError):
-        BlueprintConfig(run_mode="sync")
-    with pytest.raises(ValueError):
-        BlueprintConfig(allowlist=[])
-
-    bp = Blueprint(run_mode="SYNC", allowlist=["ROLE"])
-    assert bp._config.run_mode == RunMode.SYNC
-    bp = Blueprint(run_mode="CREATE-OR-UPDATE")
-    assert bp._config.run_mode == RunMode.CREATE_OR_UPDATE
-
-    bp = Blueprint(allowlist=["ROLE"])
-    assert bp._config.allowlist == [ResourceType.ROLE]
-
-    with pytest.raises(ValueError):
-        Blueprint(allowlist=["non-existent-resource-type"])
 
 
 def test_merge_account_scoped_resources():

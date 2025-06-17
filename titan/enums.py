@@ -43,11 +43,6 @@ class BlueprintScope(ParseableEnum):
     SCHEMA = "SCHEMA"
 
 
-class RunMode(ParseableEnum):
-    CREATE_OR_UPDATE = "CREATE-OR-UPDATE"
-    SYNC = "SYNC"
-
-
 class ResourceType(ParseableEnum):
     ACCOUNT = "ACCOUNT"
     ACCOUNT_PARAMETER = "ACCOUNT PARAMETER"

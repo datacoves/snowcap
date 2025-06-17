@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from .enums import BlueprintScope, ResourceType, RunMode
+from .enums import BlueprintScope, ResourceType
 from .exceptions import InvalidResourceException, MissingVarException
 from .resource_name import ResourceName
 from .resources.resource import Resource
@@ -22,9 +22,8 @@ _VAR_TYPE_MAP = {
 class BlueprintConfig:
     name: Optional[str] = None
     resources: Optional[list[Resource]] = None
-    run_mode: RunMode = RunMode.CREATE_OR_UPDATE
     dry_run: bool = False
-    allowlist: Optional[list[ResourceType]] = None
+    sync_resources: list[ResourceType] = field(default_factory=list)
     vars: dict = field(default_factory=dict)
     vars_spec: list[dict] = field(default_factory=list)
     scope: Optional[BlueprintScope] = None
@@ -36,15 +35,10 @@ class BlueprintConfig:
 
         if self.dry_run is None:
             raise ValueError("dry_run must be provided")
-        if self.run_mode is None:
-            raise ValueError("run_mode must be provided")
         if self.vars is None:
             raise ValueError("vars must be provided")
         if self.vars_spec is None:
             raise ValueError("vars_spec must be provided")
-
-        if not isinstance(self.run_mode, RunMode):
-            raise ValueError(f"Invalid run_mode: {self.run_mode}")
 
         if not isinstance(self.vars, dict):
             raise ValueError(f"vars must be a dictionary, got: {self.vars=}")
@@ -52,25 +46,9 @@ class BlueprintConfig:
         if self.scope is not None and not isinstance(self.scope, BlueprintScope):
             raise ValueError(f"Invalid scope: {self.scope}")
 
-        if self.run_mode == RunMode.SYNC:
-            """
-            In sync mode, the remote state is not just the resources that were added to the blueprint,
-            but all resources that exist in Snowflake. The allowlist is required to limit the scope of
-            the sync to a specific set of resources.
-            """
-            if self.allowlist is None:
-                raise ValueError("Sync mode must specify an allowlist")
-
-        if self.allowlist is not None:
-            if len(self.allowlist) == 0:
-                raise ValueError("Allowlist must have at least one resource type")
-            else:
-                if self.resources:
-                    for resource in self.resources:
-                        if resource.resource_type not in self.allowlist:
-                            raise InvalidResourceException(
-                                f"Resource {resource.urn} of type {resource.resource_type} is not in the allowlist"
-                            )
+        if self.sync_resources is not None:
+            if len(self.sync_resources) == 0:
+                raise ValueError("Sync Resources must have at least one resource type")
 
         if self.vars_spec:
             for var in self.vars_spec:
@@ -121,7 +99,6 @@ def set_vars_defaults(vars_spec: list[dict], vars: dict) -> dict:
 def print_blueprint_config(config: BlueprintConfig):
     print(f"{config.name=}")
     print(f"config.resources={len(config.resources or [])}")
-    print(f"{config.run_mode=}")
     print(f"{config.dry_run=}")
-    print(f"{config.allowlist=}")
+    print(f"{config.sync_resources=}")
     print(f"config.vars={list(config.vars.keys())}")
