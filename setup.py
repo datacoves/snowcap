@@ -34,6 +34,7 @@ setup(
     ],
     install_requires=[
         "rich-click==1.8.9",
+        "click<8.2",
         "inflection==0.5.1",
         "pyparsing==3.0.9",
         "pyyaml",
