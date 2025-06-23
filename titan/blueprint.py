@@ -1058,6 +1058,24 @@ class Blueprint:
                         logger.error(f"Failed to execute change {change}: {e}")
                         raise
 
+        def process_commands(commands, roles):
+            # Map changes to their levels
+            levels = {
+                c["change"].urn: self._levels[c["change"].urn] for c in commands if c["change"].urn in self._levels
+            }
+            max_level = max(levels.values()) if levels else -1
+
+            # Execute additive changes by level
+            for level in reversed(range(max_level + 1)):
+                commands_at_level = [c for c in commands if levels.get(c["change"].urn, -1) == level]
+                for role in roles:
+                    # Execute additive changes in current level by role
+                    commands_at_role_level = [c for c in commands_at_level if c["role"] == role]
+                    if commands_at_role_level:
+                        logger.debug(f"Executing level {level} role {role} with {len(commands_at_role_level)} changes")
+                        execute(session, f"USE ROLE {role}")
+                        execute_commands_in_parallel(commands_at_role_level)
+
         # TODO: cursor setup, including query tag
 
         logger = logging.getLogger(__name__)
@@ -1079,24 +1097,11 @@ class Blueprint:
                 destructive_commands.append(command)
         roles = set(roles)
 
-        # Map changes to their levels
-        levels = {
-            c["change"].urn: self._levels[c["change"].urn] for c in additive_commands if c["change"].urn in self._levels
-        }
-        max_level = max(levels.values()) if levels else -1
+        # Process additive changes
+        process_commands(additive_commands, roles)
 
-        # Execute additive changes by level
-        for level in reversed(range(max_level + 1)):
-            commands_at_level = [c for c in additive_commands if levels.get(c["change"].urn, -1) == level]
-            for role in roles:
-                # Execute additive changes in current level by role
-                commands_at_role_level = [c for c in commands_at_level if c["role"] == role]
-                if commands_at_role_level:
-                    logger.debug(f"Executing level {level} role {role} with {len(commands_at_role_level)} changes")
-                    execute_commands_in_parallel(commands_at_role_level)
-
-        # Execute destructive changes
-        execute_commands_in_parallel(destructive_commands)
+        # Process destructive changes
+        process_commands(destructive_commands, roles)
 
     def _add(self, resource: Resource):
         if self._finalized:
