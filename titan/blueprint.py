@@ -705,7 +705,7 @@ class Blueprint:
 
         # Check for references that are not in the state
         for parent, reference in manifest.refs:
-            if reference in manifest or reference in state:
+            if reference in manifest.urns or reference in state:
                 continue
             is_public_schema = reference.resource_type == ResourceType.SCHEMA and reference.fqn.name == ResourceName(
                 "PUBLIC"
