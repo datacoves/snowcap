@@ -461,17 +461,35 @@ class Resource(metaclass=_Resource):
             elif database is not None:
                 database.find(name="PUBLIC", resource_type=ResourceType.SCHEMA).add(self)
 
-    def _resolve_vars(self, vars: dict):
+    def _resolve_vars(self, vars: dict, resources: list):
+        # Adding container fields to vars
+        parent = {}
+        if self.container:
+            container = None
+            for resource in resources:
+                if resource.urn == self.container.urn:
+                    container = resource
+                    break
+
+            if container is None:
+                raise Exception(f"Cannot resolve vars for container {self.container} of {self}")
+
+            for f in fields(container._data):
+                field_value = getattr(container._data, f.name)
+                if isinstance(field_value, str):
+                    parent[f.name] = field_value
+                elif isinstance(field_value, ResourcePointer):
+                    parent[f.name] = str(field_value.fqn)
 
         def _render_vars(field_value):
             if isinstance(field_value, VarString):
-                return field_value.to_string(vars)
+                return field_value.to_string(vars, parent)
             elif isinstance(field_value, list):
                 return [_render_vars(v) for v in field_value]
             elif isinstance(field_value, dict):
                 return {k: _render_vars(v) for k, v in field_value.items()}
             elif isinstance(field_value, Resource) and not isinstance(field_value, ResourcePointer):
-                field_value._resolve_vars(vars)
+                field_value._resolve_vars(vars, resources)
                 return field_value
             else:
                 return field_value
@@ -483,7 +501,7 @@ class Resource(metaclass=_Resource):
                 setattr(self._data, f.name, new_value)
 
         if isinstance(self, NamedResource) and isinstance(self._name, VarString):
-            self._name = ResourceName(self._name.to_string(vars))
+            self._name = ResourceName(self._name.to_string(vars, parent))
 
     def _resolve_role_refs(self):
         for f in fields(self._data):

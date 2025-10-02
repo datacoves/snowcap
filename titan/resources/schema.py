@@ -121,8 +121,8 @@ class Schema(NamedResource, TaggableResource, Resource, ResourceContainer):
         )
         self.set_tags(tags)
 
-    def _resolve_vars(self, vars: dict):
+    def _resolve_vars(self, vars: dict, resources: list):
         name_uses_var = isinstance(self._name, VarString)
-        super()._resolve_vars(vars)
+        super()._resolve_vars(vars, resources)
         if name_uses_var and self._name in ["INFORMATION_SCHEMA", "PUBLIC"]:
             raise Exception("Cannot resolve vars for system schemas")

@@ -182,9 +182,9 @@ class Database(NamedResource, TaggableResource, Resource, ResourceContainer):
     def public_schema(self) -> Schema:
         return self._public_schema
 
-    def _resolve_vars(self, vars: dict):
+    def _resolve_vars(self, vars: dict, resources: list):
         name_uses_var = isinstance(self._name, VarString)
-        super()._resolve_vars(vars)
+        super()._resolve_vars(vars, resources)
         if name_uses_var and self._name == "SNOWFLAKE":
             raise Exception("Cannot resolve vars for system databases")
 

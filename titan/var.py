@@ -12,9 +12,9 @@ class VarString:
     def __init__(self, string: str):
         self.string = string
 
-    def to_string(self, vars: dict):
+    def to_string(self, vars: dict, parent: dict):
         try:
-            return GLOBAL_JINJA_ENV.from_string(self.string).render(var=vars)
+            return GLOBAL_JINJA_ENV.from_string(self.string).render(var=vars, parent=parent)
         except jinja2.exceptions.UndefinedError:
             raise MissingVarException(f"Missing var: {self.string}")
 
@@ -31,6 +31,12 @@ class VarStub(dict):
         return f"{{{{ var.{key} }}}}"
 
 
+class ParentStub(dict):
+    def __missing__(self, key) -> str:
+        # Return the string "{{ parent.key }}" if the key is not found
+        return f"{{{{ parent.{key} }}}}"
+
+
 def __getattr__(name) -> VarString:
     # This function will be called when an attribute is not found in the module
     # You can implement your logic here to return dynamic properties
@@ -43,4 +49,5 @@ def string_contains_var(string: str) -> bool:
 
 def process_for_each(resource_value: str, each_value: str) -> str:
     vars = VarStub()
-    return GLOBAL_JINJA_ENV.from_string(resource_value).render(var=vars, each={"value": each_value})
+    parent = ParentStub()
+    return GLOBAL_JINJA_ENV.from_string(resource_value).render(var=vars, parent=parent, each={"value": each_value})

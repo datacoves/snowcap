@@ -722,7 +722,7 @@ class Blueprint:
 
     def _resolve_vars(self):
         for resource in self._staged:
-            resource._resolve_vars(self._config.vars)
+            resource._resolve_vars(self._config.vars, self._staged)
 
     def _resolve_role_refs(self):
         for resource in _walk(self._root):
