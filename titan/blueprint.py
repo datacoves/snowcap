@@ -1058,23 +1058,32 @@ class Blueprint:
                         logger.error(f"Failed to execute change {change}: {e}")
                         raise
 
-        def process_commands(commands, roles):
+        def process_commands(commands, roles, available_roles):
             # Map changes to their levels
             levels = {
                 c["change"].urn: self._levels[c["change"].urn] for c in commands if c["change"].urn in self._levels
             }
             max_level = max(levels.values()) if levels else -1
 
+            roles_dynamically_added = set()
             # Execute additive changes by level
-            for level in reversed(range(max_level + 1)):
+            for level in range(max_level + 1):
                 commands_at_level = [c for c in commands if levels.get(c["change"].urn, -1) == level]
                 for role in roles:
                     # Execute additive changes in current level by role
                     commands_at_role_level = [c for c in commands_at_level if c["role"] == role]
                     if commands_at_role_level:
                         logger.debug(f"Executing level {level} role {role} with {len(commands_at_role_level)} changes")
+                        needs_new_role = role not in available_roles
+                        if needs_new_role:
+                            execute(session, f"GRANT ROLE {role} TO USER {session_ctx['user']}")
+                            roles_dynamically_added.add(role)
                         execute(session, f"USE ROLE {role}")
                         execute_commands_in_parallel(commands_at_role_level)
+
+            # Revoke dynamically added roles
+            for role in roles_dynamically_added:
+                execute(session, f"REVOKE ROLE {role} FROM USER {session_ctx['user']}")
 
         # TODO: cursor setup, including query tag
 
@@ -1098,10 +1107,10 @@ class Blueprint:
         roles = set(roles)
 
         # Process additive changes
-        process_commands(additive_commands, roles)
+        process_commands(additive_commands, roles, session_ctx["available_roles"])
 
         # Process destructive changes
-        process_commands(destructive_commands, roles)
+        process_commands(destructive_commands, roles, session_ctx["available_roles"])
 
     def _add(self, resource: Resource):
         if self._finalized:
@@ -1203,12 +1212,10 @@ def execution_strategy_for_change(
             raise MissingPrivilegeException(f"{system_role} isnt available to execute {change}")
         elif isinstance(change.resource_cls.scope, (DatabaseScope, SchemaScope)) and change.container:
             container_owner = ResourceName(change.container[1])
-            if container_owner in available_roles:
-                transfer_ownership = container_owner != change_owner
-                if transfer_ownership and change.urn.resource_type == ResourceType.NOTEBOOK:
-                    raise Exception("Notebook ownership cannot be transferred")
-                return container_owner, transfer_ownership
-            raise MissingPrivilegeException(f"{container_owner} isnt available to execute {change}")
+            transfer_ownership = container_owner != change_owner
+            if transfer_ownership and change.urn.resource_type == ResourceType.NOTEBOOK:
+                raise Exception("Notebook ownership cannot be transferred")
+            return container_owner, transfer_ownership
 
     raise RuntimeError(f"Unhandled change type: {change}")
 
@@ -1311,40 +1318,122 @@ def compile_plan_to_sql(session_ctx: SessionContext, plan: Plan) -> list[dict]:
     available_roles = session_ctx["available_roles"].copy()
     default_role = session_ctx["role"]
     for change in plan:
-        role, commands = sql_commands_for_change(change, available_roles, default_role)
-        sql_commands_per_change.append({"role": role, "commands": commands, "change": change})
         if isinstance(change, CreateResource):
             if change.urn.resource_type == ResourceType.ROLE:
                 available_roles.append(ResourceName(change.after["name"]))
             elif change.urn.resource_type == ResourceType.ROLE_GRANT:
                 if change.after["to_role"] in available_roles:
                     available_roles.append(ResourceName(change.after["role"]))
+    for change in plan:
+        role, commands = sql_commands_for_change(change, available_roles, default_role)
+        sql_commands_per_change.append({"role": role, "commands": commands, "change": change})
     return sql_commands_per_change
 
 
 def compute_levels(resource_set: Set[URN], references: Set[tuple[URN, URN]]) -> dict[URN, int]:
-    """Compute the dependency level for each URN based on references."""
-    in_degrees = {urn: 0 for urn in resource_set}
-    for _, ref in references:
-        if ref in in_degrees:
-            in_degrees[ref] += 1
+    """
+    Compute the dependency level for each URN based on references.
+
+    In this context, a reference (parent, ref) means that parent depends on ref.
+    For example, if we have (A, B), it means A depends on B, so B must be created before A.
+
+    The level of a resource indicates its position in the dependency hierarchy:
+    - Level 0: Resources with no dependencies
+    - Level 1: Resources that depend only on level 0 resources
+    - Level 2: Resources that depend on level 0 or level 1 resources
+    - And so on...
+
+    This function uses Kahn's algorithm for topological sorting to assign levels.
+    """
+    logger = logging.getLogger(__name__)
+    logger.debug(f"Computing levels for {len(resource_set)} resources with {len(references)} references")
+
+    # Make a copy of the resource set to avoid modifying the original
+    resources = set(resource_set)
+
+    # Filter out references to resources not in the resource set
+    valid_references = set()
+    for parent, ref in references:
+        if parent not in resources:
+            logger.warning(f"Parent {parent} in reference ({parent}, {ref}) not in resource_set, skipping")
+            continue
+        if ref not in resources:
+            logger.warning(f"Reference {ref} in reference ({parent}, {ref}) not in resource_set, skipping")
+            continue
+        valid_references.add((parent, ref))
+
+    logger.debug(f"Valid references: {len(valid_references)} out of {len(references)}")
+
+    # Initialize in-degrees dictionary
+    in_degrees = {urn: 0 for urn in resources}
+
+    # Build adjacency list for faster processing
+    adjacency_list = {urn: [] for urn in resources}
+
+    # Compute in-degrees and build adjacency list
+    # Note: (parent, ref) means parent depends on ref
+    for parent, ref in valid_references:
+        in_degrees[parent] += 1  # Parent depends on ref, so increment parent's in-degree
+        adjacency_list[ref].append(parent)  # ref -> parent (ref is required by parent)
+        logger.debug(f"Dependency: {parent} depends on {ref}")
+
     levels = {}
-    queue = [urn for urn in resource_set if in_degrees[urn] == 0]
+    # Start with nodes that have no dependencies (in-degree = 0)
+    queue = [urn for urn in resources if in_degrees[urn] == 0]
+    logger.debug(f"Initial queue with {len(queue)} resources: {queue}")
+
+    if not queue:
+        # If there are no nodes with in-degree 0, there must be a cycle
+        logger.error("No resources with in-degree 0 found, graph contains cycles")
+        raise NotADAGException("Dependency graph contains cycles")
+
     current_level = 0
+    processed_count = 0
+
     while queue:
+        logger.debug(f"Processing level {current_level} with {len(queue)} resources")
         next_queue = []
+
+        # All nodes in the current queue are at the current level
         for urn in queue:
             levels[urn] = current_level
-            for parent, ref in references:
-                # if the parent is the current node and the ref is in the set of resources
-                if parent == urn and ref in in_degrees:
-                    in_degrees[ref] -= 1
-                    if in_degrees[ref] == 0:
-                        next_queue.append(ref)
+            processed_count += 1
+            logger.debug(f"Assigned level {current_level} to {urn}")
+
+            # Process all resources that depend on this one
+            for dependent in adjacency_list[urn]:
+                in_degrees[dependent] -= 1
+                logger.debug(f"Decremented in_degree for {dependent} to {in_degrees[dependent]}")
+
+                if in_degrees[dependent] == 0:
+                    logger.debug(f"Adding {dependent} to next_queue for level {current_level + 1}")
+                    next_queue.append(dependent)
+
         queue = next_queue
         current_level += 1
-    if len(levels) != len(resource_set):
+
+        # Safety check to prevent infinite loops
+        if not queue and processed_count < len(resources):
+            remaining = [urn for urn in resources if urn not in levels]
+            logger.error(f"Queue empty but {len(remaining)} resources not processed: {remaining}")
+            logger.error(f"Remaining in_degrees: {[(urn, deg) for urn, deg in in_degrees.items() if urn in remaining]}")
+
+            # Find cycles in the remaining nodes
+            cycle_candidates = [urn for urn, deg in in_degrees.items() if deg > 0 and urn not in levels]
+            if cycle_candidates:
+                logger.error(f"Potential cycle involving: {cycle_candidates}")
+
+            raise NotADAGException("Dependency graph contains cycles")
+
+    logger.debug(f"Processed {processed_count}/{len(resources)} resources")
+    logger.debug(f"Final levels: {levels}")
+
+    # This check should never fail if the algorithm is implemented correctly
+    if len(levels) != len(resources):
+        unprocessed = resources - set(levels.keys())
+        logger.error(f"Not all resources assigned levels. Unprocessed: {unprocessed}")
         raise NotADAGException("Dependency graph contains cycles")
+
     return levels
 
 
