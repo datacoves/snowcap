@@ -679,6 +679,8 @@ class Blueprint:
                     )
                 )
 
+        urns = list(set(urns))  # Deduplicate urns
+
         with ThreadPoolExecutor(max_workers=self._config.threads) as executor:
             future_to_urn = {executor.submit(data_provider.fetch_resource, session, urn): urn for urn in urns}
             for future in as_completed(future_to_urn):
@@ -704,8 +706,9 @@ class Blueprint:
                     raise  # Stop processing if any fetch fails
 
         # Check for references that are not in the state
+        checked_refs = []
         for parent, reference in manifest.refs:
-            if reference in manifest.urns or reference in state:
+            if reference in manifest.urns or reference in state or reference in checked_refs:
                 continue
             is_public_schema = reference.resource_type == ResourceType.SCHEMA and reference.fqn.name == ResourceName(
                 "PUBLIC"
@@ -714,6 +717,8 @@ class Blueprint:
                 data = data_provider.fetch_resource(session, reference)
                 if data is None and not is_public_schema:
                     raise MissingResourceException(f"Resource {reference} required by {parent} not found")
+                else:
+                    checked_refs.append(reference)
             except Exception as e:
                 if not is_public_schema:
                     logger.error(f"Error fetching reference {reference}: {e}")

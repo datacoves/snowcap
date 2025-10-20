@@ -1183,7 +1183,6 @@ def fetch_grant(session: SnowflakeConnection, fqn: FQN):
     priv = fqn.params["priv"]
     on_type, on = fqn.params["on"].split("/", 1)
     on_type = on_type.upper()
-
     to_type, to = fqn.params["to"].split("/", 1)
     to_type = resource_type_for_label(to_type)
 
@@ -1240,7 +1239,7 @@ def fetch_grant(session: SnowflakeConnection, fqn: FQN):
     return {
         "priv": priv,
         "on": "ACCOUNT" if on_type == "ACCOUNT" else on,
-        "on_type": on_type,
+        "on_type": on_type.replace("_", " "),
         "to": to,
         "to_type": to_type,
         "grant_option": data["grant_option"] == "true",
