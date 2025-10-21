@@ -886,7 +886,7 @@ def fetch_database(session: SnowflakeConnection, fqn: FQN):
 
     data = show_result[0]
 
-    is_standard_db = data["kind"] == "STANDARD"
+    is_standard_db = data["kind"] in ["STANDARD", "IMPORTED DATABASE"]
     is_snowflake_builtin = data["kind"] == "APPLICATION" and data["name"] in SYSTEM_DATABASES
 
     if not (is_standard_db or is_snowflake_builtin):
