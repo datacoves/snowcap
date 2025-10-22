@@ -1,7 +1,8 @@
 import logging
 import os
 import time
-from typing import Optional, Union
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any, Callable, Dict, Generator, Iterable, Optional, TypeVar, Union
 
 import snowflake.connector
 from snowflake.connector.connection import SnowflakeConnection
@@ -94,3 +95,55 @@ def execute(
             return []
         logger.error(f"{session_header}    \033[31m(err {err.errno}, {time.time() - start:.2f}s)\033[0m")
         raise ProgrammingError(f"{err} on {sql_text}", errno=err.errno) from err
+
+
+def execute_in_parallel(
+    conn_or_cursor: Union[SnowflakeConnection, SnowflakeCursor],
+    sqls: Iterable[tuple[str, Any]],
+    error_handler: Optional[Callable[[Exception, str], None]] = None,
+    cacheable: bool = False,
+    empty_response_codes: Optional[list[int]] = None,
+    max_workers: int = 8,
+) -> Generator[tuple[Any, list], None, None]:
+    """
+    Execute a function in parallel using ThreadPoolExecutor and yield results as they complete.
+
+    Args:
+        conn_or_cursor: SnowflakeConnection or SnowflakeCursor to use for execution
+        sqls: An iterable of SQL statements to execute, optionally with associated items
+        error_handler: Optional function to handle errors, takes (Exception, sql) as arguments (
+        cacheable: Whether to cache results (default: False)
+        empty_response_codes: List of error codes that should return empty results (default: None)
+        max_workers: Maximum number of worker threads (default: 8)
+
+    Yields:
+        Tuples of (original_sql, result) as they complete
+
+    Example:
+        >>> sql_statements = [
+        ...     "SELECT COUNT(*) FROM table1",
+        ...     "SELECT COUNT(*) FROM table2",
+        ...     "SELECT COUNT(*) FROM table3",
+        ... ]
+        >>> for sql, result in execute_in_parallel(connection, sql_statements):
+        ...     print(f"SQL: {sql} produced result: {result}")
+    """
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Create a mapping of futures to their original items
+        future_to_item = {
+            executor.submit(execute, conn_or_cursor, sql, cacheable, empty_response_codes): (sql, item)
+            for sql, item in sqls
+        }
+
+        # Yield results as they complete
+        for future in as_completed(future_to_item):
+            sql, item = future_to_item[future]
+            try:
+                result = future.result()
+                yield item, result
+            except Exception as e:
+                if error_handler:
+                    error_handler(e, sql)
+                else:
+                    logger.error(f"Error processing SQL {sql}: {e}")
+                    raise e

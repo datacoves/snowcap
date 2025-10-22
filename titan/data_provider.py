@@ -22,6 +22,7 @@ from .client import (
     OBJECT_DOES_NOT_EXIST_ERR,
     UNSUPPORTED_FEATURE,
     execute,
+    execute_in_parallel,
 )
 from .enums import AccountEdition, GrantType, ResourceType, WarehouseSize
 from .identifiers import FQN, URN, parse_FQN, resource_type_for_label
@@ -2346,7 +2347,7 @@ def list_resource(session: SnowflakeConnection, resource_label: str) -> list[FQN
 
 
 def list_account_scoped_resource(session: SnowflakeConnection, resource) -> list[FQN]:
-    show_result = execute(session, f"SHOW {resource}")
+    show_result = execute(session, f"SHOW {resource}", cacheable=True)
     resources = []
     for row in show_result:
         resources.append(FQN(name=resource_name_from_snowflake_metadata(row["name"])))
@@ -2354,7 +2355,7 @@ def list_account_scoped_resource(session: SnowflakeConnection, resource) -> list
 
 
 def list_schema_scoped_resource(session: SnowflakeConnection, resource) -> list[FQN]:
-    show_result = execute(session, f"SHOW {resource} IN ACCOUNT")
+    show_result = execute(session, f"SHOW {resource} IN ACCOUNT", cacheable=True)
     resources = []
     for row in show_result:
         if row["database_name"] in SYSTEM_DATABASES:
@@ -2373,7 +2374,7 @@ def list_schema_scoped_resource(session: SnowflakeConnection, resource) -> list[
 
 
 def list_account_parameters(session: SnowflakeConnection) -> list[FQN]:
-    show_result = execute(session, "SHOW PARAMETERS IN ACCOUNT")
+    show_result = execute(session, "SHOW PARAMETERS IN ACCOUNT", cacheable=True)
     account_parameters = []
     for row in show_result:
         # Skip system parameters and unset parameters
@@ -2441,7 +2442,7 @@ def list_database_roles(session: SnowflakeConnection, database=None) -> list[FQN
             # is DATABASE, but this will work if quoted
             if database_name == "DATABASE":
                 database_name._quoted = True
-            database_roles = execute(session, f"SHOW DATABASE ROLES IN DATABASE {database_name}")
+            database_roles = execute(session, f"SHOW DATABASE ROLES IN DATABASE {database_name}", cacheable=True)
         except ProgrammingError as err:
             if err.errno == DOES_NOT_EXIST_ERR:
                 continue
@@ -2470,13 +2471,15 @@ def list_database_role_grants(session: SnowflakeConnection, database=None) -> li
             # is DATABASE, but this will work if quoted
             if database_name == "DATABASE":
                 database_name._quoted = True
-            database_roles = execute(session, f"SHOW DATABASE ROLES IN DATABASE {database_name}")
+            database_roles = execute(session, f"SHOW DATABASE ROLES IN DATABASE {database_name}", cacheable=True)
         except ProgrammingError as err:
             if err.errno == DOES_NOT_EXIST_ERR:
                 continue
             raise
         for role in database_roles:
-            show_result = execute(session, f"SHOW GRANTS OF DATABASE ROLE {database_name}.{role['name']}")
+            show_result = execute(
+                session, f"SHOW GRANTS OF DATABASE ROLE {database_name}.{role['name']}", cacheable=True
+            )
             for data in show_result:
                 subject = "role" if data["granted_to"] == "ROLE" else "database_role"
                 database, name = data["role"].split(".")
@@ -2499,7 +2502,7 @@ def list_external_volumes(session: SnowflakeConnection) -> list[FQN]:
 
 
 def list_functions(session: SnowflakeConnection) -> list[FQN]:
-    show_result = execute(session, "SHOW USER FUNCTIONS IN ACCOUNT")
+    show_result = execute(session, "SHOW USER FUNCTIONS IN ACCOUNT", cacheable=True)
     functions = []
     for row in show_result:
         if row["catalog_name"] in SYSTEM_DATABASES:
@@ -2512,13 +2515,13 @@ def list_functions(session: SnowflakeConnection) -> list[FQN]:
 
 
 def list_grants(session: SnowflakeConnection) -> list[FQN]:
-    roles = execute(session, "SHOW ROLES")
+    roles = execute(session, "SHOW ROLES", cacheable=True)
     grants = []
     for role in roles:
         role_name = resource_name_from_snowflake_metadata(role["name"])
         if role_name in SYSTEM_ROLES:
             continue
-        grant_data = _show_grants_to_role(session, role_name, role_type=ResourceType.ROLE, cacheable=False)
+        grant_data = _show_grants_to_role(session, role_name, role_type=ResourceType.ROLE, cacheable=True)
         for data in grant_data:
             if data["granted_on"] == "ROLE":
                 continue
@@ -2547,7 +2550,7 @@ def list_grants(session: SnowflakeConnection) -> list[FQN]:
                     },
                 )
             )
-        grant_data = _show_future_grants_to_role(session, role_name)
+        grant_data = _show_future_grants_to_role(session, role_name, cacheable=True)
         for data in grant_data:
             on_type = data["granted_on"].lower()
             collection = data["name"]
@@ -2595,7 +2598,7 @@ def list_resource_monitors(session: SnowflakeConnection) -> list[FQN]:
 
 
 def list_roles(session: SnowflakeConnection) -> list[FQN]:
-    show_result = execute(session, "SHOW ROLES")
+    show_result = execute(session, "SHOW ROLES", cacheable=True)
     return [
         FQN(name=resource_name_from_snowflake_metadata(row["name"]))
         for row in show_result
@@ -2604,26 +2607,36 @@ def list_roles(session: SnowflakeConnection) -> list[FQN]:
 
 
 def list_role_grants(session: SnowflakeConnection) -> list[FQN]:
-    roles = execute(session, "SHOW ROLES")
+    def error_handler(err: Exception, sql: str):
+        if isinstance(err, ProgrammingError) and err.errno == DOES_NOT_EXIST_ERR:
+            return
+        raise err
+
+    roles = execute(session, "SHOW ROLES", cacheable=True)
     grants = []
+
+    role_names = []
     for role in roles:
         role_name = resource_name_from_snowflake_metadata(role["name"])
         if role_name in SYSTEM_ROLES:
             continue
-        try:
-            show_result = execute(session, f"SHOW GRANTS OF ROLE {role_name}")
-        except ProgrammingError as err:
-            if err.errno == DOES_NOT_EXIST_ERR:
-                continue
-            raise
-        for data in show_result:
+        role_names.append(role_name)
+
+    for name, result in execute_in_parallel(
+        session,
+        [(f"SHOW GRANTS OF ROLE {role_name}", role_name) for role_name in role_names],
+        error_handler=error_handler,
+    ):
+        for data in result:
             subject = "user" if data["granted_to"] == "USER" else "role"
-            grants.append(FQN(name=role_name, params={subject: data["grantee_name"]}))
+            grants.append(FQN(name=name, params={subject: data["grantee_name"]}))
     return grants
 
 
 def list_scanner_packages(session: SnowflakeConnection) -> list[FQN]:
-    scanner_packages = execute(session, "select * from snowflake.trust_center.scanner_packages WHERE state = 'TRUE'")
+    scanner_packages = execute(
+        session, "select * from snowflake.trust_center.scanner_packages WHERE state = 'TRUE'", cacheable=True
+    )
     user_packages = []
     for pkg in scanner_packages:
         if pkg["ID"] == "SECURITY_ESSENTIALS":
@@ -2640,7 +2653,7 @@ def list_schemas(session: SnowflakeConnection, database=None) -> list[FQN]:
         in_ctx = "ACCOUNT"
         user_databases = _list_databases(session)
     try:
-        show_result = execute(session, f"SHOW SCHEMAS IN {in_ctx}")
+        show_result = execute(session, f"SHOW SCHEMAS IN {in_ctx}", cacheable=True)
         schemas = []
         for row in show_result:
             # Skip system databases
@@ -2670,7 +2683,7 @@ def list_secrets(session: SnowflakeConnection) -> list[FQN]:
 
 
 def list_security_integrations(session: SnowflakeConnection) -> list[FQN]:
-    show_result = execute(session, "SHOW SECURITY INTEGRATIONS")
+    show_result = execute(session, "SHOW SECURITY INTEGRATIONS", cacheable=True)
     integrations = []
     for row in show_result:
         if row["name"] in SYSTEM_SECURITY_INTEGRATIONS:
@@ -2680,7 +2693,7 @@ def list_security_integrations(session: SnowflakeConnection) -> list[FQN]:
 
 
 def list_shares(session: SnowflakeConnection) -> list[FQN]:
-    show_result = execute(session, "SHOW SHARES")
+    show_result = execute(session, "SHOW SHARES", cacheable=True)
     shares = []
     for row in show_result:
         if row["kind"] == "INBOUND":
@@ -2690,7 +2703,7 @@ def list_shares(session: SnowflakeConnection) -> list[FQN]:
 
 
 def list_stages(session: SnowflakeConnection) -> list[FQN]:
-    show_result = execute(session, "SHOW STAGES IN ACCOUNT")
+    show_result = execute(session, "SHOW STAGES IN ACCOUNT", cacheable=True)
     stages = []
     for row in show_result:
         if row["database_name"] in SYSTEM_DATABASES:
@@ -2716,7 +2729,7 @@ def list_streams(session: SnowflakeConnection) -> list[FQN]:
 
 
 def list_tables(session: SnowflakeConnection) -> list[FQN]:
-    show_result = execute(session, "SHOW TABLES IN ACCOUNT")
+    show_result = execute(session, "SHOW TABLES IN ACCOUNT", cacheable=True)
     user_databases = _list_databases(session)
     tables = []
     for row in show_result:
@@ -2788,7 +2801,7 @@ def list_tag_references(session: SnowflakeConnection) -> list[FQN]:
 
 def list_tags(session: SnowflakeConnection) -> list[FQN]:
     try:
-        show_result = execute(session, "SHOW TAGS IN ACCOUNT")
+        show_result = execute(session, "SHOW TAGS IN ACCOUNT", cacheable=True)
         tags = []
         for row in show_result:
             if row["database_name"] in SYSTEM_DATABASES or row["schema_name"] == "INFORMATION_SCHEMA":
@@ -2813,7 +2826,7 @@ def list_tasks(session: SnowflakeConnection) -> list[FQN]:
 
 
 def list_users(session: SnowflakeConnection) -> list[FQN]:
-    show_result = execute(session, "SHOW USERS")
+    show_result = execute(session, "SHOW USERS", cacheable=True)
     users = []
     for row in show_result:
         if row["name"] in SYSTEM_USERS:
@@ -2823,7 +2836,7 @@ def list_users(session: SnowflakeConnection) -> list[FQN]:
 
 
 def list_views(session: SnowflakeConnection) -> list[FQN]:
-    show_result = execute(session, "SHOW VIEWS IN ACCOUNT")
+    show_result = execute(session, "SHOW VIEWS IN ACCOUNT", cacheable=True)
     views = []
     for row in show_result:
         if row["database_name"] in SYSTEM_DATABASES or row["schema_name"] == "INFORMATION_SCHEMA":
@@ -2841,7 +2854,7 @@ def list_views(session: SnowflakeConnection) -> list[FQN]:
 
 
 def list_warehouses(session: SnowflakeConnection) -> list[FQN]:
-    show_result = execute(session, "SHOW WAREHOUSES")
+    show_result = execute(session, "SHOW WAREHOUSES", cacheable=True)
     warehouses = []
     for row in show_result:
         if row["name"].startswith("SYSTEM$"):
