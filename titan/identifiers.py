@@ -41,7 +41,7 @@ class FQN:
             and names_are_equal(self.database, other.database)
             and names_are_equal(self.schema, other.schema)
             and self.arg_types == other.arg_types
-            and self.params == other.params
+            and params_are_equal(self.params, other.params)
         )
 
     def __hash__(self):
@@ -323,6 +323,17 @@ def names_are_equal(name1: Union[None, str, ResourceName], name2: Union[None, st
     if name1 is None or name2 is None:
         return False
     return ResourceName(name1) == ResourceName(name2)
+
+
+def params_are_equal(params1: dict, params2: dict) -> bool:
+    if len(params1) != len(params2):
+        return False
+    for k, v in params1.items():
+        if k not in params2:
+            return False
+        if str(params2[k]).replace('"', "") != str(v).replace('"', ""):
+            return False
+    return True
 
 
 def smart_split(s: str, sep: str, maxsplit: int = -1) -> list[str]:

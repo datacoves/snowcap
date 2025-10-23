@@ -1356,19 +1356,6 @@ def compute_levels(resource_set: Set[URN], references: Set[tuple[URN, URN]]) -> 
     # Make a copy of the resource set to avoid modifying the original
     resources = set(resource_set)
 
-    # Filter out references to resources not in the resource set
-    valid_references = set()
-    for parent, ref in references:
-        if parent not in resources:
-            logger.warning(f"Parent {parent} in reference ({parent}, {ref}) not in resource_set, skipping")
-            continue
-        if ref not in resources:
-            logger.warning(f"Reference {ref} in reference ({parent}, {ref}) not in resource_set, skipping")
-            continue
-        valid_references.add((parent, ref))
-
-    logger.debug(f"Valid references: {len(valid_references)} out of {len(references)}")
-
     # Initialize in-degrees dictionary
     in_degrees = {urn: 0 for urn in resources}
 
@@ -1377,7 +1364,7 @@ def compute_levels(resource_set: Set[URN], references: Set[tuple[URN, URN]]) -> 
 
     # Compute in-degrees and build adjacency list
     # Note: (parent, ref) means parent depends on ref
-    for parent, ref in valid_references:
+    for parent, ref in references:
         in_degrees[parent] += 1  # Parent depends on ref, so increment parent's in-degree
         adjacency_list[ref].append(parent)  # ref -> parent (ref is required by parent)
         logger.debug(f"Dependency: {parent} depends on {ref}")
