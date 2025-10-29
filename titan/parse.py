@@ -711,7 +711,7 @@ def parse_collection_string(collection: str):
 
 
 def format_collection_string(on_name, items_type):
-    return f"{on_name}.<{items_type}>"
+    return f"{on_name}.<{items_type.replace(' ', '_')}>"
 
 
 def parse_region(region_str: str) -> dict[str, str]:

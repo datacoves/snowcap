@@ -1246,7 +1246,7 @@ def fetch_grant(session: SnowflakeConnection, fqn: FQN):
         "grant_option": data["grant_option"] == "true",
         "owner": owner,
         "_privs": privs,
-        "items_type": items_type,
+        "items_type": items_type.replace("_", " ") if items_type else None,
         "grant_type": fqn.params["grant_type"],
     }
 

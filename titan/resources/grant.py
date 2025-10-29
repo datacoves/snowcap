@@ -259,7 +259,7 @@ class Grant(Resource):
                     in_object = on_items[-1]
 
                     if isinstance(in_object, Resource):
-                        if len(on_items) > 3:
+                        if len(on_items) > 4:
                             raise ValueError("You must specify only three paramters: [grant_type, items_type, object]")
 
                         items_type = resource_type_for_label(singularize(" ".join(on_items[1:-1])))
@@ -268,12 +268,12 @@ class Grant(Resource):
                         if grant_type == GrantType.FUTURE:
                             granted_in_ref = in_object
                     else:
-                        if len(on_items) > 4:
+                        if len(on_items) > 5:
                             raise ValueError(
                                 "You must specify only four parameters: [grant_type, items_type, object_type, object]"
                             )
                         items_type = resource_type_for_label(singularize(" ".join(on_items[1:-2])))
-                        on_type = ResourceType(on_items[2])
+                        on_type = ResourceType(on_items[-2])
                         on = in_object
                         if grant_type == GrantType.FUTURE:
                             granted_in_ref = ResourcePointer(name=on, resource_type=on_type)
