@@ -5,12 +5,12 @@ import snowflake.connector.errors
 from inflection import pluralize
 
 from tests.helpers import get_json_fixtures
-from titan import data_provider
-from titan import resources as res
-from titan.client import UNSUPPORTED_FEATURE, reset_cache
-from titan.identifiers import resource_label_for_type
-from titan.resources import Resource
-from titan.scope import DatabaseScope, SchemaScope
+from snowcap import data_provider
+from snowcap import resources as res
+from snowcap.client import UNSUPPORTED_FEATURE, reset_cache
+from snowcap.identifiers import resource_label_for_type
+from snowcap.resources import Resource
+from snowcap.scope import DatabaseScope, SchemaScope
 
 pytestmark = pytest.mark.requires_snowflake
 

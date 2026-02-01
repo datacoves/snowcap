@@ -1,4 +1,4 @@
-name: account-parameters-titan-example
+name: account-parameters-snowcap-example
 run_mode: sync
 allowlist:
   - account parameter

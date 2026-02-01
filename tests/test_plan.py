@@ -1,15 +1,15 @@
 import pytest
 
-from titan import resources as res
-from titan.blueprint import (
+from snowcap import resources as res
+from snowcap.blueprint import (
     Blueprint,
     CreateResource,
     DropResource,
     NonConformingPlanException,
     UpdateResource,
 )
-from titan.enums import AccountEdition, ResourceType
-from titan.identifiers import parse_URN
+from snowcap.enums import AccountEdition, ResourceType
+from snowcap.identifiers import parse_URN
 
 
 @pytest.fixture

@@ -1,7 +1,7 @@
 import pytest
 
-from titan.privs import PRIVS_FOR_RESOURCE_TYPE
-from titan.enums import ResourceType
+from snowcap.privs import PRIVS_FOR_RESOURCE_TYPE
+from snowcap.enums import ResourceType
 
 
 @pytest.mark.skip(reason="Needs to be adapted for pseudo-resources like external volume storage location")

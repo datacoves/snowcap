@@ -1,8 +1,8 @@
 import pytest
 
-from titan import resources as res
-from titan.enums import ResourceType
-from titan.exceptions import ResourceHasContainerException, WrongContainerException
+from snowcap import resources as res
+from snowcap.enums import ResourceType
+from snowcap.exceptions import ResourceHasContainerException, WrongContainerException
 
 
 def test_account_can_add_database():

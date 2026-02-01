@@ -4,12 +4,12 @@ import yaml
 
 from functools import cache
 
-from titan.data_provider import list_schemas
-from titan.enums import ResourceType
-from titan.identifiers import FQN
-from titan.privs import DatabasePriv, TablePriv, SchemaPriv, ViewPriv, WarehousePriv
-from titan.resources import GrantOnAll, FutureGrant, Grant, RoleGrant
-from titan.resources.resource import ResourcePointer
+from snowcap.data_provider import list_schemas
+from snowcap.enums import ResourceType
+from snowcap.identifiers import FQN
+from snowcap.privs import DatabasePriv, TablePriv, SchemaPriv, ViewPriv, WarehousePriv
+from snowcap.resources import GrantOnAll, FutureGrant, Grant, RoleGrant
+from snowcap.resources.resource import ResourcePointer
 
 
 DATABASE_READ_PRIVS = [DatabasePriv.USAGE]

@@ -3,10 +3,10 @@ import os
 import pytest
 
 from tests.helpers import safe_fetch
-from titan import data_provider
-from titan.enums import AccountEdition, ResourceType
-from titan.identifiers import FQN, URN
-from titan.resource_name import ResourceName
+from snowcap import data_provider
+from snowcap.enums import AccountEdition, ResourceType
+from snowcap.identifiers import FQN, URN
+from snowcap.resource_name import ResourceName
 
 pytestmark = pytest.mark.requires_snowflake
 

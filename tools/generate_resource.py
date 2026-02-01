@@ -7,7 +7,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def main(resource_name):
-    resource_path = os.path.join(REPO_ROOT, "titan", "resources", f"{resource_name}.py")
+    resource_path = os.path.join(REPO_ROOT, "snowcap", "resources", f"{resource_name}.py")
     sql_fixture_path = os.path.join(REPO_ROOT, "tests", "fixtures", "sql", f"{resource_name}.sql")
     json_fixture_path = os.path.join(REPO_ROOT, "tests", "fixtures", "json", f"{resource_name}.json")
 

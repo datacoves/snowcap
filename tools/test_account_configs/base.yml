@@ -36,7 +36,7 @@ account_parameters:
 
 users:
   - name: static_user
-    email: info@applytitan.com
+    email: info@datacoves.com
     comment: This is a static user
   - name: TITAN_ADMIN
     default_warehouse: CI

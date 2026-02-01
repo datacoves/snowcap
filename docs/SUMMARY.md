@@ -3,8 +3,9 @@
 * [Overview](README.md)
 * [Getting Started](getting-started.md)
 * [Working With Resources](working-with-resources.md)
+* [Role-Based Access Control](role-based-access-control.md)
 * [Blueprint](blueprint.md)
-* [GitHub Action](titan-core-github-action.md)
+* [GitHub Action](snowcap-github-action.md)
 
 ## Resources
 

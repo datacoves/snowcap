@@ -49,7 +49,7 @@ jobs:
     - name: Run checks (linter, code style, static type checks, tests)
       run: |
         source ./.venv/bin/activate
-        ruff check titan/
+        ruff check snowcap/
         make typecheck
         python -m pytest --cov=./ --cov-report=xml
     - name: Upload coverage reports to Codecov

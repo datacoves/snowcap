@@ -75,7 +75,7 @@ T = TypeVar("T")
 ResourceRef = Union[tuple[ResourceType, str], str]
 
 
-logger = logging.getLogger("titan")
+logger = logging.getLogger("snowcap")
 
 
 @dataclass
@@ -325,16 +325,18 @@ def dump_plan(plan: Plan, format: str = "json"):
                 return f'"{value}"'
             return str(value)
 
-        # green_start = "\033[36m"
-        # color_end = "\033[0m"
+        # Datacoves brand colors (blue/cyan)
+        blue = "\033[94m"
+        cyan = "\033[96m"
+        reset = "\033[0m"
 
         create_count = len([change for change in plan if isinstance(change, CreateResource)])
         update_count = len([change for change in plan if isinstance(change, UpdateResource)])
         transfer_count = len([change for change in plan if isinstance(change, TransferOwnership)])
         drop_count = len([change for change in plan if isinstance(change, DropResource)])
 
-        output += "\n» titan core\n"
-        output += f"» Plan: {create_count} to create, {update_count} to update, {transfer_count} to transfer, {drop_count} to drop.\n\n"
+        output += f"\n{cyan}»{reset} {blue}snowcap{reset}\n"
+        output += f"{cyan}»{reset} Plan: {create_count} to create, {update_count} to update, {transfer_count} to transfer, {drop_count} to drop.\n\n"
 
         for change in plan:
             action_marker = ""
@@ -639,15 +641,15 @@ class Blueprint:
 
         if grant_to_system:
             warnings.append(
-                f"Grants to system role found. They will be always recreated since system roles are not managed by Titan"
+                f"Grants to system role found. They will be always recreated since system roles are not managed by Snowcap"
             )
         if role_grant_to_system:
             warnings.append(
-                f"Role grants to system role found. They will be always recreated since system roles are not managed by Titan"
+                f"Role grants to system role found. They will be always recreated since system roles are not managed by Snowcap"
             )
         if grant_on_all:
             warnings.append(
-                f"Grants of type ALL found. They will be always recreated since Titan does not compare the affected objects."
+                f"Grants of type ALL found. They will be always recreated since Snowcap does not compare the affected objects."
             )
 
         if warnings:

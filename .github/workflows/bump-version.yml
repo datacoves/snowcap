@@ -23,7 +23,7 @@ jobs:
       with:
         current_version: "${{ env.current_version }}"
         files: version.md
-        commit_name: Titan Systems Bot
-        commit_email: info@applytitan.com
-        login: titan-systems-bot
+        commit_name: Datacoves Bot
+        commit_email: support+snowcap@datacoves.com
+        login: datacoves-bot
         token: "${{ secrets.BOT_TOKEN }}"

@@ -1,4 +1,4 @@
-from titan.parse import parse_region
+from snowcap.parse import parse_region
 
 
 def test_parse_region():

@@ -7,7 +7,7 @@ If you're new, the best place to start is with the Python package.
 ```sh
 python -m venv .venv
 source .venv/bin/activate
-python -m pip install titan-core
+python -m pip install snowcap
 ```
 
 ### Install from PyPi (Windows)
@@ -15,7 +15,7 @@ python -m pip install titan-core
 ```bat
 python -m venv .venv
 .\.venv\Scripts\activate
-python -m pip install titan-core
+python -m pip install snowcap
 ```
 
 ## Using the Python package
@@ -24,8 +24,8 @@ python -m pip install titan-core
 import os
 import snowflake.connector
 
-from titan.blueprint import Blueprint, print_plan
-from titan.resources import Grant, Role, Warehouse
+from snowcap.blueprint import Blueprint, print_plan
+from snowcap.resources import Grant, Role, Warehouse
 
 # Configure resources by instantiating Python objects.
 
@@ -39,8 +39,8 @@ warehouse = Warehouse(
 
 usage_grant = Grant(priv="usage", to=role, on=warehouse)
 
-# Titan compares your config to a Snowflake account. Create a Snowflake 
-# connection to allow Titan to connect to your account.
+# Snowcap compares your config to a Snowflake account. Create a Snowflake
+# connection to allow Snowcap to connect to your account.
 
 connection_params = {
     "account": os.environ["SNOWFLAKE_ACCOUNT"],
@@ -65,7 +65,7 @@ bp = Blueprint(resources=[
 plan = bp.plan(session)
 print_plan(plan) # =>
 """
-» titan core
+» snowcap
 » Plan: 4 to add, 0 to change, 0 to destroy.
 
 + urn::ABCD123:warehouse/transforming {
@@ -96,12 +96,12 @@ print_plan(plan) # =>
 # and run them against your Snowflake account.
 bp.apply(session, plan) # =>
 """
-[TITAN_USER:SYSADMIN]  > USE SECONDARY ROLES ALL
-[TITAN_USER:SYSADMIN]  > CREATE WAREHOUSE TRANSFORMING warehouse_type = STANDARD ...
-[TITAN_USER:SYSADMIN]  > USE ROLE USERADMIN
-[TITAN_USER:USERADMIN] > CREATE ROLE TRANSFORMER
-[TITAN_USER:USERADMIN] > USE ROLE SYSADMIN
-[TITAN_USER:SYSADMIN]  > GRANT USAGE ON WAREHOUSE transforming TO TRANSFORMER
+[SNOWCAP_USER:SYSADMIN]  > USE SECONDARY ROLES ALL
+[SNOWCAP_USER:SYSADMIN]  > CREATE WAREHOUSE TRANSFORMING warehouse_type = STANDARD ...
+[SNOWCAP_USER:SYSADMIN]  > USE ROLE USERADMIN
+[SNOWCAP_USER:USERADMIN] > CREATE ROLE TRANSFORMER
+[SNOWCAP_USER:USERADMIN] > USE ROLE SYSADMIN
+[SNOWCAP_USER:SYSADMIN]  > GRANT USAGE ON WAREHOUSE transforming TO TRANSFORMER
 """
 ```
 
@@ -109,9 +109,9 @@ For more advanced usage, see [Blueprint](blueprint.md).
 
 ## Using the CLI
 
-You can use the CLI to generate a plan, apply a plan, or export resources. To use the CLI, install the Python package and call `titan` from the command line.
+You can use the CLI to generate a plan, apply a plan, or export resources. To use the CLI, install the Python package and call `snowcap` from the command line.
 
-The CLI allows you to `plan` and `apply` a Titan Core YAML config. You can specify a single input file or a directory of configs.
+The CLI allows you to `plan` and `apply` a Snowcap YAML config. You can specify a single input file or a directory of configs.
 
 In addition to `plan` and `apply`, the CLI also allows you to `export` resources. This makes it easy to generate a config for an existing Snowflake environment.
 
@@ -133,15 +133,15 @@ To connect with Snowflake, the CLI uses environment variables. These environment
 Show the help message
 
 ```sh
-titan --help
+snowcap --help
 
-# Usage: titan [OPTIONS] COMMAND [ARGS]...
-# 
-#   titan core helps you manage your Snowflake environment.
-# 
+# Usage: snowcap [OPTIONS] COMMAND [ARGS]...
+#
+#   snowcap helps you manage your Snowflake environment.
+#
 # Options:
 #   --help  Show this message and exit.
-# 
+#
 # Commands:
 #   apply    Apply a resource config to a Snowflake account
 #   connect  Test the connection to Snowflake
@@ -153,7 +153,7 @@ Apply a resource config to Snowflake
 
 ```sh
 # Create a resource config file
-cat <<EOF > titan.yml
+cat <<EOF > snowcap.yml
 roles:
   - name: transformer
 
@@ -174,39 +174,39 @@ export SNOWFLAKE_USER="my-user"
 export SNOWFLAKE_PASSWORD="my-password"
 
 # Generate a plan
-titan plan --config titan.yml
+snowcap plan --config snowcap.yml
 
 # Apply the config
-titan apply --config titan.yml
+snowcap apply --config snowcap.yml
 ```
 
 Export existing Snowflake resources to YAML.
 
 ```sh
-titan export \
+snowcap export \
   --resource=warehouse,grant,role \
-  --out=titan.yml
+  --out=snowcap.yml
 ```
 
-The Titan Core Python package installs the CLI script `titan`. You can alternatively use Python CLI module syntax if you need fine-grained control over the Python environment.
+The Snowcap Python package installs the CLI script `snowcap`. You can alternatively use Python CLI module syntax if you need fine-grained control over the Python environment.
 
 ```sh
-python -m titan plan --config titan.yml
+python -m snowcap plan --config snowcap.yml
 ```
 
 ## Using the GitHub Action
-The Titan Core GitHub Action allows you to automate the deployment of Snowflake resources using a git-based workflow.
+The Snowcap GitHub Action allows you to automate the deployment of Snowflake resources using a git-based workflow.
 
 ### GitHub Action Example
 
 ```YAML
--- .github/workflows/titan.yml
-name: Deploy to Snowflake with Titan
+-- .github/workflows/snowcap.yml
+name: Deploy to Snowflake with Snowcap
 on:
   push:
     branches: [ main ]
     paths:
-    - 'titan/**'
+    - 'snowcap/**'
 
 jobs:
   deploy:
@@ -216,10 +216,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Deploy to Snowflake
-        uses: Titan-Systems/titan-core-action@main
+        uses: datacoves/snowcap-action@main
         with:
           run-mode: 'create-or-update'
-          resource-path: './titan'
+          resource-path: './snowcap'
           allowlist: 'warehouse,role,grant'
           dry-run: 'false'
         env:
@@ -230,4 +230,4 @@ jobs:
           SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
 ```
 
-For in-depth documentation, see [Titan Core GitHub Action](titan-core-github-action.md).
+For in-depth documentation, see [Snowcap GitHub Action](snowcap-github-action.md).

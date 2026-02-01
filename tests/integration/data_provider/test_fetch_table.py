@@ -2,9 +2,9 @@ import os
 
 import pytest
 
-from titan import data_provider
-from titan import resources as res
-from titan.enums import DataType
+from snowcap import data_provider
+from snowcap import resources as res
+from snowcap.enums import DataType
 
 from tests.helpers import safe_fetch
 

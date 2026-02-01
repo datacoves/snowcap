@@ -1,10 +1,10 @@
 import pytest
 
 from tests.helpers import get_json_fixtures
-from titan import resources as res
-from titan.enums import ResourceType
-from titan.resources.resource import convert_role_ref
-from titan.resources.resource import ResourcePointer
+from snowcap import resources as res
+from snowcap.enums import ResourceType
+from snowcap.resources.resource import convert_role_ref
+from snowcap.resources.resource import ResourcePointer
 
 JSON_FIXTURES = list(get_json_fixtures())
 

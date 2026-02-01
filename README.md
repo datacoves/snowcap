@@ -1,10 +1,34 @@
-# `titan core` - Snowflake infrastructure as code
+# `snowcap` - Snowflake infrastructure as code
 
-Titan Core helps you provision, deploy, and secure resources in Snowflake. It replaces tools like Terraform, Schemachange, or Permifrost.
+*formerly Titan Core*
+
+## Brought to you by Datacoves
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="images/datacoves-dark.png">
+  <img alt="Datacoves" src="images/datacoves-light.png" width="150">
+</picture>
+
+Snowcap helps you provision, deploy, and secure resources in Snowflake. Datacoves takes it further: a managed DataOps platform for dbt and Airflow, deployable in your private cloud or available as SaaS.
+
+- **Private cloud or SaaS** - your data, your choice
+- **Managed dbt + Airflow** - production-ready from day one
+- **In-browser VS Code** - onboard developers in minutes
+- **Bring your own tools** - integrates with your existing stack, no lock-in
+- **AI-assisted development** - connect your organization's approved LLM (Anthropic, OpenAI, Azure, Gemini, and more)
+- **Built-in governance** - CI/CD, guardrails, and best practices included
+
+Snowcap is the power tools. Datacoves is the workshop.
+
+[Explore the platform →](https://datacoves.com)
+
+---
+
+Snowcap replaces tools like Terraform, Schemachange, or Permifrost.
 
 Deploy any Snowflake resource, including users, roles, schemas, databases, integrations, pipes, stages, functions, stored procedures, and more. Convert adhoc, bug-prone SQL management scripts into simple, repeatable configuration.
 
-Titan Core is for:
+Snowcap is for:
 
 * DevOps engineers looking to automate and manage Snowflake infrastructure.
 * Analytics engineers working with dbt who want to manage Snowflake resources without macros.
@@ -23,7 +47,7 @@ Titan Core is for:
 │ auto_suspend: 60  │     │           │              │ auto_suspend: 300 -> 60 │
 └───────────────────┘  ╔══▼═══════════╩═╗            └─────────────────────────┘
                        ║                ║                                      
-                       ║   TITAN CORE   ║                                      
+                       ║    SNOWCAP     ║                                      
   ┏━━━━━━┓             ║                ║              ┏━━━━━━┓                
 ┌─┫ ROLE ┣──────────┐  ╚══▲═══════════╦═╝            ┌─┫ ROLE ┣────────────────┐
 │ ┗━━━━━━┛          │     │           │              │ ┗━━━━━━┛                │
@@ -40,17 +64,21 @@ Titan Core is for:
 
  * **Flexible** » Write resource configuration in YAML or Python
 
- * **Fast** » Titan Core runs 50-90% faster than Terraform and Permifrost
+ * **Fast** » Snowcap runs 50-90% faster than Terraform and Permifrost
 
  * **Migration-friendly** » Generate config automatically with the export CLI
 
 ## Open Source
 
-This project is licensed under the Apache 2.0 License - see [LICENSE](LICENSE) for details. The source code for Titan Core is available on [Github](https://github.com/Titan-Systems/titan).
+This project is a fork of [Titan Core](https://github.com/Titan-Systems/titan), originally created by [Titan Systems](https://github.com/Titan-Systems). The original project appears to be unmaintained, so Datacoves has forked it to continue development, fix bugs, and add new features.
+
+We are grateful to the Titan Systems team for creating this project and releasing it under an open source license.
+
+This project is licensed under the Apache 2.0 License - see [LICENSE](LICENSE) for details.
 
 ## Documentation
 
-You can find comprehensive [Titan Core documentation on GitBook](https://titan-core.gitbook.io/titan-core).
+You can find comprehensive [Snowcap documentation on GitBook](https://titan-core.gitbook.io/titan-core).
 
 ## Getting Started
 
@@ -61,7 +89,7 @@ If you're new, the best place to start is with the Python package.
 ```sh
 python -m venv .venv
 source .venv/bin/activate
-python -m pip install titan-core
+python -m pip install snowcap
 ```
 
 ### Install from PyPi (Windows)
@@ -69,7 +97,7 @@ python -m pip install titan-core
 ```bat
 python -m venv .venv
 .\.venv\Scripts\activate
-python -m pip install titan-core
+python -m pip install snowcap
 ```
 
 ### Python example
@@ -78,8 +106,8 @@ python -m pip install titan-core
 import os
 import snowflake.connector
 
-from titan.blueprint import Blueprint, print_plan
-from titan.resources import Grant, Role, Warehouse
+from snowcap.blueprint import Blueprint, print_plan
+from snowcap.resources import Grant, Role, Warehouse
 
 # Configure resources by instantiating Python objects.
 
@@ -93,8 +121,8 @@ warehouse = Warehouse(
 
 usage_grant = Grant(priv="usage", to=role, on=warehouse)
 
-# Titan compares your config to a Snowflake account. Create a Snowflake 
-# connection to allow Titan to connect to your account.
+# Snowcap compares your config to a Snowflake account. Create a Snowflake
+# connection to allow Snowcap to connect to your account.
 
 connection_params = {
     "account": os.environ["SNOWFLAKE_ACCOUNT"],
@@ -119,7 +147,7 @@ bp = Blueprint(resources=[
 plan = bp.plan(session)
 print_plan(plan) # =>
 """
-» titan core
+» snowcap
 » Plan: 4 to add, 0 to change, 0 to destroy.
 
 + urn::ABCD123:warehouse/transforming {
@@ -150,20 +178,20 @@ print_plan(plan) # =>
 # and run them against your Snowflake account.
 bp.apply(session, plan) # =>
 """
-[TITAN_USER:SYSADMIN]  > USE SECONDARY ROLES ALL
-[TITAN_USER:SYSADMIN]  > CREATE WAREHOUSE TRANSFORMING warehouse_type = STANDARD ...
-[TITAN_USER:SYSADMIN]  > USE ROLE USERADMIN
-[TITAN_USER:USERADMIN] > CREATE ROLE TRANSFORMER
-[TITAN_USER:USERADMIN] > USE ROLE SYSADMIN
-[TITAN_USER:SYSADMIN]  > GRANT USAGE ON WAREHOUSE transforming TO TRANSFORMER
+[SNOWCAP_USER:SYSADMIN]  > USE SECONDARY ROLES ALL
+[SNOWCAP_USER:SYSADMIN]  > CREATE WAREHOUSE TRANSFORMING warehouse_type = STANDARD ...
+[SNOWCAP_USER:SYSADMIN]  > USE ROLE USERADMIN
+[SNOWCAP_USER:USERADMIN] > CREATE ROLE TRANSFORMER
+[SNOWCAP_USER:USERADMIN] > USE ROLE SYSADMIN
+[SNOWCAP_USER:SYSADMIN]  > GRANT USAGE ON WAREHOUSE transforming TO TRANSFORMER
 """
 ```
 
 ### Using the CLI
 
-You can use the CLI to generate a plan, apply a plan, or export resources. To use the CLI, install the Python package and call `python -m titan` from the command line.
+You can use the CLI to generate a plan, apply a plan, or export resources. To use the CLI, install the Python package and call `python -m snowcap` from the command line.
 
-The CLI allows you to `plan` and `apply` a Titan Core YAML config. You can specify a single input file or a directory of configs.
+The CLI allows you to `plan` and `apply` a Snowcap YAML config. You can specify a single input file or a directory of configs.
 
 In addition to `plan` and `apply`, the CLI also allows you to `export` resources. This makes it easy to generate a config for an existing Snowflake environment.
 
@@ -190,15 +218,15 @@ Note: the value for `SNOWFLAKE_AUTHENTICATOR` should be set to `SNOWFLAKE_JWT` w
 Show the help message
 
 ```sh
-titan --help
+snowcap --help
 
-# Usage: titan [OPTIONS] COMMAND [ARGS]...
-# 
-#   titan core helps you manage your Snowflake environment.
-# 
+# Usage: snowcap [OPTIONS] COMMAND [ARGS]...
+#
+#   snowcap helps you manage your Snowflake environment.
+#
 # Options:
 #   --help  Show this message and exit.
-# 
+#
 # Commands:
 #   apply    Apply a resource config to a Snowflake account
 #   connect  Test the connection to Snowflake
@@ -210,7 +238,7 @@ Apply a resource config to Snowflake
 
 ```sh
 # Create a resource config file
-cat <<EOF > titan.yml
+cat <<EOF > snowcap.yml
 roles:
   - name: transformer
 
@@ -231,39 +259,39 @@ export SNOWFLAKE_USER="my-user"
 export SNOWFLAKE_PASSWORD="my-password"
 
 # Generate a plan
-titan plan --config titan.yml
+snowcap plan --config snowcap.yml
 
 # Apply the config
-titan apply --config titan.yml
+snowcap apply --config snowcap.yml
 ```
 
 Export existing Snowflake resources to YAML.
 
 ```sh
-titan export \
+snowcap export \
   --resource=warehouse,grant,role \
-  --out=titan.yml
+  --out=snowcap.yml
 ```
 
-The Titan Core Python package installs the CLI script `titan`. You can alternatively use Python CLI module syntax if you need fine-grained control over the Python environment.
+The Snowcap Python package installs the CLI script `snowcap`. You can alternatively use Python CLI module syntax if you need fine-grained control over the Python environment.
 
 ```sh
-python -m titan plan --config titan.yml
+python -m snowcap plan --config snowcap.yml
 ```
 
 ### Using the GitHub Action
-The Titan Core GitHub Action allows you to automate the deployment of Snowflake resources using a git-based workflow.
+The Snowcap GitHub Action allows you to automate the deployment of Snowflake resources using a git-based workflow.
 
 ### GitHub Action Example
 
 ```YAML
--- .github/workflows/titan.yml
-name: Deploy to Snowflake with Titan
+-- .github/workflows/snowcap.yml
+name: Deploy to Snowflake with Snowcap
 on:
   push:
     branches: [ main ]
     paths:
-    - 'titan/**'
+    - 'snowcap/**'
 
 jobs:
   deploy:
@@ -273,10 +301,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Deploy to Snowflake
-        uses: Titan-Systems/titan-core-action@main
+        uses: datacoves/snowcap-action@main
         with:
           run-mode: 'create-or-update'
-          resource-path: './titan'
+          resource-path: './snowcap'
           allowlist: 'warehouse,role,grant'
           dry-run: 'false'
         env:
@@ -287,16 +315,16 @@ jobs:
           SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
 ```
 
-## Titan Core Limitations
+## Snowcap Limitations
 
- - **Titan Core uses names as unique identifiers**. Renaming a resource will create a new one.
- - Titan Core is not an ORM. It's not built to replace tools like SQLAlchemy.
- - Titan Core is under active development. Some resources are not yet supported.
+ - **Snowcap uses names as unique identifiers**. Renaming a resource will create a new one.
+ - Snowcap is not an ORM. It's not built to replace tools like SQLAlchemy.
+ - Snowcap is under active development. Some resources are not yet supported.
 
 
-## `titan core` vs other tools
+## `snowcap` vs other tools
 
-| Feature                                 | Titan Core | Terraform | Schemachange | Permifrost | SnowDDL |
+| Feature                                 | Snowcap | Terraform | Schemachange | Permifrost | SnowDDL |
 |-----------------------------------------|------------|-----------|--------------| -----------| -------- |
 | Plan and Execute Changes                | ✅ | ✅        | ❌ | ✅ | ✅ |
 | Declarative Config                      | ✅ | ✅        | ❌ | ✅ | ✅ |
@@ -307,32 +335,32 @@ jobs:
 | Export Snowflake resources              | ✅ | ❌        | ❌ | ❌ | ❌ |
 
 
-### `titan core` vs Terraform
+### `snowcap` vs Terraform
 Terraform is an infrastructure-as-code tool using the HCL config language.
 
 The [Snowflake provider for Terraform](https://github.com/Snowflake-Labs/terraform-provider-snowflake) is limited to **1 role per provider**. This limitation is at odds with Snowflake's design, which is built to use multiple roles. This mismatch forces you into a complex multi-provider setup which can result in drift, permission errors, and broken plans.
 
-Titan Core streamlines this with **dynamic role switching**. Titan Core automatically detects which role is needed for a given change, and switches to that role before making it. This speeds up development cycles and helps eliminate the use of `ACCOUNTADMIN`.
+Snowcap streamlines this with **dynamic role switching**. Snowcap automatically detects which role is needed for a given change, and switches to that role before making it. This speeds up development cycles and helps eliminate the use of `ACCOUNTADMIN`.
 
-Titan Core doesn't use a state file. This provides more accurate plans and eliminates issues with stale state.
+Snowcap doesn't use a state file. This provides more accurate plans and eliminates issues with stale state.
 
 
-### `titan core` vs Schemachange
+### `snowcap` vs Schemachange
 [Schemachange](https://github.com/Snowflake-Labs/schemachange) is a database migration tool based on Flyway. It uses SQL scripts to deploy resources to different environments.
 
 Schemachange is an imperative migration tool. For developers, that means you must know Snowflake's current state and the exact SQL commands needed to update it to the desired state. If environments get changed outside of the tool, your migration scripts may need significant adjustments.
 
-Titan Core simplifies this with a declarative approach. With Titan Core, just define what an environment should look like, you don't need to know the detailed steps or SQL commands needed to get there.
+Snowcap simplifies this with a declarative approach. With Snowcap, just define what an environment should look like, you don't need to know the detailed steps or SQL commands needed to get there.
 
 Declarative config is less error-prone and more scalable, especially in dynamic and complex data environments.
 
-### `titan core` vs Permifrost
+### `snowcap` vs Permifrost
 [Permifrost](https://gitlab.com/gitlab-data/permifrost/) is an access-management tool for Snowflake. It helps you automate the creation of users, roles, and grants. Permifrost only manages permissions, it doesn't manage any other aspect of your Snowflake account.
 
-Permifrost can be very slow. Running simple Permifrost configs can take minutes to run. Titan Core is designed to run in seconds, even with complex environments.
+Permifrost can be very slow. Running simple Permifrost configs can take minutes to run. Snowcap is designed to run in seconds, even with complex environments.
 
-### `titan core` vs SnowDDL
-[SnowDDL](https://github.com/littleK0i/SnowDDL) is a declarative object management tool for Snowflake, similar to Titan Core. It uses a streamlined [permissions model](https://docs.snowddl.com/guides/permission-model) that simplifies granting read and write access to databases and schemas.
+### `snowcap` vs SnowDDL
+[SnowDDL](https://github.com/littleK0i/SnowDDL) is a declarative object management tool for Snowflake, similar to Snowcap. It uses a streamlined [permissions model](https://docs.snowddl.com/guides/permission-model) that simplifies granting read and write access to databases and schemas.
 
 SnowDDL takes a strongly opinionated stance on roles in Snowflake. If you don't need a [3-tier role heirarchy](https://docs.snowddl.com/guides/role-hierarchy), SnowDDL may not be a good fit.
 
@@ -461,11 +489,11 @@ SnowDDL takes a strongly opinionated stance on roles in Snowflake. If you don't 
 
 ### What if I need a type of resource isn't supported?
 
-Please [create a GitHub issue](https://github.com/Titan-Systems/titan/issues) if there's a resource you need that isn't currently supported.
+Please [create a GitHub issue](https://github.com/datacoves/snowcap/issues) if there's a resource you need that isn't currently supported.
 
 ## Contributing
 
-Contributions are welcome! Titan Core does not require a contributor license agreement.
+Contributions are welcome! Snowcap does not require a contributor license agreement.
 
 ## The End
 

@@ -4,13 +4,13 @@ import pytest
 import snowflake.connector.errors
 
 from tests.helpers import get_json_fixtures
-from titan import data_provider
-from titan import resources as res
-from titan.blueprint import Blueprint, CreateResource, UpdateResource
-from titan.client import FEATURE_NOT_ENABLED_ERR, UNSUPPORTED_FEATURE, reset_cache
-from titan.data_provider import fetch_session
-from titan.resources import Resource
-from titan.scope import DatabaseScope, SchemaScope
+from snowcap import data_provider
+from snowcap import resources as res
+from snowcap.blueprint import Blueprint, CreateResource, UpdateResource
+from snowcap.client import FEATURE_NOT_ENABLED_ERR, UNSUPPORTED_FEATURE, reset_cache
+from snowcap.data_provider import fetch_session
+from snowcap.resources import Resource
+from snowcap.scope import DatabaseScope, SchemaScope
 
 JSON_FIXTURES = list(get_json_fixtures())
 TEST_ROLE = os.environ.get("TEST_SNOWFLAKE_ROLE")

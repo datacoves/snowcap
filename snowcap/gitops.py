@@ -14,7 +14,7 @@ from .resources import Database, DatabaseRoleGrant, Resource, RoleGrant, Schema,
 from .resources.resource import ResourcePointer
 from .var import process_for_each, string_contains_var
 
-logger = logging.getLogger("titan")
+logger = logging.getLogger("snowcap")
 
 ALIASES = {
     "account_parameters": ResourceType.ACCOUNT_PARAMETER,
@@ -269,8 +269,8 @@ def collect_blueprint_config(yaml_config: dict, cli_config: Optional[dict[str, A
 
 
 def crawl(path: str):
-    # Load .titanignore patterns if the file exists
-    gitignore_path = os.path.join(path, ".titanignore")
+    # Load .snowcapignore patterns if the file exists
+    gitignore_path = os.path.join(path, ".snowcapignore")
     if os.path.exists(gitignore_path):
         with open(gitignore_path) as f:
             spec = PathSpec.from_lines(GitWildMatchPattern, f.readlines())
@@ -285,7 +285,7 @@ def crawl(path: str):
         for file in files:
             if file.endswith(".yaml") or file.endswith(".yml"):
                 full_path = os.path.join(root, file)
-                # Get path relative to the base path for titanignore matching
+                # Get path relative to the base path for snowcapignore matching
                 rel_path = os.path.relpath(full_path, path)
                 if not spec.match_file(rel_path):
                     yield full_path
@@ -340,8 +340,8 @@ def parse_resources(resource_labels_str: Optional[str]) -> Optional[list[Resourc
 def collect_vars_from_environment() -> dict:
     vars = {}
     for key, value in os.environ.items():
-        if key.startswith("TITAN_VAR_"):
-            vars[key[10:].lower()] = value
+        if key.startswith("SNOWCAP_VAR_"):
+            vars[key[12:].lower()] = value
     return vars
 
 
