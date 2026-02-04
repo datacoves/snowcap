@@ -1,7 +1,7 @@
 """
-Policies are used to enforce constraints over a Snowcap project.
+Policies are used to enforce constraints over a Titan project.
 
-All Snowcap projects use the Snowcap Standard Policy by default
+All Titan projects use the Titan Standard Policy by default
 """
 
 from enum import Enum

@@ -2,9 +2,9 @@ import unittest
 
 from pyparsing import ParseException
 
-from snowcap.enums import DataType
-from snowcap.resources import Database
-from snowcap.props import (
+from titan.enums import DataType
+from titan.resources import Database
+from titan.props import (
     AlertConditionProp,
     BoolProp,
     ArgsProp,

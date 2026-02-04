@@ -1,33 +1,10 @@
-# `snowcap` - Snowflake infrastructure as code
-### Formerly Titan Core
+# `titan core` - Snowflake infrastructure as code
 
-## Brought to you by Datacoves
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="images/datacoves-dark.png">
-  <img alt="Datacoves" src="images/datacoves-light.png" width="150">
-</picture>
-
-Snowcap helps you provision, deploy, and secure resources in Snowflake. Datacoves takes it further: a managed DataOps platform for dbt and Airflow, deployable in your private cloud or available as SaaS.
-
-- **Private cloud or SaaS** - your data, your choice
-- **Managed dbt + Airflow** - production-ready from day one
-- **In-browser VS Code** - onboard developers in minutes
-- **Bring your own tools** - integrates with your existing stack, no lock-in
-- **AI-assisted development** - connect your organization's approved LLM (Anthropic, OpenAI, Azure, Gemini, and more)
-- **Built-in governance** - CI/CD, guardrails, and best practices included
-
-Snowcap is the power tools. Datacoves is the workshop.
-
-[Explore the platform →](https://datacoves.com)
-
----
-
-Snowcap replaces tools like Terraform, Schemachange, or Permifrost.
+Titan Core helps you provision, deploy, and secure resources in Snowflake. It replaces tools like Terraform, Schemachange, or Permifrost.
 
 Deploy any Snowflake resource, including users, roles, schemas, databases, integrations, pipes, stages, functions, stored procedures, and more. Convert adhoc, bug-prone SQL management scripts into simple, repeatable configuration.
 
-## Snowcap is for
+## Titan Core is for
 
 * DevOps engineers looking to automate and manage Snowflake infrastructure.
 * Analytics engineers working with dbt who want to manage Snowflake resources without macros.
@@ -44,14 +21,13 @@ Deploy any Snowflake resource, including users, roles, schemas, databases, integ
 
  * **Flexible** » Write resource configuration in YAML or Python
 
- * **Fast** » Snowcap runs 50-90% faster than Terraform and Permifrost
+ * **Fast** » Titan Core runs 50-90% faster than Terraform and Permifrost
 
  * **Migration-friendly** » Generate config automatically with the export CLI
 
 ## Contents
 
 * [Getting Started](getting-started.md): Installation and initial setup guide.
-* [Role-Based Access Control](role-based-access-control.md): Best practices for managing permissions with composite roles.
-* [Blueprint](blueprint.md): Customize and control how resources are deployed to Snowflake.
-* [GitHub Action](snowcap-github-action.md): For git-based workflows, including dbt.
+* [Blueprint](blueprint.md): Customize and control how resources are deployed to Snowflake
+* [GitHub Action](titan-core-github-action.md) - For git-based workflows, including dbt.
 

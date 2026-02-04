@@ -4,14 +4,14 @@ from typing import Optional
 import snowflake.connector.errors
 from inflection import pluralize
 
-from snowcap.client import UNSUPPORTED_FEATURE
-from snowcap.data_provider import fetch_resource, list_resource
-from snowcap.enums import ResourceType
-from snowcap.identifiers import URN, resource_label_for_type
-from snowcap.operations.connector import connect
-from snowcap.resources.grant import grant_yaml
+from titan.client import UNSUPPORTED_FEATURE
+from titan.data_provider import fetch_resource, list_resource
+from titan.enums import ResourceType
+from titan.identifiers import URN, resource_label_for_type
+from titan.operations.connector import connect
+from titan.resources.grant import grant_yaml
 
-logger = logging.getLogger("snowcap")
+logger = logging.getLogger("titan")
 
 
 def export_resources(

@@ -1,6 +1,6 @@
 import pytest
 
-from snowcap.parse import parse_collection_string
+from titan.parse import parse_collection_string
 
 
 # Test cases for parse_collection_string

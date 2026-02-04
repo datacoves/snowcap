@@ -1,12 +1,12 @@
 from dataclasses import dataclass
 
-from snowcap.enums import AccountEdition, ResourceType
-from snowcap.props import Props, StringProp, BoolProp, ArgsProp, ReturnsProp, QueryProp
-from snowcap.scope import SchemaScope
-from snowcap.resource_name import ResourceName
-from snowcap.resources.resource import Arg, NamedResource, Resource, ResourceSpec
-from snowcap.role_ref import RoleRef
-from snowcap.data_types import convert_to_canonical_data_type
+from titan.enums import AccountEdition, ResourceType
+from titan.props import Props, StringProp, BoolProp, ArgsProp, ReturnsProp, QueryProp
+from titan.scope import SchemaScope
+from titan.resource_name import ResourceName
+from titan.resources.resource import Arg, NamedResource, Resource, ResourceSpec
+from titan.role_ref import RoleRef
+from titan.data_types import convert_to_canonical_data_type
 
 
 @dataclass(unsafe_hash=True)

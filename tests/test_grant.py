@@ -1,11 +1,11 @@
 import pytest
 
-from snowcap import resources as res
-from snowcap.enums import ResourceType
-from snowcap.privs import all_privs_for_resource_type
-from snowcap.identifiers import URN
-from snowcap.resource_name import ResourceName
-from snowcap.resources.resource import ResourcePointer
+from titan import resources as res
+from titan.enums import ResourceType
+from titan.privs import all_privs_for_resource_type
+from titan.identifiers import URN
+from titan.resource_name import ResourceName
+from titan.resources.resource import ResourcePointer
 
 
 def test_grant_global_priv():

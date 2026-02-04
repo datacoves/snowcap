@@ -1,9 +1,9 @@
 import pytest
 
-from snowcap import resources as res
-from snowcap.blueprint import Blueprint, OrphanResourceException, _walk
-from snowcap.enums import ResourceType
-from snowcap.resources.resource import ResourcePointer
+from titan import resources as res
+from titan.blueprint import Blueprint, OrphanResourceException, _walk
+from titan.enums import ResourceType
+from titan.resources.resource import ResourcePointer
 
 
 @pytest.fixture

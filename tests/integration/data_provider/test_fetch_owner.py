@@ -3,7 +3,7 @@ import os
 import pytest
 
 from tests.helpers import safe_fetch
-from snowcap import resources as res
+from titan import resources as res
 
 pytestmark = pytest.mark.requires_snowflake
 

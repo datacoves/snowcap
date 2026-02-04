@@ -1,7 +1,7 @@
 import pytest
-from snowcap import resources as res
-from snowcap.resource_name import ResourceName
-from snowcap.identifiers import parse_URN
+from titan import resources as res
+from titan.resource_name import ResourceName
+from titan.identifiers import parse_URN
 
 from tests.helpers import safe_fetch
 

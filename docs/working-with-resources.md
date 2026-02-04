@@ -1,10 +1,10 @@
 # Working with Resources
 
-In the Snowcap framework, anything in Snowflake that can be created with a `CREATE` statement has a corresponding Python class, such as `Warehouse`, `Database`, `Role`, etc. These act as simple wrappers around configuration with built-in runtime type checking.
+In the Titan framework, anything in Snowflake that can be created with a `CREATE` statement has a corresponding Python class, such as `Warehouse`, `Database`, `Role`, etc. These act as simple wrappers around configuration with built-in runtime type checking.
 
 ## Introduction to Resources
 
-Resources in Snowcap are designed to be intuitive and straightforward. They encapsulate the configuration of Snowflake objects, ensuring that the properties and relationships between these objects are clearly defined and maintained.
+Resources in Titan are designed to be intuitive and straightforward. They encapsulate the configuration of Snowflake objects, ensuring that the properties and relationships between these objects are clearly defined and maintained.
 
 ### Instantiation and Configuration
 
@@ -31,14 +31,14 @@ Resources can be organized into containers that reflect their hierarchical relat
 
 ### Quoted Identifiers
 
-Snowcap attempts to infer the need for quoted identifiers in SQL statements. It is generally recommended to avoid manually quoting identifiers unless absolutely necessary, as Snowcap handles most of the common cases automatically.
+Titan attempts to infer the need for quoted identifiers in SQL statements. It is generally recommended to avoid manually quoting identifiers unless absolutely necessary, as Titan handles most of the common cases automatically.
 
 ## Advanced Configuration
 
-- **Manual Registration of Dependencies**: While Snowcap manages dependencies between resources automatically, there are rare cases where manual intervention might be necessary.
+- **Manual Registration of Dependencies**: While Titan manages dependencies between resources automatically, there are rare cases where manual intervention might be necessary.
     - **Avoid Circular Dependencies**: Design your resource dependencies to avoid circular references, which can lead to errors or undefined behaviors.
     - **Using `Resource.requires(...)`**: This method can be used to explicitly define dependencies if needed, though it is typically not required.
 
 - **Name Qualification**: In complex setups, fully qualifying resource names can help avoid ambiguity and ensure that SQL operations are performed on the correct objects.
 
-By understanding and utilizing these concepts, you can effectively manage and orchestrate Snowflake resources using the Snowcap framework, making your data infrastructure robust, scalable, and maintainable.
+By understanding and utilizing these concepts, you can effectively manage and orchestrate Snowflake resources using the Titan framework, making your data infrastructure robust, scalable, and maintainable.

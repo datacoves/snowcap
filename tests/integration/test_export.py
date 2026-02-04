@@ -1,9 +1,9 @@
 import pytest
 
-from snowcap.identifiers import URN, parse_FQN
-from snowcap.operations.export import export_resources, _format_resource_config
-from snowcap.enums import ResourceType
-from snowcap.data_provider import fetch_resource
+from titan.identifiers import URN, parse_FQN
+from titan.operations.export import export_resources, _format_resource_config
+from titan.enums import ResourceType
+from titan.data_provider import fetch_resource
 
 pytestmark = pytest.mark.requires_snowflake
 

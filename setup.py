@@ -1,26 +1,26 @@
 from setuptools import find_packages, setup
 
 setup(
-    name="snowcap",
+    name="titan-core",
     # Package version is managed by the string inside version.md. By default,
     # setuptools doesnt copy this file into the build package. So we direct
     # setuptools to include it using the `include_package_data=True` option
     # as well as the MANIFEST.in file which has the `include version.md` directive.
     version=open("version.md", encoding="utf-8").read().split(" ")[2],
     include_package_data=True,
-    description="Snowcap: Snowflake infrastructure as code",
+    description="Titan Core: Snowflake infrastructure as code",
     long_description=open("README.md", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
-    url="https://github.com/datacoves/snowcap",
-    author="Datacoves",
-    packages=find_packages(include=["snowcap", "snowcap.*"]),
+    url="https://github.com/Titan-Systems/titan",
+    author="TJ Murphy",
+    packages=find_packages(include=["titan", "titan.*"]),
     python_requires=">=3.9",
     project_urls={
-        "Homepage": "https://github.com/datacoves/snowcap",
+        "Homepage": "https://github.com/Titan-Systems/titan",
     },
     entry_points={
         "console_scripts": [
-            "snowcap=snowcap.cli:snowcap_cli",
+            "titan=titan.cli:titan_cli",
         ],
     },
     classifiers=[

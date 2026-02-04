@@ -10,7 +10,7 @@ from typing import Any, Optional, Type, TypedDict, Union, get_args, get_origin
 
 import pyparsing as pp
 
-from snowcap.data_types import convert_to_simple_data_type
+from titan.data_types import convert_to_simple_data_type
 
 from ..enums import AccountEdition, DataType, ParseableEnum, ResourceType
 from ..exceptions import (
@@ -35,7 +35,7 @@ from ..scope import (
 )
 from ..var import VarString, string_contains_var
 
-logger = logging.getLogger("snowcap")
+logger = logging.getLogger("titan")
 
 
 def _suggest_correct_kwargs(expected_kwargs, passed_kwargs):
@@ -590,7 +590,7 @@ class ResourceContainer:
 class NamedResource:
     """
     This class is a mixin that allows resources to be constructed with fully qualified names
-    without a bunch of user-land cruft to make it all work. This keeps snowcap close to the behavior
+    without a bunch of user-land cruft to make it all work. This keeps titan close to the behavior
     of snowflake.
 
     For example:

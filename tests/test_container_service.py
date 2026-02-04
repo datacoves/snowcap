@@ -1,7 +1,7 @@
 import pytest
 
-from snowcap.blueprint import Blueprint
-from snowcap.resources import (
+from titan.blueprint import Blueprint
+from titan.resources import (
     ComputePool,
     Database,
     ImageRepository,

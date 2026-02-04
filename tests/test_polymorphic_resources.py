@@ -1,13 +1,13 @@
 import logging
 import pytest
 
-from snowcap import resources as res
-from snowcap import Resource
-from snowcap.enums import ResourceType
+from titan import resources as res
+from titan import Resource
+from titan.enums import ResourceType
 from tests.helpers import get_json_fixture, camelcase_to_snakecase
 
 
-logger = logging.getLogger("snowcap")
+logger = logging.getLogger("titan")
 
 
 def test_internal_stage():
