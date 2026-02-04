@@ -1,7 +1,7 @@
 import pytest
 
-from titan import resources as res
-from titan.blueprint import (
+from snowcap import resources as res
+from snowcap.blueprint import (
     Blueprint,
     CreateResource,
     MissingPrivilegeException,
@@ -9,9 +9,9 @@ from titan.blueprint import (
     UpdateResource,
     compile_plan_to_sql,
 )
-from titan.enums import AccountEdition
-from titan.identifiers import parse_URN
-from titan.resource_name import ResourceName
+from snowcap.enums import AccountEdition
+from snowcap.identifiers import parse_URN
+from snowcap.resource_name import ResourceName
 
 
 @pytest.fixture

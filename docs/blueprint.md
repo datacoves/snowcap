@@ -9,8 +9,8 @@ In Python, you utilize the `Blueprint` class to create and manage blueprints. Wh
 ## Example
 
 ```Python
-from titan.blueprint import Blueprint
-from titan.resources import Database, Schema
+from snowcap.blueprint import Blueprint
+from snowcap.resources import Database, Schema
 
 bp = Blueprint(
     run_mode='create-or-update',
@@ -31,7 +31,7 @@ bp.apply(session, plan)
   - **create-or-update** (*default*): Resources are either created or updated, no resources are destroyed
   - **sync**:
     - `⚠️ WARNING` Sync mode will drop resources.
-    - Titan will update Snowflake to match the blueprint exactly. Must be used with `allowlist`.
+    - Snowcap will update Snowflake to match the blueprint exactly. Must be used with `allowlist`.
 
 **resources** `list[Resource]`
 - List of resources initialized in the blueprint.
@@ -49,13 +49,13 @@ bp.apply(session, plan)
 - A list of dictionaries defining the `name`, `type` and `default` (optional) of all expected vars.
 
 **scope** `str`
-- Limit Titan's scope to a single database or schema. Must be one of "DATABASE" or "SCHEMA". If not specified, Titan will manage any resource.
+- Limit Snowcap's scope to a single database or schema. Must be one of "DATABASE" or "SCHEMA". If not specified, Snowcap will manage any resource.
 
 **database** `str`
-- The name of a database to limit Titan's scope to. Must be used with `scope`.
+- The name of a database to limit Snowcap's scope to. Must be used with `scope`.
 
 **schema** `str`
-- The name of a schema to limit Titan's scope to. Must be used with `scope` and `database`.
+- The name of a schema to limit Snowcap's scope to. Must be used with `scope` and `database`.
 
 ## Methods
 
@@ -97,23 +97,23 @@ The add method allows you to add a resource to the blueprint.
 ### Vars in YAML
 In YAML, vars are specified with double curly braces.
 ```YAML
--- titan.yml
+-- snowcap.yml
 databases:
   - name: "db_{{ var.fruit }}"
 ```
 
-In the CLI, use the `--vars` flag to pass values to Titan
+In the CLI, use the `--vars` flag to pass values to Snowcap
 ```sh
 # Specify values as a key-value JSON string
-titan plan --config titan.yml \
+snowcap plan --config snowcap.yml \
   --vars '{"fruit": "banana"}'
 ```
 
-Alternatively, use environment variables to pass values to Titan. Vars environment variables must start with `TITAN_VAR_` and must be in uppercase.
+Alternatively, use environment variables to pass values to Snowcap. Vars environment variables must start with `SNOWCAP_VAR_` and must be in uppercase.
 
 ```sh
-export TITAN_VAR_FRUIT="peach"
-titan plan --config titan.yml
+export SNOWCAP_VAR_FRUIT="peach"
+snowcap plan --config snowcap.yml
 ```
 
 ### Vars defaults in YAML
@@ -137,17 +137,17 @@ databases:
 ### Vars in Python
 
 ```Python
-from titan.blueprint import Blueprint
-from titan.resources import Database
+from snowcap.blueprint import Blueprint
+from snowcap.resources import Database
 
-# In Python, a var can be specifed using Titan's var module
-from titan import var
+# In Python, a var can be specifed using Snowcap's var module
+from snowcap import var
 db1 = Database(name=var.db1_name)
 
 # Alternatively, a var can be specified inside a string with double curly braces. This is Jinja-style template syntax, not an f-string.
 db2 = Database(name="db_{{ var.db2_name }}")
 
-# Use the vars parameter to pass values to Titan
+# Use the vars parameter to pass values to Snowcap
 Blueprint(
   resources=[db1, db2],
   vars={
@@ -160,8 +160,8 @@ Blueprint(
 ### Vars defaults in Python
 
 ```Python
-from titan.blueprint import Blueprint
-from titan.resources import Database
+from snowcap.blueprint import Blueprint
+from snowcap.resources import Database
 
 # Use the vars_spec parameter to define a list of expected vars. You must specify a `type`, you can optionally specify a `default`.
 Blueprint(
@@ -182,11 +182,135 @@ Blueprint(
 )
 ```
 
+## Using for_each
+
+The `for_each` directive allows you to create multiple resources from a list of values. This is useful for creating resources, roles, and grants programmatically.
+
+### Basic for_each example
+
+```yaml
+vars:
+  - name: databases
+    type: list
+    default:
+      - name: raw
+        owner: loader
+      - name: analytics
+        owner: transformer_dbt
+
+databases:
+  - for_each: var.databases
+    name: "{{ each.value.name }}"
+    owner: "{{ each.value.owner }}"
+```
+
+This creates two databases: `raw` (owned by `loader`) and `analytics` (owned by `transformer_dbt`).
+
+### Accessing loop values
+
+Inside a `for_each` block, you have access to:
+
+- `each.value` - The current item in the list
+- `each.value.<field>` - Access fields of the current item
+- `each.index` - The index of the current item (0-based)
+
+### Using for_each with grants
+
+Create a role and grant for each database:
+
+```yaml
+vars:
+  - name: databases
+    type: list
+    default:
+      - name: raw
+      - name: analytics
+
+# Create a role for each database
+roles:
+  - for_each: var.databases
+    name: "z_db__{{ each.value.name }}"
+
+# Grant USAGE on each database to its corresponding role
+grants:
+  - for_each: var.databases
+    priv: USAGE
+    on: "database {{ each.value.name }}"
+    to: "z_db__{{ each.value.name }}"
+```
+
+### Multiple grants per iteration
+
+Use a list for the `on` parameter to create multiple grants per iteration:
+
+```yaml
+grants:
+  - for_each: var.databases
+    priv: "SELECT"
+    on:
+      - "all tables in database {{ each.value.name }}"
+      - "all views in database {{ each.value.name }}"
+      - "future tables in database {{ each.value.name }}"
+      - "future views in database {{ each.value.name }}"
+    to: z_tables_views__select
+```
+
+### Accessing nested values
+
+For complex data structures, use dot notation or Jinja filters:
+
+```yaml
+vars:
+  - name: schemas
+    type: list
+    default:
+      - name: RAW.FINANCE
+      - name: RAW.MARKETING
+      - name: ANALYTICS.REPORTS
+
+schemas:
+  - for_each: var.schemas
+    name: "{{ each.value.name.split('.')[1] }}"
+    database: "{{ each.value.name.split('.')[0] }}"
+```
+
+### Using default values
+
+Use Jinja's `default` filter or `.get()` method for optional fields:
+
+```yaml
+warehouses:
+  - for_each: var.warehouses
+    name: "{{ each.value.name }}"
+    warehouse_size: "{{ each.value.size }}"
+    statement_timeout_in_seconds: "{{ each.value.statement_timeout_in_seconds | default(3600) }}"
+```
+
+Or with `.get()`:
+
+```yaml
+schemas:
+  - for_each: var.schemas
+    owner: "{{ each.value.get('owner', 'SYSADMIN') }}"
+```
+
+### Using parent attributes
+
+When a resource has a parent (like a schema in a database), you can access the parent's attributes:
+
+```yaml
+schemas:
+  - for_each: var.schemas
+    name: "{{ each.value.name.split('.')[1] }}"
+    database: "{{ each.value.name.split('.')[0] }}"
+    owner: "{{ each.value.get('owner', parent.owner) }}"
+```
+
 ## Using scope
 
 `🔬 EXPERIMENTAL`
 
-When the `scope` parameter is used, Titan will limit which resources are allowed and limit where those resources are located within Snowflake.
+When the `scope` parameter is used, Snowcap will limit which resources are allowed and limit where those resources are located within Snowflake.
 
 ### Using database scope
 
@@ -240,9 +364,9 @@ procedures: ...
 ```
 
 ```sh
-titan apply --config dev_schema.yml --schema=SCH_TEEJ
-titan apply --config dev_schema.yml --schema=SCH_ALLY
-titan apply --config dev_schema.yml --schema=SCH_DAVE
+snowcap apply --config dev_schema.yml --schema=SCH_TEEJ
+snowcap apply --config dev_schema.yml --schema=SCH_ALLY
+snowcap apply --config dev_schema.yml --schema=SCH_DAVE
 ```
 
 ### Scope example: combine scope with vars
@@ -259,6 +383,6 @@ procedures: ...
 ```
 
 ```sh
-titan apply --config finance.yml --vars='{"env": "stage"}'
-titan apply --config finance.yml --vars='{"env": "prod"}'
+snowcap apply --config finance.yml --vars='{"env": "stage"}'
+snowcap apply --config finance.yml --vars='{"env": "prod"}'
 ```

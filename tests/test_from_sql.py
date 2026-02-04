@@ -1,8 +1,8 @@
 import pytest
 
-from titan import resources as res
-from titan.enums import ResourceType
-from titan.resources.resource import ResourcePointer
+from snowcap import resources as res
+from snowcap.enums import ResourceType
+from snowcap.resources.resource import ResourcePointer
 
 
 def test_from_sql_fqn_parsing():

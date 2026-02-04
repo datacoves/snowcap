@@ -4,9 +4,9 @@ import pytest
 import snowflake.connector
 
 from tests.helpers import safe_fetch
-from titan import data_provider
-from titan import resources as res
-from titan.blueprint import (
+from snowcap import data_provider
+from snowcap import resources as res
+from snowcap.blueprint import (
     Blueprint,
     CreateResource,
     DropResource,
@@ -14,11 +14,11 @@ from titan.blueprint import (
     UpdateResource,
     compile_plan_to_sql,
 )
-from titan.client import reset_cache
-from titan.enums import BlueprintScope, ResourceType
-from titan.exceptions import NotADAGException
-from titan.gitops import collect_blueprint_config
-from titan.resources.database import public_schema_urn
+from snowcap.client import reset_cache
+from snowcap.enums import BlueprintScope, ResourceType
+from snowcap.exceptions import NotADAGException
+from snowcap.gitops import collect_blueprint_config
+from snowcap.resources.database import public_schema_urn
 
 TEST_ROLE = os.environ.get("TEST_SNOWFLAKE_ROLE")
 

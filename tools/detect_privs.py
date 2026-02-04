@@ -2,9 +2,9 @@ import os
 
 import snowflake.connector
 
-from titan.data_provider import _show_grants_to_role
-from titan.builtins import SYSTEM_ROLES
-from titan.privs import SchemaPriv
+from snowcap.data_provider import _show_grants_to_role
+from snowcap.builtins import SYSTEM_ROLES
+from snowcap.privs import SchemaPriv
 
 connection_params = {
     "account": os.environ["SNOWFLAKE_ACCOUNT"],

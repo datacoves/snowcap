@@ -6,11 +6,11 @@ from dataclasses import fields
 from typing import Any, get_args, get_origin
 
 from tests.helpers import get_json_fixtures
-from titan.data_types import convert_to_canonical_data_type
-from titan.enums import AccountEdition
-from titan.resources import Resource
-from titan.resource_name import ResourceName
-from titan.role_ref import RoleRef
+from snowcap.data_types import convert_to_canonical_data_type
+from snowcap.enums import AccountEdition
+from snowcap.resources import Resource
+from snowcap.resource_name import ResourceName
+from snowcap.role_ref import RoleRef
 
 JSON_FIXTURES = list(get_json_fixtures())
 

@@ -1,6 +1,6 @@
-from titan import resources as res
-from titan import var
-from titan.var import VarString
+from snowcap import resources as res
+from snowcap import var
+from snowcap.var import VarString
 
 
 def test_blueprint_vars_comparison_with_system_names():

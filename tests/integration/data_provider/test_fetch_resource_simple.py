@@ -3,11 +3,11 @@ import os
 import pytest
 
 from tests.helpers import safe_fetch
-from titan import data_provider
-from titan import resources as res
-from titan.enums import AccountCloud
-from titan.resources import Resource
-from titan.scope import AccountScope, DatabaseScope, SchemaScope
+from snowcap import data_provider
+from snowcap import resources as res
+from snowcap.enums import AccountCloud
+from snowcap.resources import Resource
+from snowcap.scope import AccountScope, DatabaseScope, SchemaScope
 
 pytestmark = pytest.mark.requires_snowflake
 

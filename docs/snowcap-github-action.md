@@ -1,21 +1,23 @@
-# `titan core` GitHub Action
+# `snowcap` GitHub Action
+
+> **Note:** The Snowcap GitHub Action (`datacoves/snowcap-action`) will be available in a future release.
 
 ## Using the GitHub action
 
-To add the Titan Core GitHub action to your repository, follow these steps:
+To add the Snowcap GitHub action to your repository, follow these steps:
 
-### Create a Titan workflow file
+### Create a Snowcap workflow file
 
-Create a file in the GitHub workflows directory of your repo (`.github/workflows/titan.yml`)
+Create a file in the GitHub workflows directory of your repo (`.github/workflows/snowcap.yml`)
 
 ```YAML
--- .github/workflows/titan.yml
-name: Deploy to Snowflake with Titan
+-- .github/workflows/snowcap.yml
+name: Deploy to Snowflake with Snowcap
 on:
   push:
     branches: [ main ]
     paths:
-    - 'titan/**'
+    - 'snowcap/**'
 
 jobs:
   deploy:
@@ -25,10 +27,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Deploy to Snowflake
-        uses: Titan-Systems/titan-core-action@main
+        uses: datacoves/snowcap-action@main
         with:
           run-mode: 'create-or-update'
-          resource-path: './titan'
+          resource-path: './snowcap'
           allowlist: 'warehouse,role,grant'
           dry-run: 'false'
         env:
@@ -44,12 +46,12 @@ jobs:
 Go to your GitHub repository settings, navigate to `Secrets`. There, add a secret for `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, and whatever other connection settings you need.
 
 
-### Create a `titan` directory in your repository
+### Create a `snowcap` directory in your repository
 
-Add YAML resource configs to the `titan` directory.
+Add YAML resource configs to the `snowcap` directory.
 
 ```YAML
-# titan/warehouses.yml
+# snowcap/warehouses.yml
 warehouses:
   - name: reporting
     warehouse_size: XSMALL
@@ -58,7 +60,7 @@ warehouses:
 ```
 
 ```YAML
-# titan/rbac.yml
+# snowcap/rbac.yml
 
 roles:
   - name: reporter
@@ -80,7 +82,7 @@ role_grants:
 
 ### Commit and push your changes
 
-When you push to `main` changes to files in the `titan/` directory, the Github Action will deploy them to Snowflake.
+When you push to `main` changes to files in the `snowcap/` directory, the Github Action will deploy them to Snowflake.
 
 ## Configuration options
 
@@ -93,17 +95,17 @@ Defines how the blueprint interacts with the Snowflake account
   - Resources are either created or updated, no resources are destroyed
 - **sync**:
   - `⚠️ WARNING` Sync mode will drop resources.
-  - Titan will update Snowflake to match the blueprint exactly. Must be used with `allowlist`.
+  - Snowcap will update Snowflake to match the blueprint exactly. Must be used with `allowlist`.
 
 **resource-path** `string`
 
-Defines the file or directory where Titan will look for the resource configs
+Defines the file or directory where Snowcap will look for the resource configs
 
 - Default: `"."`
 
 **allowlist** `list[string] or "all"`
 
-Defines which resource types are allowed 
+Defines which resource types are allowed
 
  - Default: `"all"`
 
@@ -119,14 +121,14 @@ Defines which resource types are allowed
 
 **schema** `str`
 
-## Ignore files with `.titanignore`
+## Ignore files with `.snowcapignore`
 
-If you specify a directory as the `resource-path`, Titan will recursively look for all files with a `.yaml` or `.yml` file extension. You can tell Titan to exclude files or directories with a `.titanignore` file. This file uses [gitignore syntax](https://git-scm.com/docs/gitignore).
+If you specify a directory as the `resource-path`, Snowcap will recursively look for all files with a `.yaml` or `.yml` file extension. You can tell Snowcap to exclude files or directories with a `.snowcapignore` file. This file uses [gitignore syntax](https://git-scm.com/docs/gitignore).
 
-### `.titanignore` example
+### `.snowcapignore` example
 
 ```
-# .titanignore
+# .snowcapignore
 
 # Ignore dbt config
 dbt_project.yml

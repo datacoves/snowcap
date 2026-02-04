@@ -1,4 +1,4 @@
-from titan.operations.export import export_resources
+from snowcap.operations.export import export_resources
 
 
 def main():

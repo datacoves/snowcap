@@ -4,10 +4,10 @@ import sys
 
 from inflection import pluralize
 
-import titan
-import titan.data_provider
-from titan import Resource
-from titan.identifiers import resource_label_for_type
+import snowcap
+import snowcap.data_provider
+from snowcap import Resource
+from snowcap.identifiers import resource_label_for_type
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -108,10 +108,10 @@ def check_resource_coverage():
         name = f"↳ {resource.__name__}" if resource in polymorphic_resources else resource.__name__
         has_json = resource in JSON_FIXTURES
         has_sql = resource in SQL_FIXTURES
-        has_fetch = hasattr(titan.data_provider, f"fetch_{resource_label}")
+        has_fetch = hasattr(snowcap.data_provider, f"fetch_{resource_label}")
         has_tests = f"test_fetch_{class_label}" in test_fetch_file
         has_docs = class_label in DOCS
-        has_list = hasattr(titan.data_provider, f"list_{pluralize(resource_label)}")
+        has_list = hasattr(snowcap.data_provider, f"list_{pluralize(resource_label)}")
         is_stable = all([has_json, has_sql, has_fetch, has_tests, has_docs])
 
         if is_stable:

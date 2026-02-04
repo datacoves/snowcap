@@ -6,7 +6,7 @@ from tests.helpers import (
     assert_resource_dicts_eq_ignore_nulls,
     safe_fetch,
 )
-from titan import resources as res
+from snowcap import resources as res
 
 pytestmark = pytest.mark.requires_snowflake
 

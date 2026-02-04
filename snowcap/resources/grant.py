@@ -21,7 +21,7 @@ from .resource import NamedResource, Resource, ResourcePointer, ResourceSpec
 from .role import DatabaseRole, Role
 from .user import User
 
-logger = logging.getLogger("titan")
+logger = logging.getLogger("snowcap")
 
 
 @dataclass(unsafe_hash=True)

@@ -1,25 +1,27 @@
 import json
+import os
 from typing import Any
 
 import rich_click as click
 import yaml
 
-from titan.blueprint import dump_plan
-from titan.enums import BlueprintScope
-from titan.gitops import (
+from snowcap import LOGO
+from snowcap.blueprint import dump_plan
+from snowcap.enums import BlueprintScope
+from snowcap.gitops import (
     collect_configs_from_path,
     collect_vars_from_environment,
     merge_configs,
     merge_vars,
     parse_resources,
 )
-from titan.operations.blueprint import (
+from snowcap.operations.blueprint import (
     blueprint_apply,
     blueprint_apply_plan,
     blueprint_plan,
 )
-from titan.operations.connector import connect, get_env_vars
-from titan.operations.export import export_resources
+from snowcap.operations.connector import connect, get_env_vars
+from snowcap.operations.export import export_resources
 
 click.rich_click.ERRORS_SUGGESTION = "Try using the '--debug' flag for more information.\n"
 
@@ -54,9 +56,36 @@ def load_plan(plan_file):
     return plan
 
 
+def get_version():
+    """Read version from version.md file."""
+    version_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "version.md")
+    try:
+        with open(version_file, encoding="utf-8") as f:
+            return f.read().split(" ")[2].strip()
+    except (FileNotFoundError, IndexError):
+        return "unknown"
+
+
+def version_callback(ctx, param, value):
+    """Custom version callback that shows logo and version."""
+    if not value or ctx.resilient_parsing:
+        return
+    click.echo(LOGO)
+    click.echo(f"snowcap version {get_version()}")
+    ctx.exit()
+
+
 @click.group()
-def titan_cli():
-    """titan core helps you manage your Snowflake environment."""
+@click.option(
+    "--version",
+    is_flag=True,
+    callback=version_callback,
+    expose_value=False,
+    is_eager=True,
+    help="Show version and exit.",
+)
+def snowcap_cli():
+    """snowcap helps you manage your Snowflake environment."""
     pass
 
 
@@ -127,7 +156,7 @@ def debug_option():
     )
 
 
-@titan_cli.command("plan", no_args_is_help=True)
+@snowcap_cli.command("plan", no_args_is_help=True)
 @config_path_option()
 @click.option("--json", "json_output", is_flag=True, help="Output plan in machine-readable JSON format")
 @click.option("--out", "output_file", type=str, help="Write plan to a file", metavar="<filename>")
@@ -183,7 +212,7 @@ def plan(config_path, json_output, output_file, vars: dict, sync_resources, scop
             raise click.UsageError(str(e))
 
 
-@titan_cli.command("apply", no_args_is_help=True)
+@snowcap_cli.command("apply", no_args_is_help=True)
 @config_path_option()
 @click.option("--plan", "plan_file", type=str, help="Path to plan JSON file", metavar="<filename>")
 @vars_option()
@@ -191,7 +220,7 @@ def plan(config_path, json_output, output_file, vars: dict, sync_resources, scop
 @scope_option()
 @database_option()
 @schema_option()
-@click.option("--dry-run", is_flag=True, help="When dry run is true, Titan will not make any changes to Snowflake")
+@click.option("--dry-run", is_flag=True, help="When dry run is true, Snowcap will not make any changes to Snowflake")
 @debug_option()
 def apply(config_path, plan_file, vars, sync_resources, scope, database, schema, dry_run, debug):
     """Apply a resource config to a Snowflake account"""
@@ -238,7 +267,7 @@ def apply(config_path, plan_file, vars, sync_resources, scope, database, schema,
             raise click.UsageError(str(e))
 
 
-@titan_cli.command("export", context_settings={"show_default": True}, no_args_is_help=True)
+@snowcap_cli.command("export", context_settings={"show_default": True}, no_args_is_help=True)
 @click.option(
     "--resource",
     "resources",
@@ -270,15 +299,15 @@ def export(resources, export_all, exclude_resources, out, format):
 
     \b
     # Export all database configurations to a file
-    titan export --resource=database --out=databases.yml --format=yml
+    snowcap export --resource=database --out=databases.yml --format=yml
 
     \b
     # Export all resources
-    titan export --all --out=titan.yml --format=yml
+    snowcap export --all --out=snowcap.yml --format=yml
 
     \b
     # Export all resources except for users and roles
-    titan export --all --exclude=user,role --out=titan.yml
+    snowcap export --all --exclude=user,role --out=snowcap.yml
     """
 
     if resources and export_all:
@@ -307,7 +336,7 @@ def export(resources, export_all, exclude_resources, out, format):
         print(output)
 
 
-@titan_cli.command("connect")
+@snowcap_cli.command("connect")
 def cli_connect():
     """Test the connection to Snowflake"""
     env_vars = get_env_vars()
@@ -321,4 +350,4 @@ def cli_connect():
 
 
 if __name__ == "__main__":
-    titan_cli()
+    snowcap_cli()

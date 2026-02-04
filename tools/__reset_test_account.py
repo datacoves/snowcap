@@ -4,11 +4,11 @@ import snowflake.connector
 import yaml
 from dotenv import dotenv_values
 
-from titan import resources as res
-from titan.blueprint import Blueprint, print_plan
-from titan.data_provider import fetch_session
-from titan.enums import AccountEdition
-from titan.gitops import collect_blueprint_config
+from snowcap import resources as res
+from snowcap.blueprint import Blueprint, print_plan
+from snowcap.data_provider import fetch_session
+from snowcap.enums import AccountEdition
+from snowcap.gitops import collect_blueprint_config
 
 
 def read_config(file) -> dict:

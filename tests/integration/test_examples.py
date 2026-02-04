@@ -2,9 +2,9 @@ import pytest
 import yaml
 
 from tests.helpers import dump_resource_change, get_examples_yml
-from titan.blueprint import Blueprint
-from titan.enums import ResourceType
-from titan.gitops import collect_blueprint_config
+from snowcap.blueprint import Blueprint
+from snowcap.enums import ResourceType
+from snowcap.gitops import collect_blueprint_config
 
 EXAMPLES_YML = list(get_examples_yml())
 VARS = {
