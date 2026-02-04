@@ -17,7 +17,7 @@ from .resource import NamedResource, Resource, ResourceSpec
 from .role import Role
 from .tag import TaggableResource
 
-logger = logging.getLogger("snowcap")
+logger = logging.getLogger("titan")
 
 
 class UserType(ParseableEnum):

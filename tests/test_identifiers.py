@@ -2,10 +2,10 @@ import pytest
 
 import pyparsing as pp
 
-from snowcap import resources as res
-from snowcap.identifiers import parse_URN, smart_split
-from snowcap.parse import FullyQualifiedIdentifier
-from snowcap.resource_name import ResourceName
+from titan import resources as res
+from titan.identifiers import parse_URN, smart_split
+from titan.parse import FullyQualifiedIdentifier
+from titan.resource_name import ResourceName
 
 IDENTIFIER_TEST_CASES = [
     ("tbl", ["tbl"]),

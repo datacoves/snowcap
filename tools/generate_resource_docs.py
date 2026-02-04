@@ -5,7 +5,7 @@ import sys
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOCS_ROOT = os.path.join(REPO_ROOT, "docs")
-RESOURCES_ROOT = os.path.join(REPO_ROOT, "snowcap", "resources")
+RESOURCES_ROOT = os.path.join(REPO_ROOT, "titan", "resources")
 
 doc_template = """\
 ---
@@ -46,7 +46,7 @@ summary_template = """\
 * [Getting Started](getting-started.md)
 * [Working With Resources](working-with-resources.md)
 * [Blueprint](blueprint.md)
-* [GitHub Action](snowcap-github-action.md)
+* [GitHub Action](titan-core-github-action.md)
 
 ## Resources
 

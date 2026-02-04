@@ -9,7 +9,7 @@ from snowflake.connector.connection import SnowflakeConnection
 from snowflake.connector.cursor import SnowflakeCursor
 from snowflake.connector.errors import ProgrammingError
 
-logger = logging.getLogger("snowcap")
+logger = logging.getLogger("titan")
 
 UNSUPPORTED_FEATURE = 2
 SYNTAX_ERROR = 1003

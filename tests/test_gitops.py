@@ -2,8 +2,8 @@ import pytest
 from inflection import pluralize
 
 from tests.helpers import get_json_fixtures
-from snowcap.gitops import collect_blueprint_config
-from snowcap.identifiers import resource_label_for_type
+from titan.gitops import collect_blueprint_config
+from titan.identifiers import resource_label_for_type
 
 JSON_FIXTURES = list(get_json_fixtures())
 

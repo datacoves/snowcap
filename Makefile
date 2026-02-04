@@ -19,7 +19,7 @@ style:
 
 
 typecheck:
-	mypy --exclude="snowcap/resources/.*" --exclude="snowcap/sql.py" --follow-imports=skip snowcap/
+	mypy --exclude="titan/resources/.*" --exclude="titan/sql.py" --follow-imports=skip titan/
 
 check: style typecheck test
 
@@ -29,7 +29,7 @@ clean:
 
 build:
 	mkdir -p dist
-	zip -vrX dist/snowcap-$(shell python setup.py -V).zip snowcap/
+	zip -vrX dist/titan-$(shell python setup.py -V).zip titan/
 
 docs: 
 	python tools/generate_resource_docs.py

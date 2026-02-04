@@ -3,20 +3,20 @@ import logging
 import os
 import re
 
-from snowcap import data_provider
-from snowcap.blueprint import (
+from titan import data_provider
+from titan.blueprint import (
     CreateResource,
     DropResource,
     TransferOwnership,
     UpdateResource,
 )
-from snowcap.client import reset_cache
-from snowcap.parse import _split_statements
-from snowcap.resource_name import ResourceName
-from snowcap.resources import Resource
-from snowcap.resources.resource import ResourceSpec
+from titan.client import reset_cache
+from titan.parse import _split_statements
+from titan.resource_name import ResourceName
+from titan.resources import Resource
+from titan.resources.resource import ResourceSpec
 
-logger = logging.getLogger("snowcap")
+logger = logging.getLogger("titan")
 
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
 EXAMPLES_DIR = os.path.join(os.path.dirname(__file__), "../examples")

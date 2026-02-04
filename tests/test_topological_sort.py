@@ -1,4 +1,4 @@
-from snowcap.blueprint import topological_sort
+from titan.blueprint import topological_sort
 
 resource_set = {
     'urn:::role_grant/private_equity_associate?user="c.black@arrakisinvestments.com"',

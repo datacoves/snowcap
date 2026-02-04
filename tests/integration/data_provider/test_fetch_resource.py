@@ -9,14 +9,14 @@ from tests.helpers import (
     clean_resource_data,
     safe_fetch,
 )
-from snowcap import data_provider
-from snowcap import resources as res
-from snowcap.client import UNSUPPORTED_FEATURE, reset_cache
-from snowcap.enums import ResourceType
-from snowcap.identifiers import URN, parse_FQN, parse_URN
-from snowcap.resource_name import ResourceName
-from snowcap.resources import Resource
-from snowcap.resources.resource import ResourcePointer
+from titan import data_provider
+from titan import resources as res
+from titan.client import UNSUPPORTED_FEATURE, reset_cache
+from titan.enums import ResourceType
+from titan.identifiers import URN, parse_FQN, parse_URN
+from titan.resource_name import ResourceName
+from titan.resources import Resource
+from titan.resources.resource import ResourcePointer
 
 pytestmark = pytest.mark.requires_snowflake
 
@@ -600,7 +600,7 @@ def test_fetch_network_policy(cursor, suffix, marked_for_cleanup):
 
 
 def test_fetch_external_volume(cursor, suffix, marked_for_cleanup):
-    from snowcap.resources.external_volume import ExternalVolumeStorageLocation
+    from titan.resources.external_volume import ExternalVolumeStorageLocation
 
     volume = res.ExternalVolume(
         name=f"SOME_EXTERNAL_VOLUME_{suffix}",

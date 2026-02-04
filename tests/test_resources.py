@@ -4,13 +4,13 @@ import re
 import pytest
 
 from tests.helpers import get_sql_fixtures
-from snowcap import resources as res
-from snowcap.enums import ResourceType, WarehouseSize
-from snowcap.resource_name import ResourceName
-from snowcap.resource_tags import ResourceTags
-from snowcap.resources.resource import ResourcePointer
-from snowcap.resources.user import UserType
-from snowcap.resources.view import ViewColumn
+from titan import resources as res
+from titan.enums import ResourceType, WarehouseSize
+from titan.resource_name import ResourceName
+from titan.resource_tags import ResourceTags
+from titan.resources.resource import ResourcePointer
+from titan.resources.user import UserType
+from titan.resources.view import ViewColumn
 
 SQL_FIXTURES = list(get_sql_fixtures())
 

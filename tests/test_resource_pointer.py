@@ -1,9 +1,9 @@
 import pytest
 
-import snowcap.resources as res
+import titan.resources as res
 
-from snowcap.enums import ResourceType
-from snowcap.resources.resource import ResourcePointer
+from titan.enums import ResourceType
+from titan.resources.resource import ResourcePointer
 
 
 def test_fqn_construction():

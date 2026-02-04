@@ -3,28 +3,28 @@ from copy import deepcopy
 
 import pytest
 
-from snowcap import resources as res
-from snowcap import var
-from snowcap.blueprint import (
+from titan import resources as res
+from titan import var
+from titan.blueprint import (
     Blueprint,
     CreateResource,
     _merge_pointers,
     compile_plan_to_sql,
     dump_plan,
 )
-from snowcap.blueprint_config import BlueprintConfig
-from snowcap.enums import AccountEdition, BlueprintScope, ResourceType
-from snowcap.exceptions import (
+from titan.blueprint_config import BlueprintConfig
+from titan.enums import AccountEdition, BlueprintScope, ResourceType
+from titan.exceptions import (
     DuplicateResourceException,
     InvalidResourceException,
     MissingVarException,
     NonConformingPlanException,
     WrongEditionException,
 )
-from snowcap.identifiers import FQN, URN, parse_URN
-from snowcap.resource_name import ResourceName
-from snowcap.resources.resource import ResourcePointer
-from snowcap.var import VarString
+from titan.identifiers import FQN, URN, parse_URN
+from titan.resource_name import ResourceName
+from titan.resources.resource import ResourcePointer
+from titan.var import VarString
 
 
 @pytest.fixture

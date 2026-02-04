@@ -42,7 +42,7 @@ from .resource_name import (
 
 __this__ = sys.modules[__name__]
 
-logger = logging.getLogger("snowcap")
+logger = logging.getLogger("titan")
 
 
 class SessionContext(TypedDict):
@@ -686,7 +686,7 @@ def fetch_role_privileges(
                     name=grant["name"],
                 )
                 role_privileges[role].append(granted_priv)
-            # If snowcap isnt aware of the privilege, ignore it
+            # If titan isnt aware of the privilege, ignore it
             except ValueError:
                 continue
     return role_privileges
@@ -2526,7 +2526,7 @@ def list_grants(session: SnowflakeConnection) -> list[FQN]:
             if data["granted_on"] == "ROLE":
                 continue
 
-            # Snowcap Grants don't support OWNERSHIP privilege
+            # Titan Grants don't support OWNERSHIP privilege
             if data["privilege"] == "OWNERSHIP":
                 continue
 

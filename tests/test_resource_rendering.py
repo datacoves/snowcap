@@ -1,4 +1,4 @@
-import snowcap.resources as res
+import titan.resources as res
 
 
 def test_resource_pointer_rendering():

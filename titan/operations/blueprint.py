@@ -1,11 +1,11 @@
 from typing import Any
 
-from snowcap.blueprint import Blueprint
-from snowcap.blueprint import plan_from_dict
-from snowcap.blueprint_config import BlueprintConfig
+from titan.blueprint import Blueprint
+from titan.blueprint import plan_from_dict
+from titan.blueprint_config import BlueprintConfig
 
-from snowcap.gitops import collect_blueprint_config
-from snowcap.operations.connector import connect
+from titan.gitops import collect_blueprint_config
+from titan.operations.connector import connect
 
 
 def blueprint_plan(yaml_config: dict, cli_config: dict[str, Any]):

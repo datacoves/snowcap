@@ -1,13 +1,13 @@
 import pytest
 
-from snowcap import resources as res
-from snowcap.blueprint import _merge_pointers
-from snowcap.resources.resource import ResourcePointer
-from snowcap.enums import ResourceType
+from titan import resources as res
+from titan.blueprint import _merge_pointers
+from titan.resources.resource import ResourcePointer
+from titan.enums import ResourceType
 
-# from snowcap.identifiers import parse_URN
-# from snowcap.privs import AccountPriv, DatabasePriv, GrantedPrivilege
-# from snowcap.resource_name import ResourceName
+# from titan.identifiers import parse_URN
+# from titan.privs import AccountPriv, DatabasePriv, GrantedPrivilege
+# from titan.resource_name import ResourceName
 
 
 def test_merge_account_scoped_pointers():

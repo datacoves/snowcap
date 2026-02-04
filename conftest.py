@@ -5,7 +5,7 @@ import pytest
 import snowflake.connector
 from dotenv import dotenv_values
 
-from snowcap.enums import ResourceType
+from titan.enums import ResourceType
 
 
 TEST_ROLE = os.environ.get("TEST_SNOWFLAKE_ROLE")
@@ -71,7 +71,7 @@ def marked_for_cleanup() -> list:
 def cursor(suffix, test_db, marked_for_cleanup):
     session = snowflake.connector.connect(**connection_params())
     with session.cursor(snowflake.connector.DictCursor) as cur:
-        cur.execute(f"ALTER SESSION set query_tag='snowcap_package:test::{suffix}'")
+        cur.execute(f"ALTER SESSION set query_tag='titan_package:test::{suffix}'")
         cur.execute(f"CREATE DATABASE {test_db}")
         try:
             yield cur

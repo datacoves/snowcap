@@ -3,9 +3,9 @@ import os
 import pytest
 
 from tests.helpers import safe_fetch
-from snowcap import lifecycle
-from snowcap import resources as res
-from snowcap.blueprint import Blueprint
+from titan import lifecycle
+from titan import resources as res
+from titan.blueprint import Blueprint
 
 pytestmark = pytest.mark.requires_snowflake
 

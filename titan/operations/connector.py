@@ -456,7 +456,7 @@ def _raise_errors_related_to_session_token(using_session_token: bool, using_mast
 
 def _update_connection_application_name(connection_parameters: Dict):
     connection_application_params = {
-        "application_name": "snowcap",
+        "application_name": "titan-core",
     }
     connection_parameters.update(connection_application_params)
 

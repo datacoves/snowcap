@@ -1,0 +1,543 @@
+roles:
+  - name: z_wh_integration
+  - name: z_schema_l1_loans
+  - name: z_wh_catalog
+  - name: securityadmin
+  - name: z_schema_resources
+  - name: z_stage_resources_write
+  - name: z_schema_raw
+  - name: z_policy_create_integration
+  - name: z_schema_l1_observe
+  - name: de_analyst
+  - name: bot_integration
+  - name: transformer_dbt
+  - name: z_schema_l1_country_data
+  - name: z_db_balboa_apps
+  - name: z_schema_snapshots
+  - name: sqlmesh_analyst
+  - name: z_stage_dbt_artifacts_write
+  - name: z_wh_orchestrating
+  - name: z_schema_dbt_test__audit
+  - name: orgadmin
+  - name: catalog
+  - name: z_schema_l1_google_analytics_4
+  - name: z_schema_l2_snowflake_usage
+  - name: z_stage_resources_read
+  - name: z_policy_apply_masking
+  - name: z_schema_seeds
+  - name: analyst_pii
+  - name: analyst
+  - name: z_wh_transforming
+  - name: z_schema_l1_account_usage
+  - name: z_schema_l2_covid_observations
+  - name: z_db_balboa_apps_write
+  - name: z_policy_create_database
+  - name: z_stage_dbt_artifacts_read
+  - name: loader
+  - name: z_db_balboa_tst
+  - name: useradmin
+  - name: z_policy_monitor_usage
+  - name: z_db_covid19_epidemiological_data
+  - name: z_schema_l3_covid_analytics
+  - name: z_wh_admin
+  - name: z_policy_row_region_all
+  - name: z_policy_apply_row_access
+  - name: accountadmin
+  - name: z_tables_views_general
+  - name: z_policy_unmask_pii
+  - name: z_wh_loading
+  - name: z_db_balboa
+  - name: z_wh_transforming_dynamic_tables
+  - name: sysadmin
+  - name: z_schema_l1_covid19_epidemiological_data
+  - name: z_db_balboa_write
+  - name: z_schema_l1_us_population
+  - name: de_business_analyst_pii
+  - name: z_db_balboa_dev
+  - name: z_db_raw_write
+  - name: z_schema_l2_country_demographics
+  - name: z_db_snowflake
+  - name: z_schema_l3_loan_analytics
+  - name: z_policy_row_region_de
+  - name: z_base_analyst
+  - name: z_db_raw
+  - name: z_create_database
+
+grants:
+  - priv: MONITOR
+    on_warehouse: WH_TRANSFORMING
+    to: z_wh_transforming
+  - priv: USAGE
+    on_schema: BALBOA.L1_GOOGLE_ANALYTICS_4
+    to: z_schema_l1_google_analytics_4
+  - priv: CREATE SCHEMA
+    on_database: BALBOA_DEV
+    to: z_db_balboa_dev
+  - priv: USAGE
+    on_schema: BALBOA.L2_COUNTRY_DEMOGRAPHICS
+    to: z_schema_l2_country_demographics
+  - priv: USAGE
+    on_schema: BALBOA.L1_LOANS
+    to: z_schema_l1_loans
+  - priv: OPERATE
+    on_warehouse: WH_LOADING
+    to: z_wh_loading
+  - priv: MONITOR
+    on_database: SUSHI_DB
+    to: sqlmesh_analyst
+  - priv: USAGE
+    on_schema: RAW.SNAPSHOTS
+    to: z_schema_snapshots
+  - priv: USAGE
+    on_schema: BALBOA.L2_COVID_OBSERVATIONS
+    to: z_schema_l2_covid_observations
+  - priv: OPERATE
+    on_warehouse: WH_ORCHESTRATING
+    to: z_wh_orchestrating
+  - priv: OPERATE
+    on_warehouse: WH_CATALOG
+    to: z_wh_catalog
+  - priv: USAGE
+    on_database: BALBOA_APPS
+    to: z_db_balboa_apps
+  - priv: USAGE
+    on_warehouse: WH_LOADING
+    to: z_wh_loading
+  - priv: MONITOR
+    on_warehouse: WH_TRANSFORMING_DYNAMIC_TABLES
+    to: z_wh_transforming_dynamic_tables
+  - priv: MONITOR
+    on_warehouse: WH_INTEGRATION
+    to: z_wh_integration
+  - priv: USAGE
+    on_schema: BALBOA.L3_LOAN_ANALYTICS
+    to: z_schema_l3_loan_analytics
+  - priv: USAGE
+    on_schema: BALBOA.L1_OBSERVE
+    to: z_schema_l1_observe
+  - priv: USAGE
+    on_database: SUSHI_DB
+    to: sqlmesh_analyst
+  - priv: CREATE SCHEMA
+    on_database: BALBOA_APPS
+    to: z_db_balboa_apps_write
+  - priv: MONITOR
+    on_warehouse: WH_ORCHESTRATING
+    to: z_wh_orchestrating
+  - priv: USAGE
+    on_database: BALBOA
+    to: z_db_balboa
+  - priv: USAGE
+    on_database: BALBOA_APPS
+    to: securityadmin
+  - priv: USAGE
+    on_schema: BALBOA.L1_COUNTRY_DATA
+    to: z_schema_l1_country_data
+  - priv: CREATE SCHEMA
+    on_database: SUSHI_DB
+    to: sqlmesh_analyst
+  - priv: MONITOR
+    on_warehouse: WH_CATALOG
+    to: z_wh_catalog
+  - priv: USAGE
+    on_database: BALBOA
+    to: z_db_balboa_write
+  - priv: MONITOR
+    on_database: BALBOA_DEV
+    to: z_db_balboa_dev
+  - priv: USAGE
+    on_warehouse: WH_TRANSFORMING_DYNAMIC_TABLES
+    to: z_wh_transforming_dynamic_tables
+  - priv: USAGE
+    on_database: RAW
+    to: securityadmin
+  - priv: USAGE
+    on_database: COVID19_EPIDEMIOLOGICAL_DATA
+    to: z_db_covid19_epidemiological_data
+  - priv: USAGE
+    on_warehouse: WH_TRANSFORMING_SQLMESH
+    to: sqlmesh_analyst
+  - priv: MONITOR
+    on_database: BALBOA
+    to: z_db_balboa_write
+  - priv: OPERATE
+    on_warehouse: WH_INTEGRATION
+    to: z_wh_integration
+  - priv: OPERATE
+    on_warehouse: WH_TRANSFORMING_DYNAMIC_TABLES
+    to: z_wh_transforming_dynamic_tables
+  - priv: MONITOR
+    on_warehouse: WH_TRANSFORMING_SQLMESH
+    to: sqlmesh_analyst
+  - priv: USAGE
+    on_schema: BALBOA.L2_SNOWFLAKE_USAGE
+    to: z_schema_l2_snowflake_usage
+  - priv: OPERATE
+    on_warehouse: WH_TRANSFORMING_SQLMESH
+    to: sqlmesh_analyst
+  - priv: USAGE
+    on_database: BALBOA
+    to: securityadmin
+  - priv: USAGE
+    on_warehouse: WH_ORCHESTRATING
+    to: z_wh_orchestrating
+  - priv: USAGE
+    on_schema: BALBOA.L3_COVID_ANALYTICS
+    to: z_schema_l3_covid_analytics
+  - priv: MONITOR
+    on_database: BALBOA_APPS
+    to: z_db_balboa_apps_write
+  - priv: USAGE
+    on_schema: BALBOA_APPS.RESOURCES
+    to: z_schema_resources
+  - priv: USAGE
+    on_warehouse: WH_CATALOG
+    to: z_wh_catalog
+  - priv: USAGE
+    on_database: RAW
+    to: z_db_raw_write
+  - priv: OPERATE
+    on_warehouse: WH_ADMIN
+    to: z_wh_admin
+  - priv: USAGE
+    on_warehouse: WH_ADMIN
+    to: z_wh_admin
+  - priv: USAGE
+    on_warehouse: WH_INTEGRATION
+    to: z_wh_integration
+  - priv: USAGE
+    on_schema: BALBOA.L1_ACCOUNT_USAGE
+    to: z_schema_l1_account_usage
+  - priv: USAGE
+    on_schema: BALBOA.SEEDS
+    to: z_schema_seeds
+  - priv: MONITOR
+    on_warehouse: WH_ADMIN
+    to: z_wh_admin
+  - priv: USAGE
+    on_warehouse: WH_TRANSFORMING
+    to: z_wh_transforming
+  - priv: USAGE
+    on_database: BALBOA_DEV
+    to: z_db_balboa_dev
+  - priv: CREATE SCHEMA
+    on_database: BALBOA
+    to: z_db_balboa_write
+  - priv: USAGE
+    on_schema: BALBOA.L1_COVID19_EPIDEMIOLOGICAL_DATA
+    to: z_schema_l1_covid19_epidemiological_data
+  - priv: USAGE
+    on_database: RAW
+    to: z_db_raw
+  - priv: CREATE SCHEMA
+    on_database: RAW
+    to: z_db_raw_write
+  - priv: MONITOR
+    on_database: RAW
+    to: z_db_raw_write
+  - priv: MONITOR
+    on_warehouse: WH_LOADING
+    to: z_wh_loading
+  - priv: USAGE
+    on_schema: BALBOA.DBT_TEST__AUDIT
+    to: z_schema_dbt_test__audit
+  - priv: OPERATE
+    on_warehouse: WH_TRANSFORMING
+    to: z_wh_transforming
+  - priv: USAGE
+    on_database: BALBOA_APPS
+    to: z_db_balboa_apps_write
+  - priv: USAGE
+    on_database: BALBOA_DEV
+    to: securityadmin
+  - priv: USAGE
+    on_schema: BALBOA.L1_US_POPULATION
+    to: z_schema_l1_us_population
+
+role_grants:
+  - role: analyst
+    to_role: z_policy_row_region_all
+  - role: de_analyst
+    to_role: z_base_analyst
+  - role: z_base_analyst
+    to_role: z_stage_dbt_artifacts_read
+  - role: bot_integration
+    to_role: z_wh_integration
+  - role: catalog
+    to_role: z_tables_views_general
+  - role: z_base_analyst
+    to_role: z_schema_resources
+  - role: analyst
+    to_role: z_base_analyst
+  - role: z_base_analyst
+    to_role: z_schema_seeds
+  - role: z_policy_unmask_pii
+    to_role: z_db_raw
+  - role: z_base_analyst
+    to_role: z_db_balboa_dev
+  - role: securityadmin
+    to_role: z_wh_admin
+  - role: z_base_analyst
+    to_role: z_db_balboa
+  - role: analyst_pii
+    to_role: analyst
+  - role: transformer_dbt
+    to_role: z_db_balboa_apps_write
+  - role: z_base_analyst
+    to_role: z_schema_l1_country_data
+  - role: z_base_analyst
+    to_role: z_schema_l2_country_demographics
+  - role: z_base_analyst
+    to_role: z_schema_l1_google_analytics_4
+  - role: accountadmin
+    to_role: securityadmin
+  - role: z_base_analyst
+    to_role: z_db_covid19_epidemiological_data
+  - role: de_analyst
+    to_role: z_policy_row_region_de
+  - role: z_base_analyst
+    to_role: z_schema_raw
+  - role: z_base_analyst
+    to_role: z_schema_l1_covid19_epidemiological_data
+  - role: transformer_dbt
+    to_role: z_tables_views_general
+  - role: transformer_dbt
+    to_role: z_wh_integration
+  - role: z_base_analyst
+    to_role: z_db_balboa_apps
+  - role: z_base_analyst
+    to_role: z_schema_l1_observe
+  - role: useradmin
+    to_role: z_wh_admin
+  - role: z_base_analyst
+    to_role: z_db_balboa_tst
+  - role: z_base_analyst
+    to_role: z_schema_l1_loans
+  - role: z_base_analyst
+    to_role: z_schema_l1_us_population
+  - role: transformer_dbt
+    to_role: z_db_covid19_epidemiological_data
+  - role: accountadmin
+    to_role: sysadmin
+  - role: catalog
+    to_role: z_wh_catalog
+  - role: analyst_pii
+    to_role: z_policy_unmask_pii
+  - role: z_base_analyst
+    to_role: z_schema_snapshots
+  - role: transformer_dbt
+    to_role: z_stage_dbt_artifacts_write
+  - role: bot_integration
+    to_role: transformer_dbt
+  - role: loader
+    to_role: z_db_covid19_epidemiological_data
+  - role: accountadmin
+    to_role: z_wh_admin
+  - role: z_base_analyst
+    to_role: z_wh_transforming
+  - role: z_base_analyst
+    to_role: z_schema_dbt_test__audit
+  - role: transformer_dbt
+    to_role: z_wh_transforming_dynamic_tables
+  - role: loader
+    to_role: z_wh_loading
+  - role: z_base_analyst
+    to_role: z_schema_l3_covid_analytics
+  - role: analyst
+    to_role: z_tables_views_general
+  - role: z_base_analyst
+    to_role: z_schema_l1_account_usage
+  - role: de_analyst
+    to_role: z_tables_views_general
+  - role: transformer_dbt
+    to_role: z_wh_orchestrating
+  - role: securityadmin
+    to_role: useradmin
+  - role: loader
+    to_role: z_db_raw_write
+  - role: catalog
+    to_role: z_policy_row_region_all
+  - role: z_base_analyst
+    to_role: z_db_raw
+  - role: de_business_analyst_pii
+    to_role: de_analyst
+  - role: transformer_dbt
+    to_role: z_db_raw_write
+  - role: z_base_analyst
+    to_role: z_schema_l2_snowflake_usage
+  - role: z_base_analyst
+    to_role: z_schema_l2_covid_observations
+  - role: z_base_analyst
+    to_role: z_schema_l3_loan_analytics
+  - role: z_base_analyst
+    to_role: z_db_snowflake
+  - role: catalog
+    to_role: z_base_analyst
+  - role: de_business_analyst_pii
+    to_role: z_policy_unmask_pii
+  - role: sysadmin
+    to_role: z_wh_admin
+  - role: transformer_dbt
+    to_role: z_db_snowflake
+  - role: z_base_analyst
+    to_role: z_stage_resources_read
+  - role: z_base_analyst
+    to_role: z_wh_transforming_dynamic_tables
+  - role: transformer_dbt
+    to_role: z_db_balboa_write
+
+grants_on_all:
+  - priv: SELECT
+    on_all_views_in_database: raw
+    to: z_tables_views_general
+  - priv: SELECT
+    on_all_views_in_database: raw
+    to: sqlmesh_analyst
+  - priv: SELECT
+    on_all_views_in_database: balboa
+    to: z_tables_views_general
+  - priv: SELECT
+    on_all_tables_in_database: raw
+    to: z_tables_views_general
+  - priv: SELECT
+    on_all_tables_in_database: balboa
+    to: z_tables_views_general
+  - priv: SELECT
+    on_all_tables_in_database: raw
+    to: sqlmesh_analyst
+
+future_grants:
+  - priv: CREATE DYNAMIC TABLE
+    on_future_schemas_in_database: raw
+    to: z_db_raw_write
+  - priv: USAGE
+    on_future_schemas_in_database: balboa_apps
+    to: securityadmin
+  - priv: CREATE TASK
+    on_future_schemas_in_database: raw
+    to: z_db_raw_write
+  - priv: CREATE VIEW
+    on_future_schemas_in_database: raw
+    to: z_db_raw_write
+  - priv: SELECT
+    on_future_views_in_database: raw
+    to: sqlmesh_analyst
+  - priv: CREATE ALERT
+    on_future_schemas_in_database: raw
+    to: z_db_raw_write
+  - priv: CREATE STAGE
+    on_future_schemas_in_database: raw
+    to: z_db_raw_write
+  - priv: SELECT
+    on_future_tables_in_database: raw
+    to: sqlmesh_analyst
+  - priv: CREATE PIPE
+    on_future_schemas_in_database: raw
+    to: z_db_raw_write
+  - priv: CREATE SEQUENCE
+    on_future_schemas_in_database: raw
+    to: z_db_raw_write
+  - priv: USAGE
+    on_future_schemas_in_database: balboa
+    to: securityadmin
+  - priv: MONITOR
+    on_future_schemas_in_database: raw
+    to: z_db_raw_write
+  - priv: CREATE TABLE
+    on_future_schemas_in_database: raw
+    to: z_db_raw_write
+  - priv: CREATE STREAM
+    on_future_schemas_in_database: raw
+    to: z_db_raw_write
+  - priv: USAGE
+    on_future_schemas_in_database: raw
+    to: securityadmin
+  - priv: SELECT
+    on_future_views_in_database: balboa
+    to: z_tables_views_general
+  - priv: SELECT
+    on_future_tables_in_database: balboa
+    to: z_tables_views_general
+  - priv: CREATE FUNCTION
+    on_future_schemas_in_database: raw
+    to: z_db_raw_write
+  - priv: CREATE SECRET
+    on_future_schemas_in_database: raw
+    to: z_db_raw_write
+  - priv: SELECT
+    on_future_tables_in_database: raw
+    to: z_tables_views_general
+  - priv: SELECT
+    on_future_views_in_database: raw
+    to: z_tables_views_general
+  - priv: CREATE EXTERNAL TABLE
+    on_future_schemas_in_database: raw
+    to: z_db_raw_write
+  - priv: USAGE
+    on_future_schemas_in_database: raw
+    to: z_schema_raw
+  - priv: CREATE FILE FORMAT
+    on_future_schemas_in_database: raw
+    to: z_db_raw_write
+  - priv: CREATE PROCEDURE
+    on_future_schemas_in_database: raw
+    to: z_db_raw_write
+  - priv: USAGE
+    on_future_schemas_in_database: raw
+    to: z_db_raw_write
+  - priv: USAGE
+    on_future_schemas_in_database: balboa_dev
+    to: securityadmin
+
+databases:
+  - name: dbt_artifacts
+  - name: raw
+  - name: covid19_epidemiological_data
+  - name: balboa
+  - name: balboa_dev
+  - name: balboa_apps
+  - name: sushi_db
+
+schemas:
+  - name: snapshots
+    database: raw
+  - name: resources
+    database: balboa_apps
+  - name: seeds
+    database: balboa
+  - name: dbt_test__audit
+    database: balboa
+  - name: l1_account_usage
+    database: balboa
+  - name: l1_country_data
+    database: balboa
+  - name: l1_covid19_epidemiological_data
+    database: balboa
+  - name: l1_google_analytics_4
+    database: balboa
+  - name: l1_loans
+    database: balboa
+  - name: l1_observe
+    database: balboa
+  - name: l1_us_population
+    database: balboa
+  - name: l2_country_demographics
+    database: balboa
+  - name: l2_covid_observations
+    database: balboa
+  - name: l2_snowflake_usage
+    database: balboa
+  - name: l3_covid_analytics
+    database: balboa
+  - name: l3_loan_analytics
+    database: balboa
+
+warehouses:
+  - name: wh_transforming
+  - name: wh_transforming_dynamic_tables
+  - name: wh_integration
+  - name: wh_transforming_sqlmesh
+  - name: wh_loading
+  - name: wh_orchestrating
+  - name: wh_catalog
+  - name: wh_admin

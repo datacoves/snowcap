@@ -1,10 +1,10 @@
 import pytest
 
-from snowcap.adapters import permifrost
-from snowcap.enums import ResourceType
-from snowcap.privs import DatabasePriv, WarehousePriv
-from snowcap.resources import Grant, RoleGrant
-from snowcap.resources.resource import ResourcePointer
+from titan.adapters import permifrost
+from titan.enums import ResourceType
+from titan.privs import DatabasePriv, WarehousePriv
+from titan.resources import Grant, RoleGrant
+from titan.resources.resource import ResourcePointer
 
 
 @pytest.mark.skip("skipping due to pending deprecation")
