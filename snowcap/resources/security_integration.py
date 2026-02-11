@@ -128,6 +128,7 @@ class SnowflakePartnerOAuthSecurityIntegration(NamedResource, Resource):
         **kwargs,
     ):
         kwargs.pop("type", None)
+        kwargs.pop("owner", None)
         super().__init__(name, **kwargs)
         self._data = _SnowflakePartnerOAuthSecurityIntegration(
             name=self._name,
@@ -203,6 +204,7 @@ class SnowservicesOAuthSecurityIntegration(NamedResource, Resource):
     ):
         kwargs.pop("type", None)
         kwargs.pop("oauth_client", None)
+        kwargs.pop("owner", None)
         super().__init__(name, **kwargs)
         self._data = _SnowservicesOAuthSecurityIntegration(
             name=self._name,
@@ -320,6 +322,7 @@ class APIAuthenticationSecurityIntegration(NamedResource, Resource):
     ):
         kwargs.pop("type", None)
         kwargs.pop("oauth_client", None)
+        kwargs.pop("owner", None)
         super().__init__(name, **kwargs)
         self._data: _APIAuthenticationSecurityIntegration = _APIAuthenticationSecurityIntegration(
             name=self._name,

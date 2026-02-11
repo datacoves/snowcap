@@ -3,21 +3,40 @@ import uuid
 
 import pytest
 import snowflake.connector
-from dotenv import dotenv_values
+from dotenv import load_dotenv, dotenv_values
 
 from snowcap.enums import ResourceType
 
+# Load environment variables from tests/.env if it exists
+load_dotenv("tests/.env")
 
 TEST_ROLE = os.environ.get("TEST_SNOWFLAKE_ROLE")
+TEST_WAREHOUSE = os.environ.get("TEST_SNOWFLAKE_WAREHOUSE")
 
 
 def connection_params():
-    return {
+    params = {
         "account": os.environ["TEST_SNOWFLAKE_ACCOUNT"],
         "user": os.environ["TEST_SNOWFLAKE_USER"],
-        "password": os.environ["TEST_SNOWFLAKE_PASSWORD"],
         "role": TEST_ROLE,
     }
+
+    # Key-pair auth (preferred) or password auth
+    private_key_path = os.environ.get("TEST_SNOWFLAKE_PRIVATE_KEY_PATH")
+    if private_key_path:
+        params["private_key_file"] = private_key_path
+        passphrase = os.environ.get("TEST_SNOWFLAKE_PRIVATE_KEY_PASSPHRASE")
+        if passphrase:
+            params["private_key_file_pwd"] = passphrase
+    else:
+        params["password"] = os.environ["TEST_SNOWFLAKE_PASSWORD"]
+
+    # Optional warehouse
+    warehouse = os.environ.get("TEST_SNOWFLAKE_WAREHOUSE")
+    if warehouse:
+        params["warehouse"] = warehouse
+
+    return params
 
 
 def pytest_addoption(parser):
@@ -112,6 +131,7 @@ def reset_cursor_context(dummy_cursor, test_db):
     cursor = dummy_cursor
     if cursor:
         cursor.execute(f"USE ROLE {TEST_ROLE}")
-        cursor.execute("USE WAREHOUSE CI")
+        if TEST_WAREHOUSE:
+            cursor.execute(f"USE WAREHOUSE {TEST_WAREHOUSE}")
         cursor.execute(f"USE DATABASE {test_db}")
     yield

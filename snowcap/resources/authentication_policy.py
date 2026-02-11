@@ -44,9 +44,11 @@ class _AuthenticationPolicy(ResourceSpec):
         if self.authentication_methods is None:
             self.authentication_methods = [AuthenticationMethods.ALL]
 
-        if self.mfa_authentication_methods is None:
-            self.mfa_authentication_methods = [AuthenticationMethods.PASSWORD, AuthenticationMethods.SAML]
-        else:
+        # NOTE: mfa_authentication_methods is DEPRECATED as of Snowflake 2025_06 bundle.
+        # It has been replaced by MFA_POLICY with ALLOWED_METHODS property.
+        # When None is passed, we intentionally do NOT set a default to avoid
+        # generating the deprecated SQL parameter.
+        if self.mfa_authentication_methods is not None:
             for method in self.mfa_authentication_methods:
                 if method not in (
                     AuthenticationMethods.ALL,

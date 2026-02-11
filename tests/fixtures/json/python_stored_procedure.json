@@ -1,0 +1,18 @@
+{
+    "name": "TEST_PYTHON_SPROC",
+    "args": [{"name": "session", "data_type": "VARCHAR"}],
+    "returns": "VARCHAR",
+    "runtime_version": "3.11",
+    "packages": ["snowflake-snowpark-python"],
+    "handler": "main",
+    "as_": "def main(session): return 'Hello'",
+    "language": "PYTHON",
+    "owner": "SYSADMIN",
+    "comment": "user-defined procedure",
+    "copy_grants": null,
+    "execute_as": "CALLER",
+    "external_access_integrations": null,
+    "imports": null,
+    "null_handling": "CALLED ON NULL INPUT",
+    "secure": false
+}

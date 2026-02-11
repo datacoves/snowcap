@@ -23,7 +23,7 @@ class BlueprintConfig:
     name: Optional[str] = None
     resources: Optional[list[Resource]] = None
     dry_run: bool = False
-    sync_resources: list[ResourceType] = field(default_factory=list)
+    sync_resources: Optional[list[ResourceType]] = None
     vars: dict = field(default_factory=dict)
     vars_spec: list[dict] = field(default_factory=list)
     scope: Optional[BlueprintScope] = None

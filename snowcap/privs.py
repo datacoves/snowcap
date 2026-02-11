@@ -443,6 +443,7 @@ CREATE_PRIV_FOR_RESOURCE_TYPE: dict[ResourceType, ParseableEnum] = {
     ResourceType.NETWORK_POLICY: AccountPriv.CREATE_NETWORK_POLICY,
     ResourceType.NETWORK_RULE: SchemaPriv.CREATE_NETWORK_RULE,
     ResourceType.NOTEBOOK: SchemaPriv.CREATE_NOTEBOOK,
+    ResourceType.NOTIFICATION_INTEGRATION: AccountPriv.CREATE_INTEGRATION,
     ResourceType.PACKAGES_POLICY: SchemaPriv.CREATE_PACKAGES_POLICY,
     ResourceType.PASSWORD_POLICY: SchemaPriv.CREATE_PASSWORD_POLICY,
     ResourceType.PIPE: SchemaPriv.CREATE_PIPE,

@@ -218,9 +218,9 @@ class Grant(Resource):
                 if on is not None:
                     raise ValueError("You can only specify one 'on' parameter, multiple found")
                 elif keyword.startswith("on_all"):
-                    raise ValueError("You must use GrantOnAll for all grants")
+                    raise ValueError("Use on=['ALL', 'TABLES', Schema(name='...')] syntax for grants on all")
                 elif keyword.startswith("on_future"):
-                    raise ValueError("You must use FutureGrant for future grants")
+                    raise ValueError("Use on=['FUTURE', 'TABLES', Schema(name='...')] syntax for future grants")
                 else:
                     # Grant targeting a specific resource
                     # on_{resource} kwargs

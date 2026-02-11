@@ -1,0 +1,132 @@
+# Static resources required for integration tests
+# Run with: snowcap apply --config tests/fixtures/static_resources/
+
+databases:
+  - name: STATIC_DATABASE
+    comment: "Database for integration tests"
+
+tags:
+  - name: STATIC_DATABASE.PUBLIC.STATIC_TAG
+    comment: "Tag for integration tests"
+    allowed_values:
+      - "STATIC_TAG_VALUE"
+      - "OTHER_VALUE"
+
+network_rules:
+  - name: STATIC_DATABASE.PUBLIC.STATIC_NETWORK_RULE
+    type: IPV4
+    value_list:
+      - "0.0.0.0/0"
+    mode: INGRESS
+    comment: "Network rule for integration tests"
+
+  - name: STATIC_DATABASE.PUBLIC.STATIC_NETWORK_RULE_EGRESS
+    type: HOST_PORT
+    value_list:
+      - "example.com:443"
+    mode: EGRESS
+    comment: "Network rule for external access integration tests"
+
+secrets:
+  - name: STATIC_DATABASE.PUBLIC.STATIC_SECRET
+    secret_type: PASSWORD
+    username: "test_user"
+    password: "test_password"
+    comment: "Secret for integration tests"
+
+users:
+  - name: STATIC_USER
+    login_name: STATIC_USER
+    email: "static-user@example.com"
+    must_change_password: false
+    disabled: false
+    comment: "User for integration tests (used by ResourceMonitor)"
+
+roles:
+  - name: STATIC_ROLE
+    comment: "Role for integration tests"
+
+role_grants:
+  - role: STATIC_ROLE
+    to_role: SYSADMIN
+
+warehouses:
+  - name: STATIC_WAREHOUSE
+    warehouse_size: XSMALL
+    auto_suspend: 60
+    auto_resume: true
+    comment: "Warehouse for integration tests"
+
+schemas:
+  - name: STATIC_DATABASE.STATIC_SCHEMA
+    comment: "Schema for integration tests"
+
+database_roles:
+  - name: STATIC_DATABASE_ROLE
+    database: STATIC_DATABASE
+    comment: "Database role for integration tests"
+
+tables:
+  - name: STATIC_DATABASE.PUBLIC.STATIC_TABLE
+    columns:
+      - name: ID
+        data_type: NUMBER
+    change_tracking: true
+    comment: "Table for integration tests"
+
+views:
+  - name: STATIC_DATABASE.PUBLIC.STATIC_VIEW
+    as_: "SELECT ID FROM STATIC_DATABASE.PUBLIC.STATIC_TABLE"
+    change_tracking: true
+    comment: "View for integration tests"
+
+stages:
+  - name: STATIC_DATABASE.PUBLIC.STATIC_STAGE
+    type: internal
+    directory:
+      enable: true
+    comment: "Stage for integration tests"
+
+streams:
+  - name: STATIC_DATABASE.PUBLIC.STATIC_STREAM
+    on_table: STATIC_DATABASE.PUBLIC.STATIC_TABLE
+    comment: "Stream for integration tests"
+
+security_integrations:
+  - name: STATIC_SECURITY_INTEGRATION
+    type: api_authentication
+    auth_type: OAUTH2
+    oauth_client_id: "test_client_id"
+    oauth_client_secret: "test_client_secret"
+    oauth_token_endpoint: "https://example.com/oauth/token"
+    enabled: true
+    comment: "Security integration for integration tests"
+
+grants:
+  - priv: USAGE
+    on: warehouse STATIC_WAREHOUSE
+    to: STATIC_ROLE
+
+  - priv: USAGE
+    on: database STATIC_DATABASE
+    to: STATIC_ROLE
+
+  - priv: USAGE
+    on: schema STATIC_DATABASE.PUBLIC
+    to: STATIC_ROLE
+
+  - priv: USAGE
+    on: schema STATIC_DATABASE.STATIC_SCHEMA
+    to: STATIC_ROLE
+
+  - priv: SELECT
+    on: table STATIC_DATABASE.PUBLIC.STATIC_TABLE
+    to: STATIC_ROLE
+
+  - priv: SELECT
+    on: view STATIC_DATABASE.PUBLIC.STATIC_VIEW
+    to: STATIC_ROLE
+
+  - priv: READ
+    on: stage STATIC_DATABASE.PUBLIC.STATIC_STAGE
+    to: STATIC_ROLE

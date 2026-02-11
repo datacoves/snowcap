@@ -13,6 +13,10 @@ test:
 integration:
 	python -m pytest --snowflake -m "$(EDITION)"
 
+setup-test-resources:
+	@echo "Setting up static resources for integration tests..."
+	./tests/fixtures/static_resources/apply.sh
+
 style:
 	python -m black .
 	codespell .

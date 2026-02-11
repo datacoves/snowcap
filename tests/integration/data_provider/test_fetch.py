@@ -14,7 +14,7 @@ TEST_ROLE = os.environ.get("TEST_SNOWFLAKE_ROLE")
 TEST_USER = os.environ.get("TEST_SNOWFLAKE_USER")
 
 
-@pytest.mark.skip("very slow")
+@pytest.mark.slow
 def test_fetch_over_1000_objects(cursor, test_db):
     for i in range(1005):
         cursor.execute(f"CREATE SCHEMA {test_db}_schema_{i}")

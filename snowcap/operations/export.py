@@ -52,9 +52,10 @@ def export_resource(session, resource_type: ResourceType) -> dict[str, list]:
         try:
             resource = fetch_resource(session, urn)
         except Exception as e:
+            # Skip resources that can't be fetched (e.g., unsupported notification integration types)
+            # This allows export to continue with other resources in the account
             logger.warning(f"Failed to fetch resource {urn}: {e}")
-            # continue
-            raise e
+            continue
         if resource is None:
             logger.warning(f"Found resource {urn} in metadata but failed to fetch")
             continue

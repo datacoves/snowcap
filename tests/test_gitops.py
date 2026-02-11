@@ -29,8 +29,14 @@ def database_config() -> dict:
 @pytest.fixture
 def resource_config() -> dict:
     config = {}
+    # Exclude COLUMN types - they are pseudo-resources embedded in tables, not collected via config
     for resource_cls, resource_config in JSON_FIXTURES:
-        config[pluralize(resource_label_for_type(resource_cls.resource_type))] = [resource_config]
+        if resource_cls.resource_type.name == "COLUMN":
+            continue
+        key = pluralize(resource_label_for_type(resource_cls.resource_type))
+        if key not in config:
+            config[key] = []
+        config[key].append(resource_config)
 
     return config
 
@@ -40,38 +46,12 @@ def test_database_config(database_config):
     assert len(blueprint_config.resources) == 2
 
 
-@pytest.mark.skip(reason="JSON_FIXTURES doesn't include things like role grants yet")
 def test_resource_config(resource_config):
-    resources = collect_blueprint_config(resource_config)
-    resource_types = set([resource.resource_type for resource in resources])
-    expected_resource_types = set([resource_cls.resource_type for resource_cls, _ in JSON_FIXTURES])
+    bp_config = collect_blueprint_config(resource_config)
+    resource_types = set([resource.resource_type for resource in bp_config.resources])
+    # Exclude COLUMN types - they are pseudo-resources embedded in tables, not collected via config
+    expected_resource_types = set([resource_cls.resource_type for resource_cls, _ in JSON_FIXTURES if resource_cls.resource_type.name != "COLUMN"])
     assert resource_types == expected_resource_types
-
-
-def test_grant_on_all_alias():
-    config_base = {
-        "grant_on_alls": [
-            {
-                "priv": "SELECT",
-                "on_all_tables_in_schema": "sch",
-                "to": "somerole",
-            }
-        ]
-    }
-    config_aliased = {
-        "grants_on_all": [
-            {
-                "priv": "SELECT",
-                "on_all_tables_in_schema": "sch",
-                "to": "somerole",
-            }
-        ]
-    }
-    blueprint_config = collect_blueprint_config(config_base)
-    blueprint_config_aliased = collect_blueprint_config(config_aliased)
-    assert len(blueprint_config.resources) == 1
-    assert len(blueprint_config_aliased.resources) == 1
-    assert blueprint_config.resources[0]._data == blueprint_config_aliased.resources[0]._data
 
 
 def test_vars_type_validation(database_config):

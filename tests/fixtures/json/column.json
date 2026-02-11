@@ -1,0 +1,10 @@
+{
+    "name": "TEST_COLUMN",
+    "data_type": "VARCHAR(100)",
+    "collate": null,
+    "comment": "Test column",
+    "not_null": false,
+    "constraint": null,
+    "default": null,
+    "tags": null
+}

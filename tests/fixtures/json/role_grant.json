@@ -1,5 +1,5 @@
 {
-    "role": "STATIC_ROLE",
-    "to_role": "EMPTY",
+    "role": "PUBLIC",
+    "to_role": "STATIC_ROLE",
     "to_user": null
 }

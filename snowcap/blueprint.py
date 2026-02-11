@@ -665,21 +665,24 @@ class Blueprint:
 
         data_provider.use_secondary_roles(session, all=True)
 
-        urns = [item for item in manifest.urns if item.resource_type not in self._config.sync_resources]
-        for resource_type in self._config.sync_resources:
-            for fqn in data_provider.list_resource(session, resource_label_for_type(resource_type)):
-                if self._config.scope == BlueprintScope.DATABASE and fqn.database != self._config.database:
-                    continue
-                if self._config.scope == BlueprintScope.SCHEMA and fqn.schema != self._config.schema:
-                    continue
+        if self._config.sync_resources:
+            urns = [item for item in manifest.urns if item.resource_type not in self._config.sync_resources]
+            for resource_type in self._config.sync_resources:
+                for fqn in data_provider.list_resource(session, resource_label_for_type(resource_type)):
+                    if self._config.scope == BlueprintScope.DATABASE and fqn.database != self._config.database:
+                        continue
+                    if self._config.scope == BlueprintScope.SCHEMA and fqn.schema != self._config.schema:
+                        continue
 
-                urns.append(
-                    URN(
-                        resource_type=resource_type,
-                        fqn=fqn,
-                        account_locator=session_ctx["account_locator"],
+                    urns.append(
+                        URN(
+                            resource_type=resource_type,
+                            fqn=fqn,
+                            account_locator=session_ctx["account_locator"],
+                        )
                     )
-                )
+        else:
+            urns = list(manifest.urns)
 
         urns = list(set(urns))  # Deduplicate urns
 
@@ -690,7 +693,7 @@ class Blueprint:
                 try:
                     data = future.result()
                     if data:
-                        if urn.resource_type in self._config.sync_resources:
+                        if self._config.sync_resources and urn.resource_type in self._config.sync_resources:
                             resource_cls = Resource.resolve_resource_cls(urn.resource_type, data)
                         else:
                             item = manifest[urn]
@@ -701,7 +704,7 @@ class Blueprint:
                             )
                         state[urn] = resource_cls.spec(**data).to_dict(session_ctx["account_edition"])
                     else:
-                        if urn.resource_type in self._config.sync_resources:
+                        if self._config.sync_resources and urn.resource_type in self._config.sync_resources:
                             raise MissingResourceException(f"Resource {urn} not found")
                 except Exception as e:
                     logger.error(f"Failed to fetch resource {urn}: {e}")
@@ -728,8 +731,10 @@ class Blueprint:
         return state
 
     def _resolve_vars(self):
-        for resource in self._staged:
-            resource._resolve_vars(self._config.vars, self._staged)
+        # Get all resources from the graph (after _build_resource_graph has run)
+        all_resources = [r for r in _walk(self._root) if isinstance(r, Resource)]
+        for resource in all_resources:
+            resource._resolve_vars(self._config.vars, all_resources)
 
     def _resolve_role_refs(self):
         for resource in _walk(self._root):
@@ -965,8 +970,8 @@ class Blueprint:
         if self._finalized:
             raise RuntimeError("Blueprint already finalized")
         self._finalized = True
-        self._resolve_vars()
         self._build_resource_graph(session_ctx)
+        self._resolve_vars()
         self._resolve_role_refs()
         self._create_tag_references()
         self._create_ownership_refs(session_ctx)

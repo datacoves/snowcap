@@ -57,12 +57,11 @@ def load_plan(plan_file):
 
 
 def get_version():
-    """Read version from version.md file."""
-    version_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "version.md")
+    """Get version from package metadata."""
     try:
-        with open(version_file, encoding="utf-8") as f:
-            return f.read().split(" ")[2].strip()
-    except (FileNotFoundError, IndexError):
+        from importlib.metadata import version
+        return version("snowcap")
+    except Exception:
         return "unknown"
 
 

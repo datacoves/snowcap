@@ -1,0 +1,9 @@
+{
+    "name": "TEST_VIEW_COLUMN",
+    "data_type": "VARCHAR(100)",
+    "comment": "Test view column",
+    "not_null": false,
+    "default": null,
+    "constraint": null,
+    "collate": null
+}

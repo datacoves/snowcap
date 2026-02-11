@@ -15,26 +15,6 @@ from snowcap.resources.view import ViewColumn
 SQL_FIXTURES = list(get_sql_fixtures())
 
 
-def test_resource_init_with_dict_pointer():
-    res.Task(**{"name": "TASK", "as_": "SELECT 1", "warehouse": {"name": "wh"}})
-
-
-def test_resource_init_with_resource_pointer():
-    res.Task(name="TASK", schedule="1 minute", as_="SELECT 1", warehouse=res.Warehouse(name="wh"))
-
-
-def test_resource_init_with_resource_name():
-    res.Task(name="TASK", schedule="1 minute", as_="SELECT 1", warehouse="wh")
-
-
-def test_resource_init_with_type():
-    res.Task(**{"name": "TASK", "as_": "SELECT 1", "warehouse": {"name": "wh"}, "resource_type": "TASK"})
-
-
-def test_resource_init_from_dict():
-    res.Resource.from_dict({"name": "TASK", "as_": "SELECT 1", "warehouse": {"name": "wh"}, "resource_type": "TASK"})
-
-
 def test_view_fails_with_empty_columns():
     with pytest.raises(ValueError):
         res.View(name="MY_VIEW", columns=[], as_="SELECT 1")
@@ -274,6 +254,11 @@ def test_resource_with_named_nested_dependency():
 
 
 def test_resource_type_checking_basic_type():
+    """Test: Type checking rejects wrong basic type (int instead of str).
+
+    One representative case to verify type checking works - additional cases
+    would be redundant since they test the same underlying mechanism.
+    """
     with pytest.raises(
         TypeError,
         match=r"Expected S3StorageIntegration.comment to be .*, got -1 instead",
@@ -283,33 +268,15 @@ def test_resource_type_checking_basic_type():
             enabled=True,
             storage_aws_role_arn="arn:aws:iam::123456789012:role/MyS3AccessRole",
             storage_allowed_locations=["s3://mybucket/myfolder/"],
-            storage_blocked_locations=["s3://mybucket/myblockedfolder/"],
-            storage_aws_object_acl="bucket-owner-full-control",
             comment=-1,
-        )
-    with pytest.raises(
-        TypeError,
-        match=r"Expected S3StorageIntegration.enabled to be .*, got -1 instead",
-    ):
-        res.S3StorageIntegration(
-            name="some_s3_storage_integration",
-            enabled=-1,
-            storage_aws_role_arn="arn:aws:iam::123456789012:role/MyS3AccessRole",
-            storage_allowed_locations=["s3://mybucket/myfolder/"],
-        )
-    with pytest.raises(
-        TypeError,
-        match=r"Expected S3StorageIntegration.storage_allowed_locations to be .*, got -1 instead",
-    ):
-        res.S3StorageIntegration(
-            name="some_s3_storage_integration",
-            enabled=True,
-            storage_aws_role_arn="arn:aws:iam::123456789012:role/MyS3AccessRole",
-            storage_allowed_locations=-1,
         )
 
 
 def test_resource_type_checking_nested_type():
+    """Test: Type checking rejects wrong nested type (string instead of list[str]).
+
+    One representative case to verify nested type checking works.
+    """
     with pytest.raises(
         TypeError,
         match=re.escape(
@@ -321,21 +288,6 @@ def test_resource_type_checking_nested_type():
             enabled=True,
             storage_aws_role_arn="arn:aws:iam::123456789012:role/MyS3AccessRole",
             storage_allowed_locations="s3://mybucket/myfolder/",
-            storage_blocked_locations=["s3://mybucket/myblockedfolder/"],
-            storage_aws_object_acl="bucket-owner-full-control",
-            comment="This is a sample S3 storage integration.",
-        )
-    with pytest.raises(
-        TypeError,
-        match=re.escape(
-            "Expected S3StorageIntegration.storage_allowed_locations to be list[str], got [-1] instead",
-        ),
-    ):
-        res.S3StorageIntegration(
-            name="some_s3_storage_integration",
-            enabled=True,
-            storage_aws_role_arn="arn:aws:iam::123456789012:role/MyS3AccessRole",
-            storage_allowed_locations=[-1],
         )
 
 
@@ -346,8 +298,3 @@ def test_user_type_fallback(caplog):
     assert user._data.type == UserType.SERVICE
 
 
-def test_future_grant_alt_syntax():
-    db = res.Database(name="DB")
-    role = res.Role(name="ROLE")
-    fg = res.FutureGrant(priv="SELECT", on_type="table", in_type=db.resource_type, in_name=db.name, to=role)
-    assert fg

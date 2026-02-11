@@ -176,7 +176,9 @@ def _fetch_grant_to_role(
     )
     for grant in grants:
         name = "ACCOUNT" if grant["granted_on"] == "ACCOUNT" else grant["name"]
-        if (grant["granted_on"], grant["privilege"], name) == (granted_on, privilege, on_name):
+        # Use ResourceName for comparison to handle quoted identifiers correctly
+        name_matches = ResourceName(name) == ResourceName(on_name) if name != "ACCOUNT" else name == on_name
+        if grant["granted_on"] == granted_on and grant["privilege"] == privilege and name_matches:
             return grant
     return None
 
@@ -785,10 +787,17 @@ def fetch_authentication_policy(session: SnowflakeConnection, fqn: FQN):
     desc_result = execute(session, f"DESC AUTHENTICATION POLICY {fqn}")
     properties = _desc_result_to_dict(desc_result, lower_properties=True)
 
+    # mfa_authentication_methods is deprecated as of Snowflake 2025_06 bundle.
+    # Snowflake returns a default value ['PASSWORD'] even when not set.
+    # Return None when it's the default to avoid false drift detection.
+    mfa_auth_methods = _parse_list_property(properties["mfa_authentication_methods"])
+    if mfa_auth_methods == ["PASSWORD"]:
+        mfa_auth_methods = None
+
     return {
         "name": _quote_snowflake_identifier(data["name"]),
         "authentication_methods": _parse_list_property(properties["authentication_methods"]),
-        "mfa_authentication_methods": _parse_list_property(properties["mfa_authentication_methods"]),
+        "mfa_authentication_methods": mfa_auth_methods,
         "mfa_enrollment": properties["mfa_enrollment"],
         "client_types": _parse_list_property(properties["client_types"]),
         "security_integrations": _parse_list_property(properties["security_integrations"]),
@@ -1186,6 +1195,8 @@ def fetch_grant(session: SnowflakeConnection, fqn: FQN):
     on_type = on_type.upper()
     to_type, to = fqn.params["to"].split("/", 1)
     to_type = resource_type_for_label(to_type)
+    # Default to OBJECT grant type if not specified
+    grant_type = fqn.params.get("grant_type", GrantType.OBJECT)
 
     if priv == "ALL":
 
@@ -1208,7 +1219,7 @@ def fetch_grant(session: SnowflakeConnection, fqn: FQN):
     else:
         data = _fetch_grant_to_role(
             session,
-            grant_type=fqn.params["grant_type"],
+            grant_type=grant_type,
             role=to,
             granted_on=on_type,
             on_name=on,
@@ -1226,7 +1237,7 @@ def fetch_grant(session: SnowflakeConnection, fqn: FQN):
     #     raise Exception(f"Found multiple grants matching {fqn}")
 
     items_type = None
-    if fqn.params["grant_type"] == GrantType.FUTURE:
+    if grant_type == GrantType.FUTURE:
         collection = parse_collection_string(on)
         items_type = collection["items_type"].upper()
         on_type = collection["on_type"]
@@ -1247,7 +1258,7 @@ def fetch_grant(session: SnowflakeConnection, fqn: FQN):
         "owner": owner,
         "_privs": privs,
         "items_type": items_type.replace("_", " ") if items_type else None,
-        "grant_type": fqn.params["grant_type"],
+        "grant_type": grant_type,
     }
 
 
@@ -1438,7 +1449,6 @@ def fetch_notification_integration(session: SnowflakeConnection, fqn: FQN):
     owner = _fetch_owner(session, "INTEGRATION", fqn)
 
     if data["type"] == "EMAIL":
-
         return {
             "name": _quote_snowflake_identifier(data["name"]),
             "type": data["type"],
@@ -1447,6 +1457,40 @@ def fetch_notification_integration(session: SnowflakeConnection, fqn: FQN):
             "owner": owner,
             "comment": data["comment"] or None,
         }
+    elif data["type"].startswith("QUEUE"):
+        # QUEUE type notifications have format like "QUEUE - GCP_PUBSUB" or "QUEUE - AZURE_STORAGE_QUEUE"
+        # The direction field may or may not exist depending on the notification type
+        type_parts = data["type"].split(" - ")
+        notification_provider = type_parts[1] if len(type_parts) > 1 else None
+        direction = data.get("direction") or properties.get("direction", "INBOUND")
+
+        base_result = {
+            "name": _quote_snowflake_identifier(data["name"]),
+            "type": "QUEUE",
+            "direction": direction,
+            "notification_provider": notification_provider,
+            "enabled": data["enabled"] == "true",
+            "owner": owner,
+            "comment": data["comment"] or None,
+        }
+
+        # Add provider-specific fields
+        if notification_provider == "GCP_PUBSUB":
+            if direction == "INBOUND":
+                base_result["gcp_pubsub_subscription_name"] = properties.get("gcp_pubsub_subscription_name")
+            else:  # OUTBOUND
+                base_result["gcp_pubsub_topic_name"] = properties.get("gcp_pubsub_topic_name")
+        elif notification_provider == "AZURE_STORAGE_QUEUE":
+            base_result["azure_storage_queue_primary_uri"] = properties.get("azure_storage_queue_primary_uri")
+            base_result["azure_tenant_id"] = properties.get("azure_tenant_id")
+        elif notification_provider == "AZURE_EVENT_GRID":
+            base_result["azure_event_grid_topic_endpoint"] = properties.get("azure_event_grid_topic_endpoint")
+            base_result["azure_tenant_id"] = properties.get("azure_tenant_id")
+        elif notification_provider == "AWS_SNS":
+            base_result["aws_sns_topic_arn"] = properties.get("aws_sns_topic_arn")
+            base_result["aws_sns_role_arn"] = properties.get("aws_sns_role_arn")
+
+        return base_result
     else:
         raise Exception(f"Unsupported notification integration type: {data['type']}")
 
@@ -1465,7 +1509,7 @@ def fetch_packages_policy(session: SnowflakeConnection, fqn: FQN):
     return {
         "name": _quote_snowflake_identifier(data["name"]),
         "language": properties["language"],
-        "sync_resources": _parse_packages(properties["sync_resources"]),
+        "allowlist": _parse_packages(properties["allowlist"]),
         "blocklist": _parse_packages(properties["blocklist"]),
         "additional_creation_blocklist": _parse_packages(properties["additional_creation_blocklist"]),
         "comment": data["comment"] or None,
@@ -1731,7 +1775,7 @@ def fetch_security_integration(session: SnowflakeConnection, fqn: FQN):
             "oauth_client_auth_method": properties["oauth_client_auth_method"],
             "oauth_client_id": properties["oauth_client_id"],
             "oauth_grant": properties["oauth_grant"],
-            "oauth_access_token_validity": properties["oauth_access_token_validity"],
+            "oauth_access_token_validity": int(properties["oauth_access_token_validity"]),
             "oauth_allowed_scopes": _parse_list_property(properties["oauth_allowed_scopes"]),
             "comment": data["comment"] or None,
             "owner": owner,
@@ -1959,9 +2003,14 @@ def fetch_stream(session: SnowflakeConnection, fqn: FQN):
             "owner": _get_owner_identifier(data),
         }
     elif data["source_type"] == "Stage":
+        # Snowflake only returns the stage name without the fully qualified path.
+        # We need to construct it from the stream's database/schema.
+        stage_name = data["table_name"]
+        if "." not in stage_name:
+            stage_name = f"{data['database_name']}.{data['schema_name']}.{stage_name}"
         return {
             "name": _quote_snowflake_identifier(data["name"]),
-            "on_stage": data["table_name"],
+            "on_stage": stage_name,
             "owner": _get_owner_identifier(data),
             "comment": data["comment"] or None,
         }
@@ -2084,10 +2133,6 @@ def fetch_resource_monitor(session: SnowflakeConnection, fqn: FQN):
 
 
 def fetch_resource_tags(session: SnowflakeConnection, resource_type: ResourceType, fqn: FQN):
-    session_ctx = fetch_session(session)
-    if session_ctx["account_edition"] == AccountEdition.STANDARD:
-        return None
-
     """
     +----------------------+------------+-------------+-----------+--------+----------------------+---------------+-------------+--------+-------------+
     |     TAG_DATABASE     | TAG_SCHEMA |  TAG_NAME   | TAG_VALUE | LEVEL  |   OBJECT_DATABASE    | OBJECT_SCHEMA | OBJECT_NAME | DOMAIN | COLUMN_NAME |
@@ -2100,14 +2145,19 @@ def fetch_resource_tags(session: SnowflakeConnection, resource_type: ResourceTyp
 
     database = f"{fqn.database}." if fqn.database else ""
 
-    tag_refs = execute(
-        session,
-        f"""
-            SELECT *
-            FROM table({database}information_schema.tag_references(
-                '{fqn}', '{str(resource_type)}'
-            ))""",
-    )
+    try:
+        tag_refs = execute(
+            session,
+            f"""
+                SELECT *
+                FROM table({database}information_schema.tag_references(
+                    '{fqn}', '{str(resource_type)}'
+                ))""",
+        )
+    except ProgrammingError as err:
+        if err.errno == UNSUPPORTED_FEATURE:
+            return None
+        raise
 
     if len(tag_refs) == 0:
         return None
@@ -2163,10 +2213,6 @@ def fetch_table(session: SnowflakeConnection, fqn: FQN):
 
 
 def fetch_tag_reference(session: SnowflakeConnection, fqn: FQN):
-    session_ctx = fetch_session(session)
-    if session_ctx["account_edition"] == AccountEdition.STANDARD:
-        return None
-
     object_domain = fqn.params["domain"]
     # TODO: this is a hacky fix
     name = str(fqn).split("?")[0]
@@ -2188,7 +2234,7 @@ def fetch_tag_reference(session: SnowflakeConnection, fqn: FQN):
                 ))""",
         )
     except ProgrammingError as err:
-        if err.errno == INVALID_IDENTIFIER:
+        if err.errno in (INVALID_IDENTIFIER, UNSUPPORTED_FEATURE):
             return None
         raise
 
@@ -2497,14 +2543,25 @@ def list_dynamic_tables(session: SnowflakeConnection) -> list[FQN]:
     return list_schema_scoped_resource(session, "DYNAMIC TABLES")
 
 
+def list_external_access_integrations(session: SnowflakeConnection) -> list[FQN]:
+    return list_account_scoped_resource(session, "EXTERNAL ACCESS INTEGRATIONS")
+
+
 def list_external_volumes(session: SnowflakeConnection) -> list[FQN]:
     return list_account_scoped_resource(session, "EXTERNAL VOLUMES")
+
+
+def list_file_formats(session: SnowflakeConnection) -> list[FQN]:
+    return list_schema_scoped_resource(session, "FILE FORMATS")
 
 
 def list_functions(session: SnowflakeConnection) -> list[FQN]:
     show_result = execute(session, "SHOW USER FUNCTIONS IN ACCOUNT", cacheable=True)
     functions = []
     for row in show_result:
+        # Skip functions with empty database/schema and system databases
+        if not row["catalog_name"] or not row["schema_name"]:
+            continue
         if row["catalog_name"] in SYSTEM_DATABASES:
             continue
         fqn, returns = _parse_function_arguments(row["arguments"])
@@ -2589,8 +2646,36 @@ def list_network_rules(session: SnowflakeConnection) -> list[FQN]:
     return list_schema_scoped_resource(session, "NETWORK RULES")
 
 
+def list_notification_integrations(session: SnowflakeConnection) -> list[FQN]:
+    return list_account_scoped_resource(session, "NOTIFICATION INTEGRATIONS")
+
+
+def list_packages_policies(session: SnowflakeConnection) -> list[FQN]:
+    return list_schema_scoped_resource(session, "PACKAGES POLICIES")
+
+
+def list_password_policies(session: SnowflakeConnection) -> list[FQN]:
+    return list_schema_scoped_resource(session, "PASSWORD POLICIES")
+
+
 def list_pipes(session: SnowflakeConnection) -> list[FQN]:
     return list_schema_scoped_resource(session, "PIPES")
+
+
+def list_procedures(session: SnowflakeConnection) -> list[FQN]:
+    show_result = execute(session, "SHOW PROCEDURES IN ACCOUNT", cacheable=True)
+    procedures = []
+    for row in show_result:
+        # Skip system procedures (empty database/schema) and system databases
+        if not row["catalog_name"] or not row["schema_name"]:
+            continue
+        if row["catalog_name"] in SYSTEM_DATABASES:
+            continue
+        fqn, returns = _parse_function_arguments(row["arguments"])
+        fqn.database = row["catalog_name"]
+        fqn.schema = row["schema_name"]
+        procedures.append(fqn)
+    return procedures
 
 
 def list_resource_monitors(session: SnowflakeConnection) -> list[FQN]:
@@ -2690,6 +2775,10 @@ def list_security_integrations(session: SnowflakeConnection) -> list[FQN]:
             continue
         integrations.append(FQN(name=resource_name_from_snowflake_metadata(row["name"])))
     return integrations
+
+
+def list_sequences(session: SnowflakeConnection) -> list[FQN]:
+    return list_schema_scoped_resource(session, "SEQUENCES")
 
 
 def list_shares(session: SnowflakeConnection) -> list[FQN]:

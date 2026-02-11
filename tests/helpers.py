@@ -136,6 +136,18 @@ def safe_fetch(cursor, urn):
     return data
 
 
+def flatten_sql_commands(sql_commands: list[dict]) -> list[str]:
+    """Flatten compile_plan_to_sql output to a list of SQL strings for testing."""
+    result = ["USE SECONDARY ROLES ALL"]
+    last_role = None
+    for cmd in sql_commands:
+        if cmd["role"] != last_role:
+            result.append(f"USE ROLE {cmd['role']}")
+            last_role = cmd["role"]
+        result.extend(cmd["commands"])
+    return result
+
+
 def dump_resource_change(change):
     if isinstance(change, CreateResource):
         return f"Create: {change.urn}"

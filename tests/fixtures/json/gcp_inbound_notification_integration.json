@@ -1,0 +1,10 @@
+{
+    "name": "TEST_GCP_INBOUND_NOTIFICATION",
+    "type": "QUEUE",
+    "direction": "INBOUND",
+    "notification_provider": "GCP_PUBSUB",
+    "enabled": true,
+    "gcp_pubsub_subscription_name": "projects/test-project/subscriptions/test-subscription",
+    "owner": "ACCOUNTADMIN",
+    "comment": "Test GCP inbound notification integration"
+}

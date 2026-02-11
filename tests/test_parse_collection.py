@@ -6,17 +6,17 @@ from snowcap.parse import parse_collection_string
 # Test cases for parse_collection_string
 def test_parse_database_level():
     assert parse_collection_string("SOME_DATABASE.<TABLE>") == {
-        "in_name": "SOME_DATABASE",
-        "in_type": "database",
-        "on_type": "TABLE",
+        "on": "SOME_DATABASE",
+        "on_type": "database",
+        "items_type": "TABLE",
     }
 
 
 def test_parse_schema_level():
     assert parse_collection_string("SOME_DATABASE.SOME_SCHEMA.<VIEW>") == {
-        "in_name": "SOME_DATABASE.SOME_SCHEMA",
-        "in_type": "schema",
-        "on_type": "VIEW",
+        "on": "SOME_DATABASE.SOME_SCHEMA",
+        "on_type": "schema",
+        "items_type": "VIEW",
     }
 
 
