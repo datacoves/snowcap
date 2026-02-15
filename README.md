@@ -7,7 +7,10 @@
 ## Brought to you by Datacoves
 
 <a href="https://datacoves.com">
-  <img alt="Datacoves" src="https://raw.githubusercontent.com/datacoves/snowcap/main/images/datacoves-light.png" width="150">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/datacoves/snowcap/main/images/datacoves-dark.png">
+    <img alt="Datacoves" src="https://raw.githubusercontent.com/datacoves/snowcap/main/images/datacoves-light.png" width="150">
+  </picture>
 </a>
 
 Snowcap helps you provision, deploy, and secure resources in Snowflake. Datacoves takes it further: a managed DataOps platform for dbt and Airflow where governance and best practices are built into every layer.
