@@ -26,5 +26,5 @@ jobs:
         files: version.md
         commit_name: Datacoves Bot
         commit_email: support+snowcap@datacoves.com
-        login: datacoves-bot
+        login: datacoves-sa
         token: "${{ secrets.BOT_TOKEN }}"
