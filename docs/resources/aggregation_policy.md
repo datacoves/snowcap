@@ -12,6 +12,16 @@ Represents an aggregation policy in Snowflake, which defines constraints on aggr
 
 ## Examples
 
+### YAML
+
+```yaml
+aggregation_policies:
+  - name: some_aggregation_policy
+    body: AGGREGATION_CONSTRAINT(MIN_GROUP_SIZE => 5)
+    owner: SYSADMIN
+```
+
+
 ### Python
 
 ```python
@@ -20,16 +30,6 @@ aggregation_policy = AggregationPolicy(
     body="AGGREGATION_CONSTRAINT(MIN_GROUP_SIZE => 5)",
     owner="SYSADMIN"
 )
-```
-
-
-### YAML
-
-```yaml
-aggregation_policies:
-  - name: some_aggregation_policy
-    body: AGGREGATION_CONSTRAINT(MIN_GROUP_SIZE => 5)
-    owner: SYSADMIN
 ```
 
 

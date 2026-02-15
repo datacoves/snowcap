@@ -13,18 +13,6 @@ allows specifying recipients who will receive notifications via email.
 
 ## Examples
 
-### Python
-
-```python
-email_notification_integration = EmailNotificationIntegration(
-    name="some_email_notification_integration",
-    enabled=True,
-    allowed_recipients=["user1@example.com", "user2@example.com"],
-    comment="Example email notification integration"
-)
-```
-
-
 ### YAML
 
 ```yaml
@@ -35,6 +23,18 @@ email_notification_integrations:
       - user1@example.com
       - user2@example.com
     comment: "Example email notification integration"
+```
+
+
+### Python
+
+```python
+email_notification_integration = EmailNotificationIntegration(
+    name="some_email_notification_integration",
+    enabled=True,
+    allowed_recipients=["user1@example.com", "user2@example.com"],
+    comment="Example email notification integration"
+)
 ```
 
 

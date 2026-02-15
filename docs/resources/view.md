@@ -13,6 +13,16 @@ Views are used to simplify complex queries, improve security, or enhance perform
 
 ## Examples
 
+### YAML
+
+```yaml
+views:
+  - name: some_view
+    owner: SYSADMIN
+    secure: true
+    as_: SELECT * FROM some_table
+```
+
 ### Python
 
 ```python
@@ -22,17 +32,6 @@ view = View(
     secure=True,
     as_="SELECT * FROM some_table"
 )
-```
-
-
-### YAML
-
-```yaml
-views:
-  - name: some_view
-    owner: SYSADMIN
-    secure: true
-    as_: "SELECT * FROM some_table"
 ```
 
 

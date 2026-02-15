@@ -12,6 +12,27 @@ Defines the rules and constraints for creating and managing passwords within the
 
 ## Examples
 
+### YAML
+
+```yaml
+password_policies:
+  - name: some_password_policy
+    password_min_length: 10
+    password_max_length: 128
+    password_min_upper_case_chars: 2
+    password_min_lower_case_chars: 2
+    password_min_numeric_chars: 2
+    password_min_special_chars: 1
+    password_min_age_days: 1
+    password_max_age_days: 60
+    password_max_retries: 3
+    password_lockout_time_mins: 30
+    password_history: 5
+    comment: Strict policy for admin accounts
+    owner: SYSADMIN
+```
+
+
 ### Python
 
 ```python
@@ -31,27 +52,6 @@ password_policy = PasswordPolicy(
     comment="Strict policy for admin accounts.",
     owner="SYSADMIN"
 )
-```
-
-
-### YAML
-
-```yaml
-password_policies:
-  - name: some_password_policy
-    password_min_length: 10
-    password_max_length: 128
-    password_min_upper_case_chars: 2
-    password_min_lower_case_chars: 2
-    password_min_numeric_chars: 2
-    password_min_special_chars: 1
-    password_min_age_days: 1
-    password_max_age_days: 60
-    password_max_retries: 3
-    password_lockout_time_mins: 30
-    password_history: 5
-    comment: Strict policy for admin accounts
-    owner: SYSADMIN
 ```
 
 

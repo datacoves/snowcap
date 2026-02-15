@@ -12,23 +12,6 @@ Represents a stream on a table in Snowflake, which allows for change data captur
 
 ## Examples
 
-### Python
-
-```python
-stream = TableStream(
-    name="some_stream",
-    on_table="some_table",
-    owner="SYSADMIN",
-    copy_grants=True,
-    at={"TIMESTAMP": "2022-01-01 00:00:00"},
-    before={"STREAM": "some_other_stream"},
-    append_only=False,
-    show_initial_rows=True,
-    comment="This is a sample stream."
-)
-```
-
-
 ### YAML
 
 ```yaml
@@ -44,6 +27,22 @@ streams:
     append_only: false
     show_initial_rows: true
     comment: This is a sample stream.
+```
+
+### Python
+
+```python
+stream = TableStream(
+    name="some_stream",
+    on_table="some_table",
+    owner="SYSADMIN",
+    copy_grants=True,
+    at={"TIMESTAMP": "2022-01-01 00:00:00"},
+    before={"STREAM": "some_other_stream"},
+    append_only=False,
+    show_initial_rows=True,
+    comment="This is a sample stream."
+)
 ```
 
 

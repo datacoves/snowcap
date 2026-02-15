@@ -12,6 +12,17 @@ Represents a stream on a stage in Snowflake, which allows for capturing data cha
 
 ## Examples
 
+### YAML
+
+```yaml
+streams:
+  - name: some_stream
+    on_stage: some_stage
+    owner: SYSADMIN
+    copy_grants: true
+    comment: This is a sample stream.
+```
+
 ### Python
 
 ```python
@@ -22,18 +33,6 @@ stream = StageStream(
     copy_grants=True,
     comment="This is a sample stream."
 )
-```
-
-
-### YAML
-
-```yaml
-streams:
-  - name: some_stream
-    on_stage: some_stage
-    owner: SYSADMIN
-    copy_grants: true
-    comment: This is a sample stream.
 ```
 
 

@@ -12,17 +12,6 @@ A table in Snowflake.
 
 ## Examples
 
-### Python
-
-```python
-table = Table(
-    name="some_table",
-    columns=[{"name": "col1", "data_type": "STRING"}],
-    owner="SYSADMIN",
-)
-```
-
-
 ### YAML
 
 ```yaml
@@ -32,6 +21,16 @@ tables:
       - name: col1
         data_type: STRING
     owner: SYSADMIN
+```
+
+### Python
+
+```python
+table = Table(
+    name="some_table",
+    columns=[{"name": "col1", "data_type": "STRING"}],
+    owner="SYSADMIN",
+)
 ```
 
 

@@ -13,23 +13,6 @@ that can be failed over together to a secondary account in case of a disaster re
 
 ## Examples
 
-### Python
-
-```python
-failover_group = FailoverGroup(
-    name="some_failover_group",
-    object_types=["DATABASES", "ROLES"],
-    allowed_accounts=["org1.account1", "org2.account2"],
-    allowed_databases=["db1", "db2"],
-    allowed_shares=["share1", "share2"],
-    allowed_integration_types=["SECURITY INTEGRATIONS", "API INTEGRATIONS"],
-    ignore_edition_check=True,
-    replication_schedule="USING CRON 0 0 * * * UTC",
-    owner="ACCOUNTADMIN"
-)
-```
-
-
 ### YAML
 
 ```yaml
@@ -53,6 +36,23 @@ failover_groups:
     ignore_edition_check: true
     replication_schedule: "USING CRON 0 0 * * * UTC"
     owner: ACCOUNTADMIN
+```
+
+
+### Python
+
+```python
+failover_group = FailoverGroup(
+    name="some_failover_group",
+    object_types=["DATABASES", "ROLES"],
+    allowed_accounts=["org1.account1", "org2.account2"],
+    allowed_databases=["db1", "db2"],
+    allowed_shares=["share1", "share2"],
+    allowed_integration_types=["SECURITY INTEGRATIONS", "API INTEGRATIONS"],
+    ignore_edition_check=True,
+    replication_schedule="USING CRON 0 0 * * * UTC",
+    owner="ACCOUNTADMIN"
+)
 ```
 
 

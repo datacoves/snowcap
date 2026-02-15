@@ -12,6 +12,15 @@ A role in Snowflake defines a set of access controls and permissions.
 
 ## Examples
 
+### YAML
+
+```yaml
+roles:
+  - name: some_role
+    owner: USERADMIN
+    comment: This is a sample role.
+```
+
 ### Python
 
 ```python
@@ -20,16 +29,6 @@ role = Role(
     owner="USERADMIN",
     comment="This is a sample role.",
 )
-```
-
-
-### YAML
-
-```yaml
-roles:
-  - name: some_role
-    owner: USERADMIN
-    comment: This is a sample role.
 ```
 
 

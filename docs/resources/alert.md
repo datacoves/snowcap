@@ -12,6 +12,17 @@ Alerts trigger notifications when certain conditions are met.
 
 ## Examples
 
+### YAML
+
+```yaml
+alerts:
+  - name: some_alert
+    warehouse: some_warehouse
+    schedule: USING CRON * * * * *
+    condition: SELECT COUNT(*) FROM some_table
+    then: CALL SYSTEM$SEND_EMAIL('example@example.com', 'Alert Triggered', 'The alert condition was met.')
+```
+
 ### Python
 
 ```python
@@ -22,18 +33,6 @@ alert = Alert(
     condition="SELECT COUNT(*) FROM some_table",
     then="CALL SYSTEM$SEND_EMAIL('example@example.com', 'Alert Triggered', 'The alert condition was met.')",
 )
-```
-
-
-### YAML
-
-```yaml
-alerts:
-  - name: some_alert
-    warehouse: some_warehouse
-    schedule: USING CRON * * * * *
-    condition: SELECT COUNT(*) FROM some_table
-    then: CALL SYSTEM$SEND_EMAIL('example@example.com', 'Alert Triggered', 'The alert condition was met.')
 ```
 
 

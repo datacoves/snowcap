@@ -1,147 +1,202 @@
 # Getting Started
 
-If you're new, the best place to start is with the Python package.
+**Requirements:** Python 3.9 or higher
 
-### Install from PyPi (MacOS, Linux)
+## Install from PyPI
 
 ```sh
+# MacOS / Linux
 python -m venv .venv
 source .venv/bin/activate
-python -m pip install snowcap
-```
+pip install snowcap
 
-### Install from PyPi (Windows)
-
-```bat
+# Windows
 python -m venv .venv
 .\.venv\Scripts\activate
-python -m pip install snowcap
+pip install snowcap
 ```
 
-## Using the Python package
+## Quick Start: Create a Warehouse
 
-```Python
-import os
-import snowflake.connector
+The simplest way to get started—define a single resource and deploy it:
 
-from snowcap.blueprint import Blueprint, print_plan
-from snowcap.resources import Grant, Role, Warehouse
-
-# Configure resources by instantiating Python objects.
-
-role = Role(name="transformer")
-
-warehouse = Warehouse(
-    name="transforming",
-    warehouse_size="large",
-    auto_suspend=60,
-)
-
-usage_grant = Grant(priv="usage", to=role, on=warehouse)
-
-# Snowcap compares your config to a Snowflake account. Create a Snowflake
-# connection to allow Snowcap to connect to your account.
-
-connection_params = {
-    "account": os.environ["SNOWFLAKE_ACCOUNT"],
-    "user": os.environ["SNOWFLAKE_USER"],
-    "password": os.environ["SNOWFLAKE_PASSWORD"],
-    "role": "SYSADMIN",
-}
-session = snowflake.connector.connect(**connection_params)
-
-# Create a Blueprint and pass your resources into it. A Blueprint helps you
-# validate and deploy a set of resources.
-
-bp = Blueprint(resources=[
-    role,
-    warehouse,
-    usage_grant,
-])
-
-# Blueprint works like Terraform. Calling plan(...) will compare your config
-# to the state of your Snowflake account and return a list of changes.
-
-plan = bp.plan(session)
-print_plan(plan) # =>
-"""
-» snowcap
-» Plan: 4 to add, 0 to change, 0 to destroy.
-
-+ urn::ABCD123:warehouse/transforming {
-  + name                                = "transforming"
-  + owner                               = "SYSADMIN"
-  + warehouse_type                      = "STANDARD"
-  + warehouse_size                      = "LARGE"
-  ...
-}
-
-+ urn::ABCD123:role/transformer {
-  + name    = "transformer"
-  + owner   = "USERADMIN"
-  + tags    = None
-  + comment = None
-}
-
-+ urn::ABCD123:grant/TRANSFORMER?priv=USAGE&on=warehouse/TRANSFORMING {
-  + priv         = "USAGE"
-  + on           = "transforming"
-  + on_type      = "WAREHOUSE"
-  + to           = TRANSFORMER
-  ...
-}
-"""
-
-# Calling apply(...) will convert your plan into the right set of SQL commands
-# and run them against your Snowflake account.
-bp.apply(session, plan) # =>
-"""
-[SNOWCAP_USER:SYSADMIN]  > USE SECONDARY ROLES ALL
-[SNOWCAP_USER:SYSADMIN]  > CREATE WAREHOUSE TRANSFORMING warehouse_type = STANDARD ...
-[SNOWCAP_USER:SYSADMIN]  > USE ROLE USERADMIN
-[SNOWCAP_USER:USERADMIN] > CREATE ROLE TRANSFORMER
-[SNOWCAP_USER:USERADMIN] > USE ROLE SYSADMIN
-[SNOWCAP_USER:SYSADMIN]  > GRANT USAGE ON WAREHOUSE transforming TO TRANSFORMER
-"""
+```yaml
+# snowcap.yml
+warehouses:
+  - name: analytics
+    warehouse_size: xsmall
+    auto_suspend: 60
 ```
 
-For more advanced usage, see [Blueprint](blueprint.md).
+Create a `.env` file for credentials (add `.env` to `.gitignore`!):
 
-## Using the CLI
+```sh
+# .env
+SNOWFLAKE_ACCOUNT=my-account
+SNOWFLAKE_USER=my-user
+SNOWFLAKE_PASSWORD=my-password
+SNOWFLAKE_ROLE=SYSADMIN
+```
 
-You can use the CLI to generate a plan, apply a plan, or export resources. To use the CLI, install the Python package and call `snowcap` from the command line.
+??? note "All Environment Variables"
+    | Variable | Description |
+    |----------|-------------|
+    | `SNOWFLAKE_ACCOUNT` | Your Snowflake account identifier |
+    | `SNOWFLAKE_USER` | Username |
+    | `SNOWFLAKE_PASSWORD` | Password (for password auth) |
+    | `SNOWFLAKE_ROLE` | Role to use |
+    | `SNOWFLAKE_WAREHOUSE` | Warehouse to use (optional) |
+    | `SNOWFLAKE_DATABASE` | Default database (optional) |
+    | `SNOWFLAKE_SCHEMA` | Default schema (optional) |
+    | `SNOWFLAKE_AUTHENTICATOR` | Authentication method (see below) |
+    | `SNOWFLAKE_MFA_PASSCODE` | TOTP passcode from authenticator app |
+    | `SNOWFLAKE_PRIVATE_KEY_PATH` | Path to private key file (for key-pair auth) |
+    | `PRIVATE_KEY_PASSPHRASE` | Passphrase for encrypted private key |
 
-The CLI allows you to `plan` and `apply` a Snowcap YAML config. You can specify a single input file or a directory of configs.
+    **Authenticator options:**
 
-In addition to `plan` and `apply`, the CLI also allows you to `export` resources. This makes it easy to generate a config for an existing Snowflake environment.
+    | Value | Description |
+    |-------|-------------|
+    | *(default)* | Username and password |
+    | `SNOWFLAKE_JWT` | Key-pair authentication |
+    | `externalbrowser` | SSO via web browser |
+    | `oauth` | OAuth with access token |
+    | `username_password_mfa` | Password with MFA (push notification) |
 
-To connect with Snowflake, the CLI uses environment variables. These environment variables are supported:
+??? example "Key-Pair Authentication"
+    For [key-pair auth](https://docs.snowflake.com/en/user-guide/key-pair-auth), use `SNOWFLAKE_JWT` instead of password:
 
-* `SNOWFLAKE_ACCOUNT`
-* `SNOWFLAKE_USER`
-* `SNOWFLAKE_PASSWORD`
-* `SNOWFLAKE_DATABASE`
-* `SNOWFLAKE_SCHEMA`
-* `SNOWFLAKE_ROLE`
-* `SNOWFLAKE_WAREHOUSE`
-* `SNOWFLAKE_MFA_PASSCODE`
-* `SNOWFLAKE_AUTHENTICATOR`
+    ```sh
+    # .env
+    SNOWFLAKE_ACCOUNT=my-account
+    SNOWFLAKE_USER=my-user
+    SNOWFLAKE_ROLE=SECURITYADMIN
+    SNOWFLAKE_PRIVATE_KEY_PATH=/path/to/private-key.pem
+    SNOWFLAKE_AUTHENTICATOR=SNOWFLAKE_JWT
+    ```
 
+    If your private key is encrypted, also set:
 
-### CLI Example
+    ```sh
+    PRIVATE_KEY_PASSPHRASE=your-passphrase
+    ```
 
-Show the help message
+Run snowcap:
+
+```sh
+# Load environment variables
+export $(cat .env | xargs)
+
+# Preview changes
+snowcap plan --config snowcap.yml
+
+# Apply changes
+snowcap apply --config snowcap.yml
+```
+
+That's it. Snowcap compares your config to Snowflake and generates the SQL to make them match.
+
+## Scaling Up: Directory Structure with Templates
+
+As your infrastructure grows, organize configs into directories and use templates for scalability:
+
+```
+snowcap/
+├── resources/
+│   ├── databases.yml            # Database definitions
+│   ├── schemas.yml              # Schema definitions
+│   ├── warehouses.yml           # Warehouse definitions
+│   ├── stages.yml               # Stage definitions
+│   ├── users.yml                # User definitions
+│   ├── roles__base.yml          # Atomic privilege roles
+│   └── roles__functional.yml    # Functional roles + grants
+│
+└── object_templates/            # Auto-generate resources with for_each
+    ├── database.yml
+    ├── schema.yml
+    └── warehouses.yml
+```
+
+**databases.yml** - Define your databases:
+
+```yaml
+vars:
+  - name: databases
+    type: list
+    default:
+      - name: raw
+        owner: loader
+      - name: analytics
+        owner: transformer
+      - name: analytics_dev
+        owner: transformer
+```
+
+**object_templates/database.yml** - Auto-generate databases, roles, and grants:
+
+```yaml
+# Databases
+databases:
+  - for_each: var.databases
+    name: "{{ each.value.name }}"
+    owner: "{{ each.value.owner }}"
+
+# Database roles
+roles:
+  - for_each: var.databases
+    name: "z_db__{{ each.value.name }}"
+
+# Database grants
+grants:
+  - for_each: var.databases
+    priv: USAGE
+    on: "database {{ each.value.name }}"
+    to: "z_db__{{ each.value.name }}"
+```
+
+**roles__functional.yml** - Compose into functional roles:
+
+```yaml
+roles:
+  - name: analyst
+  - name: loader
+  - name: transformer
+
+role_grants:
+  - to_role: analyst
+    roles:
+      - z_db__analytics
+      - z_schema__marts
+      - z_wh__querying
+      - z_tables_views__select
+
+  - to_role: transformer
+    roles:
+      - z_db__raw
+      - z_db__analytics
+      - z_wh__transforming
+```
+
+**Run snowcap:**
+
+```sh
+# Load environment variables from .env
+export $(cat .env | xargs)
+
+# Preview all changes
+snowcap plan --config ./snowcap/
+
+# Apply all changes
+snowcap apply --config ./snowcap/
+```
+
+Adding a new database? Just add one line to `databases.yml`—the template auto-creates the database, role, and grant.
+
+## CLI Commands
 
 ```sh
 snowcap --help
 
-# Usage: snowcap [OPTIONS] COMMAND [ARGS]...
-#
-#   snowcap helps you manage your Snowflake environment.
-#
-# Options:
-#   --help  Show this message and exit.
-#
 # Commands:
 #   apply    Apply a resource config to a Snowflake account
 #   connect  Test the connection to Snowflake
@@ -149,85 +204,11 @@ snowcap --help
 #   plan     Compare a resource config to the current state of Snowflake
 ```
 
-Apply a resource config to Snowflake
+## Next Steps
 
-```sh
-# Create a resource config file
-cat <<EOF > snowcap.yml
-roles:
-  - name: transformer
-
-warehouses:
-  - name: transforming
-    warehouse_size: LARGE
-    auto_suspend: 60
-
-grants:
-  - to_role: transformer
-    priv: usage
-    on_warehouse: transforming
-EOF
-
-# Set connection variables
-export SNOWFLAKE_ACCOUNT="my-account"
-export SNOWFLAKE_USER="my-user"
-export SNOWFLAKE_PASSWORD="my-password"
-
-# Generate a plan
-snowcap plan --config snowcap.yml
-
-# Apply the config
-snowcap apply --config snowcap.yml
-```
-
-Export existing Snowflake resources to YAML.
-
-```sh
-snowcap export \
-  --resource=warehouse,grant,role \
-  --out=snowcap.yml
-```
-
-The Snowcap Python package installs the CLI script `snowcap`. You can alternatively use Python CLI module syntax if you need fine-grained control over the Python environment.
-
-```sh
-python -m snowcap plan --config snowcap.yml
-```
-
-## Using the GitHub Action
-The Snowcap GitHub Action allows you to automate the deployment of Snowflake resources using a git-based workflow.
-
-### GitHub Action Example
-
-```YAML
--- .github/workflows/snowcap.yml
-name: Deploy to Snowflake with Snowcap
-on:
-  push:
-    branches: [ main ]
-    paths:
-    - 'snowcap/**'
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Deploy to Snowflake
-        uses: datacoves/snowcap-action@main
-        with:
-          run-mode: 'create-or-update'
-          resource-path: './snowcap'
-          allowlist: 'warehouse,role,grant'
-          dry-run: 'false'
-        env:
-          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
-          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
-          SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
-          SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
-          SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
-```
-
-For in-depth documentation, see [Snowcap GitHub Action](snowcap-github-action.md).
+- [Export Existing Resources](export.md) - Generate config from your current Snowflake setup
+- [Python API](python-api.md) - Programmatic control with Python
+- [Working With Resources](working-with-resources.md) - Resource configuration options
+- [Role-Based Access Control](role-based-access-control.md) - Best practices for managing permissions
+- [Blueprint](blueprint.md) - Advanced deployment customization
+- [GitHub Action](snowcap-github-action.md) - Automate deployments with CI/CD

@@ -13,18 +13,6 @@ A hybrid table is a Snowflake table type that is optimized for hybrid transactio
 
 ## Examples
 
-### Python
-
-```python
-hybrid_table = HybridTable(
-    name="some_hybrid_table",
-    columns=[Column(name="col1", type="STRING")],
-    owner="SYSADMIN",
-    comment="This is a hybrid table."
-)
-```
-
-
 ### YAML
 
 ```yaml
@@ -35,6 +23,17 @@ hybrid_tables:
         type: STRING
     owner: SYSADMIN
     comment: This is a hybrid table.
+```
+
+### Python
+
+```python
+hybrid_table = HybridTable(
+    name="some_hybrid_table",
+    columns=[Column(name="col1", type="STRING")],
+    owner="SYSADMIN",
+    comment="This is a hybrid table."
+)
 ```
 
 

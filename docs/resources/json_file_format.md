@@ -12,6 +12,32 @@ A JSON file format in Snowflake.
 
 ## Examples
 
+### YAML
+
+```yaml
+file_formats:
+  - name: some_json_file_format
+    type: JSON
+    owner: SYSADMIN
+    compression: AUTO
+    date_format: AUTO
+    time_format: AUTO
+    timestamp_format: AUTO
+    binary_format: HEX
+    trim_space: false
+    null_if:
+      - NULL
+    file_extension: json
+    enable_octal: false
+    allow_duplicate: false
+    strip_outer_array: false
+    strip_null_values: false
+    replace_invalid_characters: false
+    ignore_utf8_errors: false
+    skip_byte_order_mark: true
+    comment: This is a JSON file format.
+```
+
 ### Python
 
 ```python
@@ -38,32 +64,6 @@ file_format = JSONFileFormat(
 ```
 
 
-### YAML
-
-```yaml
-file_formats:
-  - name: some_json_file_format
-    owner: SYSADMIN
-    compression: AUTO
-    date_format: AUTO
-    time_format: AUTO
-    timestamp_format: AUTO
-    binary_format: HEX
-    trim_space: false
-    null_if:
-      - NULL
-    file_extension: json
-    enable_octal: false
-    allow_duplicate: false
-    strip_outer_array: false
-    strip_null_values: false
-    replace_invalid_characters: false
-    ignore_utf8_errors: false
-    skip_byte_order_mark: true
-    comment: This is a JSON file format.
-```
-
-
 ## Fields
 
 * `name` (string, required) - The name of the file format.
@@ -72,7 +72,7 @@ file_formats:
 * `date_format` (string) - The format used for date values. Defaults to "AUTO".
 * `time_format` (string) - The format used for time values. Defaults to "AUTO".
 * `timestamp_format` (string) - The format used for timestamp values. Defaults to "AUTO".
-* `binary_format` ([BinaryFormat](binary_format.md)) - The format used for binary data. Defaults to HEX.
+* `binary_format` (BinaryFormat) - The format used for binary data. Defaults to HEX.
 * `trim_space` (bool) - Whether to trim spaces. Defaults to False.
 * `null_if` (list) - A list of strings to be interpreted as NULL.
 * `file_extension` (string) - The file extension used for files of this format.

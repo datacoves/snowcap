@@ -14,26 +14,6 @@ with the help of a load balancer if multiple instances are run.
 
 ## Examples
 
-### Python
-
-```python
-service = Service(
-    name="some_service",
-    compute_pool="some_compute_pool",
-    stage="@tutorial_stage",
-    yaml_file_stage_path="echo_spec.yaml",
-    specification="FROM SPECIFICATION $$some_specification$$",
-    external_access_integrations=["some_integration"],
-    auto_resume=True,
-    min_instances=1,
-    max_instances=2,
-    query_warehouse="some_warehouse",
-    tags={"key": "value"},
-    comment="This is a sample service."
-)
-```
-
-
 ### YAML
 
 ```yaml
@@ -52,6 +32,26 @@ services:
     tags:
       key: value
     comment: This is a sample service.
+```
+
+
+### Python
+
+```python
+service = Service(
+    name="some_service",
+    compute_pool="some_compute_pool",
+    stage="@tutorial_stage",
+    yaml_file_stage_path="echo_spec.yaml",
+    specification="FROM SPECIFICATION $$some_specification$$",
+    external_access_integrations=["some_integration"],
+    auto_resume=True,
+    min_instances=1,
+    max_instances=2,
+    query_warehouse="some_warehouse",
+    tags={"key": "value"},
+    comment="This is a sample service."
+)
 ```
 
 

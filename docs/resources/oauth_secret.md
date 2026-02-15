@@ -13,6 +13,28 @@ This class defines an OAuth secret.
 
 ## Examples
 
+### YAML
+
+```yaml
+secrets:
+  - name: some_secret
+    secret_type: OAUTH2
+    api_authentication: some_security_integration
+    oauth_scopes:
+      - scope1
+      - scope2
+    comment: some_comment
+    owner: SYSADMIN
+  - name: another_secret
+    secret_type: OAUTH2
+    api_authentication: some_security_integration
+    oauth_refresh_token: 34n;vods4nQsdg09wee4qnfvadH
+    oauth_refresh_token_expiry_time: 2049-01-06 20:00:00
+    comment: some_comment
+    owner: SYSADMIN
+```
+
+
 ### Python
 
 ```python
@@ -33,28 +55,6 @@ secret = OAuthSecret(
     comment="some_comment",
     owner="SYSADMIN",
 )
-```
-
-
-### YAML
-
-```yaml
-secrets:
-  - name: some_secret
-    secret_type: OAUTH2
-    api_authentication: some_security_integration
-    oauth_scopes:
-      - scope1
-      - scope2
-    comment: some_comment
-    owner: SYSADMIN
-  - name: another_secret
-    secret_type: OAUTH2
-    api_authentication: some_security_integration
-    oauth_refresh_token: 34n;vods4nQsdg09wee4qnfvadH
-    oauth_refresh_token_expiry_time: 2049-01-06 20:00:00
-    comment: some_comment
-    owner: SYSADMIN
 ```
 
 

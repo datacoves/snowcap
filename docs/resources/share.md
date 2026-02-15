@@ -12,6 +12,14 @@ Represents a share resource in Snowflake, which allows sharing data across Snowf
 
 ## Examples
 
+### YAML
+
+```yaml
+shares:
+  - name: some_share
+    comment: This is a snowflake share.
+```
+
 ### Python
 
 ```python
@@ -19,15 +27,6 @@ share = Share(
     name="some_share",
     comment="This is a snowflake share."
 )
-```
-
-
-### YAML
-
-```yaml
-shares:
-  - name: some_share
-    comment: This is a snowflake share.
 ```
 
 

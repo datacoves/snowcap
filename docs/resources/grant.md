@@ -11,6 +11,77 @@ The `Grant` resource represents a privilege grant, a future grant, or a grant of
 
 ## Examples
 
+### YAML
+
+#### Object Grants
+
+```yaml
+grants:
+  # Global privileges
+  - priv: CREATE WAREHOUSE
+    on: ACCOUNT
+    to: somerole
+
+  # Single privilege on a table
+  - priv: SELECT
+    on: table some_table
+    to: some_role
+
+  # Multiple privileges on a table
+  - priv:
+      - SELECT
+      - INSERT
+    on: table some_table
+    to: some_role
+    grant_option: true
+
+  # Schema privileges
+  - priv: USAGE
+    on: schema somedb.someschema
+    to: some_role
+
+  # Warehouse privileges
+  - priv: USAGE
+    on: warehouse some_warehouse
+    to: some_role
+```
+
+#### Future Grants
+
+```yaml
+grants:
+  - priv:
+      - SELECT
+      - INSERT
+    on: future tables in schema someschema
+    to: somerole
+
+  # Multiple future grants
+  - priv: SELECT
+    on:
+      - future tables in schema someschema
+      - future views in schema someschema
+    to: somerole
+```
+
+#### Grants on All Resources
+
+```yaml
+grants:
+  - priv:
+      - SELECT
+      - INSERT
+    on: all tables in schema someschema
+    to: somerole
+
+  # Multiple "all" grants
+  - priv: SELECT
+    on:
+      - all tables in schema someschema
+      - all views in schema someschema
+    to: somerole
+```
+
 ### Python
 
 #### Object Grants
@@ -87,66 +158,20 @@ grant_on_all = Grant(
 )
 ```
 
-### YAML
-
-#### Object Grants
-
-```yaml
-grants:
-  - priv:
-      - SELECT
-      - INSERT
-    on_table: some_table
-    to: some_role
-    grant_option: true
-  - priv: SELECT
-    on: schema someschema
-    to: some_role
-    grant_option: true
-```
-
-#### Future Grants
-
-```yaml
-grants:
-  - priv:
-      - SELECT
-      - INSERT
-    on:
-      - future tables in schema someschema
-      - future views in schema someschema
-    to: somerole
-```
-
-#### Grants on All Resources
-
-```yaml
-grants:
-  - priv:
-      - SELECT
-      - INSERT
-    on:
-      - all tables in schema someschema
-      - all views in schema someschema
-    to: somerole
-```
-
 ## Fields
 
 - **`priv`** (`string` or `list`, required):  
   The privilege(s) to grant. Examples include `"SELECT"`, `"INSERT"`, `"CREATE TABLE"`.
 
-- **`on`** (`string` or [Resource](resource.md), required):  
-  The resource on which the privilege is granted.  
-  - Can be a string like `"ACCOUNT"`, a specific resource object, or a list of strings containing:
-    - **grant type**: `"FUTURE"` or `"ALL"`
-    - **contained items type**: Any resource contained in a Database or Schema (e.g., `"tables"`, `"schemas"`)
-    - **container object type**: `"Database"` or `"Schema"`
-    - **container object name**: The name of the database or schema
-  - The list items can be joined using whitespace and provided as a single string (e.g., `"future tables in schema someschema"`).
-  - Also, multiple grants can be specified at once using a list of strings e.g.:
-    - `"future tables in schema someschema"`
-    - `"all views in schema someschema"`
+- **`on`** (`string` or Resource, required):
+  The resource on which the privilege is granted. Examples:
+  - `"ACCOUNT"` - for account-level privileges
+  - `"table my_table"` - for table privileges
+  - `"schema my_db.my_schema"` - for schema privileges
+  - `"warehouse my_wh"` - for warehouse privileges
+  - `"database my_db"` - for database privileges
+  - `"future tables in schema my_schema"` - for future grants
+  - `"all tables in database my_db"` - for grants on all existing objects
 
 - **`to`** (`string` or [Role](role.md), required):  
   The role to which the privileges are granted.

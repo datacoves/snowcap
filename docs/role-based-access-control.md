@@ -43,6 +43,9 @@ Instead of granting privileges directly to users, this pattern creates a hierarc
 
 ## Role Naming Convention
 
+!!! info "Recommended, not required"
+    This naming convention is a recommendation to help organize roles. Snowcap does not enforce any specific naming pattern—use whatever works for your organization.
+
 Object roles use a `z_` prefix followed by the object type and name:
 
 | Role Type | Naming Pattern | Example |
@@ -331,7 +334,7 @@ grants:
 
 ### Environment Setup
 
-Create a `.env` file with your Snowflake credentials:
+Create a `.env` file with your Snowflake credentials. This example uses [key-pair authentication](getting-started.md#quick-start-create-a-warehouse):
 
 ```bash
 SNOWFLAKE_ACCOUNT=your-account
@@ -340,6 +343,8 @@ SNOWFLAKE_ROLE=SECURITYADMIN
 SNOWFLAKE_PRIVATE_KEY_PATH=/path/to/rsa_key.p8
 SNOWFLAKE_AUTHENTICATOR=SNOWFLAKE_JWT
 ```
+
+See [Getting Started](getting-started.md) for all authentication options.
 
 ### Plan Script (plan.sh)
 
@@ -356,6 +361,13 @@ snowcap plan \
     --config resources/ \
     --sync_resources role,grant,role_grant
 ```
+
+!!! warning "About `--sync_resources`"
+    By default, Snowcap only creates or updates resources—it never deletes anything.
+
+    The `--sync_resources` flag enables **sync mode** for the specified resource types. This means resources of those types that exist in Snowflake but are **not** in your config will be **deleted**.
+
+    In this example, `role,grant,role_grant` are synced, so any roles or grants in Snowflake that aren't defined in your config files will be removed. Use with caution.
 
 ### Apply Script (apply.sh)
 

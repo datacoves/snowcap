@@ -1,135 +1,104 @@
-# `snowcap` GitHub Action
+# GitHub Action
 
-> **Note:** The Snowcap GitHub Action (`datacoves/snowcap-action`) will be available in a future release.
+Automate Snowflake deployments with GitHub Actions using a review-then-apply workflow.
 
-## Using the GitHub action
+## Workflow Pattern
 
-To add the Snowcap GitHub action to your repository, follow these steps:
+The recommended pattern is **plan on PR, apply on merge**:
 
-### Create a Snowcap workflow file
+1. **Pull Request opened** → Run `snowcap plan` to show what changes will be made
+2. **Reviewers** → See the planned changes in the PR, approve or request changes
+3. **PR merged to main** → Run `snowcap apply` to execute the changes
 
-Create a file in the GitHub workflows directory of your repo (`.github/workflows/snowcap.yml`)
+This prevents accidental changes - nothing is applied to Snowflake until the PR is reviewed and merged.
 
-```YAML
--- .github/workflows/snowcap.yml
-name: Deploy to Snowflake with Snowcap
+## Authentication
+
+GitHub Actions require **key-pair authentication** since service accounts can't use passwords or MFA.
+
+Set up key-pair auth in Snowflake:
+1. [Generate a key pair](https://docs.snowflake.com/en/user-guide/key-pair-auth#generate-the-private-key)
+2. Assign the public key to your service user
+3. Store the private key as a GitHub secret
+
+## Example Workflow
+
+```yaml
+# .github/workflows/snowcap.yml
+name: Snowcap
+
 on:
-  push:
-    branches: [ main ]
+  pull_request:
     paths:
-    - 'snowcap/**'
+      - 'snowcap/**'
+  push:
+    branches: [main]
+    paths:
+      - 'snowcap/**'
 
 jobs:
-  deploy:
+  plan:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Deploy to Snowflake
-        uses: datacoves/snowcap-action@main
+      - uses: actions/setup-python@v5
         with:
-          run-mode: 'create-or-update'
-          resource-path: './snowcap'
-          allowlist: 'warehouse,role,grant'
-          dry-run: 'false'
+          python-version: '3.11'
+
+      - run: pip install snowcap
+
+      - name: Write private key
+        run: echo "${{ secrets.SNOWFLAKE_PRIVATE_KEY }}" > /tmp/rsa_key.pem
+
+      - name: Plan changes
+        run: snowcap plan --config ./snowcap/
         env:
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
-          SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
+          SNOWFLAKE_PRIVATE_KEY_PATH: /tmp/rsa_key.pem
+          SNOWFLAKE_AUTHENTICATOR: SNOWFLAKE_JWT
           SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
-          SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+
+  apply:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: pip install snowcap
+
+      - name: Write private key
+        run: echo "${{ secrets.SNOWFLAKE_PRIVATE_KEY }}" > /tmp/rsa_key.pem
+
+      - name: Apply changes
+        run: snowcap apply --config ./snowcap/
+        env:
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_PRIVATE_KEY_PATH: /tmp/rsa_key.pem
+          SNOWFLAKE_AUTHENTICATOR: SNOWFLAKE_JWT
+          SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
 ```
 
-### Configure your Snowflake connection
+## Configure Secrets
 
-Go to your GitHub repository settings, navigate to `Secrets`. There, add a secret for `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, and whatever other connection settings you need.
+Go to your GitHub repository **Settings → Secrets and variables → Actions** and add:
 
+| Secret | Description |
+|--------|-------------|
+| `SNOWFLAKE_ACCOUNT` | Your Snowflake account identifier |
+| `SNOWFLAKE_USER` | Service account username |
+| `SNOWFLAKE_PRIVATE_KEY` | Contents of your private key file (PEM format) |
+| `SNOWFLAKE_ROLE` | Role to use for deployments (e.g., `SECURITYADMIN`) |
 
-### Create a `snowcap` directory in your repository
+## How It Works
 
-Add YAML resource configs to the `snowcap` directory.
-
-```YAML
-# snowcap/warehouses.yml
-warehouses:
-  - name: reporting
-    warehouse_size: XSMALL
-    auto_suspend: 60
-    auto_resume: true
-```
-
-```YAML
-# snowcap/rbac.yml
-
-roles:
-  - name: reporter
-    comment: "Has permissions on the analytics database..."
-
-grants:
-  - to_role: reporter
-    priv: usage
-    on_warehouse: reporting
-  - to_role: reporter
-    priv: usage
-    on_database: analytics
-
-role_grants:
-  - role: reporter
-    roles:
-      - SYSADMIN
-```
-
-### Commit and push your changes
-
-When you push to `main` changes to files in the `snowcap/` directory, the Github Action will deploy them to Snowflake.
-
-## Configuration options
-
-**run-mode** `string`
-
-Defines how the blueprint interacts with the Snowflake account
-
-- Default: `"create-or-update"`
-- **create-or-update**
-  - Resources are either created or updated, no resources are destroyed
-- **sync**:
-  - `⚠️ WARNING` Sync mode will drop resources.
-  - Snowcap will update Snowflake to match the blueprint exactly. Must be used with `allowlist`.
-
-**resource-path** `string`
-
-Defines the file or directory where Snowcap will look for the resource configs
-
-- Default: `"."`
-
-**allowlist** `list[string] or "all"`
-
-Defines which resource types are allowed
-
- - Default: `"all"`
-
-**dry_run** `bool`
-
-**vars** `dict`
-
-**vars_spec** `list[dict]`
-
-**scope** `str`
-
-**database** `str`
-
-**schema** `str`
-
-## Ignore files with `.snowcapignore`
-
-If you specify a directory as the `resource-path`, Snowcap will recursively look for all files with a `.yaml` or `.yml` file extension. You can tell Snowcap to exclude files or directories with a `.snowcapignore` file. This file uses [gitignore syntax](https://git-scm.com/docs/gitignore).
-
-### `.snowcapignore` example
-
-```
-# .snowcapignore
-
-# Ignore dbt config
-dbt_project.yml
-```
+1. **Developer** creates a branch and modifies files in `snowcap/`
+2. **Opens PR** → GitHub runs `snowcap plan`, showing planned changes
+3. **Reviewer** approves the PR after reviewing the plan output
+4. **Merge to main** → GitHub runs `snowcap apply`, changes are made to Snowflake

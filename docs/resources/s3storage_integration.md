@@ -12,21 +12,6 @@ Manages the integration of Snowflake with S3 storage.
 
 ## Examples
 
-### Python
-
-```python
-s3_storage_integration = S3StorageIntegration(
-    name="some_s3_storage_integration",
-    enabled=True,
-    storage_aws_role_arn="arn:aws:iam::123456789012:role/MyS3AccessRole",
-    storage_allowed_locations=["s3://mybucket/myfolder/"],
-    storage_blocked_locations=["s3://mybucket/myblockedfolder/"],
-    storage_aws_object_acl="bucket-owner-full-control",
-    comment="This is a sample S3 storage integration."
-)
-```
-
-
 ### YAML
 
 ```yaml
@@ -40,6 +25,21 @@ s3_storage_integrations:
       - "s3://mybucket/myblockedfolder/"
     storage_aws_object_acl: "bucket-owner-full-control"
     comment: "This is a sample S3 storage integration."
+```
+
+
+### Python
+
+```python
+s3_storage_integration = S3StorageIntegration(
+    name="some_s3_storage_integration",
+    enabled=True,
+    storage_aws_role_arn="arn:aws:iam::123456789012:role/MyS3AccessRole",
+    storage_allowed_locations=["s3://mybucket/myfolder/"],
+    storage_blocked_locations=["s3://mybucket/myblockedfolder/"],
+    storage_aws_object_acl="bucket-owner-full-control",
+    comment="This is a sample S3 storage integration."
+)
 ```
 
 

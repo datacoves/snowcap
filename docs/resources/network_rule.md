@@ -14,6 +14,18 @@ and securing access based on network policies.
 
 ## Examples
 
+### YAML
+
+```yaml
+network_rules:
+  - name: some_network_rule
+    type: IPV4
+    value_list: ["192.168.1.1", "192.168.1.2"]
+    mode: INGRESS
+    comment: "Example network rule"
+```
+
+
 ### Python
 
 ```python
@@ -27,24 +39,12 @@ network_rule = NetworkRule(
 ```
 
 
-### YAML
-
-```yaml
-network_rules:
-  - name: some_network_rule
-    type: IPV4
-    value_list: ["192.168.1.1", "192.168.1.2"]
-    mode: INGRESS
-    comment: "Example network rule"
-```
-
-
 ## Fields
 
 * `name` (string, required) - The name of the network rule.
-* `type` (string or [NetworkIdentifierType](network_identifier_type.md), required) - The type of network identifier. Defaults to IPV4.
+* `type` (string or NetworkIdentifierType, required) - The type of network identifier. Defaults to IPV4.
 * `value_list` (list) - A list of values associated with the network rule.
-* `mode` (string or [NetworkRuleMode](network_rule_mode.md)) - The mode of the network rule. Defaults to INGRESS.
+* `mode` (string or NetworkRuleMode) - The mode of the network rule. Defaults to INGRESS.
 * `comment` (string) - A comment about the network rule.
 * `owner` (string or [Role](role.md)) - The owner role of the network rule. Defaults to "SYSADMIN".
 

@@ -12,20 +12,20 @@ An image repository in Snowflake is a storage unit within a schema that allows f
 
 ## Examples
 
+### YAML
+
+```yaml
+image_repositories:
+  - name: some_image_repository
+```
+
+
 ### Python
 
 ```python
 image_repository = ImageRepository(
     name="some_image_repository",
 )
-```
-
-
-### YAML
-
-```yaml
-image_repositories:
-  - name: some_image_repository
 ```
 
 

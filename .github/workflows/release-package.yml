@@ -1,13 +1,9 @@
 name: Build and release package to PyPi
 
 on:
+  release:
+    types: [published]
   workflow_dispatch:
-  workflow_call:
-    secrets:
-      PYPI_USERNAME:
-        required: true
-      PYPI_PASSWORD:
-        required: true
 
 jobs:
   build-and-release:

@@ -12,6 +12,17 @@ Manages the creation and configuration of sequences in Snowflake, which are obje
 
 ## Examples
 
+### YAML
+
+```yaml
+sequences:
+  - name: some_sequence
+    owner: SYSADMIN
+    start: 100
+    increment: 10
+    comment: This is a sample sequence.
+```
+
 ### Python
 
 ```python
@@ -22,18 +33,6 @@ sequence = Sequence(
     increment=10,
     comment="This is a sample sequence."
 )
-```
-
-
-### YAML
-
-```yaml
-sequences:
-  - name: some_sequence
-    owner: SYSADMIN
-    start: 100
-    increment: 10
-    comment: This is a sample sequence.
 ```
 
 

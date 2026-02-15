@@ -12,20 +12,6 @@ Represents an Azure storage integration in Snowflake, which allows Snowflake to 
 
 ## Examples
 
-### Python
-
-```python
-azure_storage_integration = AzureStorageIntegration(
-    name="some_azure_storage_integration",
-    enabled=True,
-    azure_tenant_id="some_tenant_id",
-    storage_allowed_locations=["azure://somebucket/somepath/"],
-    storage_blocked_locations=["azure://someotherbucket/somepath/"],
-    comment="This is an Azure storage integration."
-)
-```
-
-
 ### YAML
 
 ```yaml
@@ -38,6 +24,20 @@ azure_storage_integrations:
     storage_blocked_locations:
       - azure://someotherbucket/somepath/
     comment: This is an Azure storage integration.
+```
+
+
+### Python
+
+```python
+azure_storage_integration = AzureStorageIntegration(
+    name="some_azure_storage_integration",
+    enabled=True,
+    azure_tenant_id="some_tenant_id",
+    storage_allowed_locations=["azure://somebucket/somepath/"],
+    storage_blocked_locations=["azure://someotherbucket/somepath/"],
+    comment="This is an Azure storage integration."
+)
 ```
 
 

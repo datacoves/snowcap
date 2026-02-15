@@ -12,17 +12,6 @@ A replication group in Snowflake.
 
 ## Examples
 
-### Python
-
-```python
-replication_group = ReplicationGroup(
-    name="some_replication_group",
-    object_types=["DATABASES"],
-    allowed_accounts=["account1", "account2"],
-)
-```
-
-
 ### YAML
 
 ```yaml
@@ -33,6 +22,17 @@ replication_groups:
     allowed_accounts:
       - account1
       - account2
+```
+
+
+### Python
+
+```python
+replication_group = ReplicationGroup(
+    name="some_replication_group",
+    object_types=["DATABASES"],
+    allowed_accounts=["account1", "account2"],
+)
 ```
 
 
