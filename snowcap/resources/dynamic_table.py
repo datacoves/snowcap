@@ -13,8 +13,9 @@ from ..props import (
 from ..resource_name import ResourceName
 from ..role_ref import RoleRef
 from ..scope import SchemaScope, TableScope
-from .resource import NamedResource, Resource, ResourceSpec
+from .resource import NamedResource, Resource, ResourcePointer, ResourceSpec
 from .tag import TaggableResource
+from .view import _extract_table_refs_from_sql
 from .warehouse import Warehouse
 
 
@@ -165,3 +166,11 @@ class DynamicTable(NamedResource, TaggableResource, Resource):
             owner=owner,
         )
         self.set_tags(tags)
+
+        # Extract table dependencies from the SELECT statement
+        # Only add dependencies for fully qualified table names (db.schema.table format)
+        # Simple names can't be resolved without knowing the table's container.
+        if as_:
+            for table_ref in _extract_table_refs_from_sql(as_):
+                if "." in table_ref:
+                    self.requires(ResourcePointer(name=table_ref, resource_type=ResourceType.TABLE))

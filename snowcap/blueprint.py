@@ -843,9 +843,13 @@ class Blueprint:
             for ref in resource.refs:
                 resource_and_ref_share_scope = isinstance(ref.scope, resource.scope.__class__)
                 if ref.container is None and resource.container is not None and resource_and_ref_share_scope:
-                    # If a resource requires another, and that secondary resource couldn't be resolved into
-                    # an existing scope, then assume it lives in the same container as the original resource
-                    resource.container.add(ref)
+                    if isinstance(ref, ResourcePointer):
+                        # For ResourcePointers, set the container directly (for URN matching)
+                        # but don't add them to the container's items (they're just dependency refs)
+                        ref._container = resource.container
+                    else:
+                        # For actual Resource objects, add them to the container
+                        resource.container.add(ref)
 
     def _create_tag_references(self) -> None:
         """

@@ -86,11 +86,34 @@ def marked_for_cleanup() -> list:
     return []
 
 
+def _verify_static_resources(cursor):
+    """Verify that required static test resources exist in Snowflake."""
+    required_resources = [
+        ("SHOW ROLES LIKE 'STATIC_ROLE'", "STATIC_ROLE"),
+        ("SHOW DATABASES LIKE 'STATIC_DATABASE'", "STATIC_DATABASE"),
+        ("SHOW WAREHOUSES LIKE 'STATIC_WAREHOUSE'", "STATIC_WAREHOUSE"),
+    ]
+    missing = []
+    for query, name in required_resources:
+        result = cursor.execute(query).fetchall()
+        if not result:
+            missing.append(name)
+
+    if missing:
+        pytest.exit(
+            f"\n\nMissing required static test resources: {', '.join(missing)}\n\n"
+            f"Please run 'make setup-test-resources' to create them.\n"
+            f"See tests/fixtures/static_resources/README.md for details.\n",
+            returncode=1,
+        )
+
+
 @pytest.fixture(scope="session")
 def cursor(suffix, test_db, marked_for_cleanup):
     session = snowflake.connector.connect(**connection_params())
     with session.cursor(snowflake.connector.DictCursor) as cur:
         cur.execute(f"ALTER SESSION set query_tag='snowcap_package:test::{suffix}'")
+        _verify_static_resources(cur)
         cur.execute(f"CREATE DATABASE {test_db}")
         try:
             yield cur
