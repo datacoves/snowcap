@@ -1,7 +1,7 @@
 # `snowcap` - Snowflake infrastructure as code
 
 [![PyPI](https://img.shields.io/pypi/v/snowcap)](https://pypi.org/project/snowcap/)
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 *formerly Titan Core*
@@ -208,7 +208,7 @@ role_grants:
 
 ## Getting Started
 
-**Requirements:** Python 3.9 or higher
+**Requirements:** Python 3.10 or higher
 
 ### Install from PyPI
 

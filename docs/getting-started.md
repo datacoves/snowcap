@@ -1,6 +1,6 @@
 # Getting Started
 
-**Requirements:** Python 3.9 or higher
+**Requirements:** Python 3.10 or higher
 
 ## Install from PyPI
 

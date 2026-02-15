@@ -14,7 +14,7 @@ setup(
     url="https://github.com/datacoves/snowcap",
     author="Datacoves",
     packages=find_packages(include=["snowcap", "snowcap.*"]),
-    python_requires=">=3.9",
+    python_requires=">=3.10",
     project_urls={
         "Homepage": "https://github.com/datacoves/snowcap",
     },
