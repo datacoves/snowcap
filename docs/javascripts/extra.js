@@ -4,7 +4,7 @@ document.addEventListener('DOMContentLoaded', function() {
   if (title) {
     title.style.cursor = 'pointer';
     title.addEventListener('click', function() {
-      window.location.href = '/';
+      window.location.href = '/snowcap/';
     });
   }
 });
