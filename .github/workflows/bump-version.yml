@@ -5,6 +5,7 @@ on:
     - main
     paths-ignore:
     - version.md
+  workflow_dispatch:
 
 jobs:
   bump-version:
