@@ -13,23 +13,6 @@ This stream can be configured with various options such as time travel, append-o
 
 ## Examples
 
-### Python
-
-```python
-view_stream = ViewStream(
-    name="some_stream",
-    on_view="some_view",
-    owner="SYSADMIN",
-    copy_grants=True,
-    at={"TIMESTAMP": "2022-01-01 00:00:00"},
-    before={"STREAM": "some_other_stream"},
-    append_only=False,
-    show_initial_rows=True,
-    comment="This is a sample stream on a view."
-)
-```
-
-
 ### YAML
 
 ```yaml
@@ -45,6 +28,22 @@ streams:
     append_only: false
     show_initial_rows: true
     comment: This is a sample stream on a view.
+```
+
+### Python
+
+```python
+view_stream = ViewStream(
+    name="some_stream",
+    on_view="some_view",
+    owner="SYSADMIN",
+    copy_grants=True,
+    at={"TIMESTAMP": "2022-01-01 00:00:00"},
+    before={"STREAM": "some_other_stream"},
+    append_only=False,
+    show_initial_rows=True,
+    comment="This is a sample stream on a view."
+)
 ```
 
 

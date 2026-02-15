@@ -2,11 +2,11 @@ import logging
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Callable, Dict, Generator, Iterable, Optional, TypeVar, Union
+from typing import Any, Callable, Generator, Iterable, Optional, Union
 
 import snowflake.connector
 from snowflake.connector.connection import SnowflakeConnection
-from snowflake.connector.cursor import SnowflakeCursor
+from snowflake.connector.cursor import DictCursor, SnowflakeCursor
 from snowflake.connector.errors import ProgrammingError
 
 logger = logging.getLogger("snowcap")
@@ -50,7 +50,16 @@ def execute(
     if isinstance(conn_or_cursor, SnowflakeConnection):
         session = conn_or_cursor
         cur = session.cursor(snowflake.connector.DictCursor)
+    elif isinstance(conn_or_cursor, DictCursor):
+        # Already a DictCursor, use it directly
+        session = conn_or_cursor.connection
+        cur = conn_or_cursor
     elif isinstance(conn_or_cursor, SnowflakeCursor):
+        session = conn_or_cursor.connection
+        cur = conn_or_cursor
+        cur._use_dict_result = True
+    elif hasattr(conn_or_cursor, 'connection') and hasattr(conn_or_cursor, 'execute'):
+        # Handle cursor-like objects
         session = conn_or_cursor.connection
         cur = conn_or_cursor
         cur._use_dict_result = True

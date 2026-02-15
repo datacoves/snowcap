@@ -13,18 +13,6 @@ that are applied to user-defined functions and stored procedures.
 
 ## Examples
 
-### Python
-
-```python
-packages_policy = PackagesPolicy(
-    name="some_packages_policy",
-    allowlist=["numpy", "pandas"],
-    blocklist=["os", "sys"],
-    comment="Policy for data processing packages."
-)
-```
-
-
 ### YAML
 
 ```yaml
@@ -40,10 +28,22 @@ packages_policy:
 ```
 
 
+### Python
+
+```python
+packages_policy = PackagesPolicy(
+    name="some_packages_policy",
+    allowlist=["numpy", "pandas"],
+    blocklist=["os", "sys"],
+    comment="Policy for data processing packages."
+)
+```
+
+
 ## Fields
 
 * `name` (string, required) - The name of the packages policy.
-* `language` (string or [Language](language.md)) - The programming language for the packages. Defaults to PYTHON.
+* `language` (string or Language) - The programming language for the packages. Defaults to PYTHON.
 * `allowlist` (list) - A list of package specifications that are explicitly allowed.
 * `blocklist` (list) - A list of package specifications that are explicitly blocked.
 * `additional_creation_blocklist` (list) - A list of package specifications that are blocked during creation.

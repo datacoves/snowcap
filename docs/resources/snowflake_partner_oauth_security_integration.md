@@ -13,6 +13,21 @@ This integration supports specific OAuth clients such as Looker, Tableau Desktop
 
 ## Examples
 
+### YAML
+
+```yaml
+security_integrations:
+  - name: some_security_integration
+    enabled: true
+    oauth_client: LOOKER
+    oauth_client_secret: secret123
+    oauth_redirect_uri: https://example.com/oauth/callback
+    oauth_issue_refresh_tokens: true
+    oauth_refresh_token_validity: 7776000
+    comment: Integration for Looker OAuth
+```
+
+
 ### Python
 
 ```python
@@ -29,26 +44,11 @@ snowflake_partner_oauth_security_integration = SnowflakePartnerOAuthSecurityInte
 ```
 
 
-### YAML
-
-```yaml
-security_integrations:
-  - name: some_security_integration
-    enabled: true
-    oauth_client: LOOKER
-    oauth_client_secret: secret123
-    oauth_redirect_uri: https://example.com/oauth/callback
-    oauth_issue_refresh_tokens: true
-    oauth_refresh_token_validity: 7776000
-    comment: Integration for Looker OAuth
-```
-
-
 ## Fields
 
 * `name` (string, required) - The name of the security integration.
 * `enabled` (bool) - Specifies if the security integration is enabled. Defaults to True.
-* `oauth_client` (string or [OAuthClient](oauth_client.md)) - The OAuth client used for authentication. Supported clients are 'LOOKER', 'TABLEAU_DESKTOP', and 'TABLEAU_SERVER'.
+* `oauth_client` (string or OAuthClient) - The OAuth client used for authentication. Supported clients are 'LOOKER', 'TABLEAU_DESKTOP', and 'TABLEAU_SERVER'.
 * `oauth_client_secret` (string) - The secret associated with the OAuth client.
 * `oauth_redirect_uri` (string) - The redirect URI configured for the OAuth client.
 * `oauth_issue_refresh_tokens` (bool) - Indicates if refresh tokens should be issued. Defaults to True.

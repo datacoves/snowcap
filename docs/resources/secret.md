@@ -12,25 +12,6 @@ A Secret defines a set of sensitive data that can be used for authentication or 
 
 ## Examples
 
-### Python
-
-```python
-secret = Secret(
-    name="some_secret",
-    type="OAUTH2",
-    api_authentication="some_security_integration",
-    oauth_scopes=["scope1", "scope2"],
-    oauth_refresh_token="some_refresh_token",
-    oauth_refresh_token_expiry_time="some_expiry_time",
-    username="some_username",
-    password="some_password",
-    secret_string="some_secret_string",
-    comment="some_comment",
-    owner="SYSADMIN",
-)
-```
-
-
 ### YAML
 
 ```yaml
@@ -50,11 +31,29 @@ secrets:
     owner: SYSADMIN
 ```
 
+### Python
+
+```python
+secret = Secret(
+    name="some_secret",
+    type="OAUTH2",
+    api_authentication="some_security_integration",
+    oauth_scopes=["scope1", "scope2"],
+    oauth_refresh_token="some_refresh_token",
+    oauth_refresh_token_expiry_time="some_expiry_time",
+    username="some_username",
+    password="some_password",
+    secret_string="some_secret_string",
+    comment="some_comment",
+    owner="SYSADMIN",
+)
+```
+
 
 ## Fields
 
 * `name` (string, required) - The name of the secret.
-* `type` (string or [SecretType](secret_type.md), required) - The type of the secret.
+* `type` (string or SecretType, required) - The type of the secret.
 * `api_authentication` (string) - The security integration name for API authentication.
 * `oauth_scopes` (list) - The OAuth scopes for the secret.
 * `oauth_refresh_token` (string) - The OAuth refresh token.

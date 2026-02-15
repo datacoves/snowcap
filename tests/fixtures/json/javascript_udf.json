@@ -1,0 +1,19 @@
+{
+    "name": "TEST_JS_UDF",
+    "language": "JAVASCRIPT",
+    "args": [{"name": "x", "data_type": "VARCHAR"}],
+    "returns": "VARCHAR",
+    "as_": "return x.toUpperCase();",
+    "owner": "SYSADMIN",
+    "comment": "Test JavaScript UDF",
+    "copy_grants": null,
+    "secure": null,
+    "null_handling": null,
+    "volatility": null,
+    "external_access_integrations": null,
+    "handler": null,
+    "imports": null,
+    "packages": null,
+    "runtime_version": null,
+    "secrets": null
+}

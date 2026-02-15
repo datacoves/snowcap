@@ -8,7 +8,7 @@ from snowcap.data_provider import list_schemas
 from snowcap.enums import ResourceType
 from snowcap.identifiers import FQN
 from snowcap.privs import DatabasePriv, TablePriv, SchemaPriv, ViewPriv, WarehousePriv
-from snowcap.resources import GrantOnAll, FutureGrant, Grant, RoleGrant
+from snowcap.resources import Grant, RoleGrant
 from snowcap.resources.resource import ResourcePointer
 
 
@@ -167,7 +167,7 @@ def _get_role_resources(session, roles: list):
                     for priv in privs:
                         resources.append(Grant(priv=priv, on_schema=schema, to=role))
                 for priv in privs:
-                    resources.append(FutureGrant(priv=priv, on_future_schemas_in_database=database, to=role))
+                    resources.append(Grant(priv=priv, on=["FUTURE", "SCHEMAS", "DATABASE", database], to=role))
             elif schema_identifier.endswith("*"):
                 # schema: "db.schema_*"
                 return
@@ -198,12 +198,12 @@ def _get_role_resources(session, roles: list):
                     if schema.endswith("INFORMATION_SCHEMA"):
                         continue
                     for priv in privs:
-                        resources.append(GrantOnAll(priv=priv, on_all_tables_in_schema=schema, to=role))
-                        resources.append(FutureGrant(priv=priv, on_future_tables_in_schema=schema, to=role))
+                        resources.append(Grant(priv=priv, on=["ALL", "TABLES", "SCHEMA", schema], to=role))
+                        resources.append(Grant(priv=priv, on=["FUTURE", "TABLES", "SCHEMA", schema], to=role))
 
                 for priv in privs:
-                    resources.append(GrantOnAll(priv=priv, on_all_tables_in_database=database, to=role))
-                    resources.append(FutureGrant(priv=priv, on_future_tables_in_database=database, to=role))
+                    resources.append(Grant(priv=priv, on=["ALL", "TABLES", "DATABASE", database], to=role))
+                    resources.append(Grant(priv=priv, on=["FUTURE", "TABLES", "DATABASE", database], to=role))
             elif table_identifier.endswith(".*"):
                 fqn = _parse_permifrost_identifier(table_identifier)
                 if fqn.schema.endswith("*") or fqn.database.upper() == "SNOWFLAKE":
@@ -214,8 +214,8 @@ def _get_role_resources(session, roles: list):
                 resources.append(db)
                 resources.append(schema)
                 for priv in privs:
-                    resources.append(GrantOnAll(priv=priv, on_all_tables_in=schema, to=role))
-                    resources.append(FutureGrant(priv=priv, on_future_tables_in=schema, to=role))
+                    resources.append(Grant(priv=priv, on=["ALL", "TABLES", schema], to=role))
+                    resources.append(Grant(priv=priv, on=["FUTURE", "TABLES", schema], to=role))
             elif table_identifier.endswith("*"):
                 # table: "db.schema.table_*"
                 return
@@ -231,11 +231,11 @@ def _get_role_resources(session, roles: list):
                     if schema.endswith("INFORMATION_SCHEMA"):
                         continue
                     for priv in privs:
-                        resources.append(GrantOnAll(priv=priv, on_all_views_in_schema=schema, to=role))
-                        resources.append(FutureGrant(priv=priv, on_future_views_in_schema=schema, to=role))
+                        resources.append(Grant(priv=priv, on=["ALL", "VIEWS", "SCHEMA", schema], to=role))
+                        resources.append(Grant(priv=priv, on=["FUTURE", "VIEWS", "SCHEMA", schema], to=role))
                 for priv in privs:
-                    resources.append(GrantOnAll(priv=priv, on_all_views_in_database=database, to=role))
-                    resources.append(FutureGrant(priv=priv, on_future_views_in_database=database, to=role))
+                    resources.append(Grant(priv=priv, on=["ALL", "VIEWS", "DATABASE", database], to=role))
+                    resources.append(Grant(priv=priv, on=["FUTURE", "VIEWS", "DATABASE", database], to=role))
             elif view_identifier.endswith(".*"):
                 fqn = _parse_permifrost_identifier(view_identifier)
                 if fqn.schema.endswith("*") or fqn.database.upper() == "SNOWFLAKE":
@@ -246,8 +246,8 @@ def _get_role_resources(session, roles: list):
                 resources.append(db)
                 resources.append(schema)
                 for priv in privs:
-                    resources.append(GrantOnAll(priv=priv, on_all_views_in=schema, to=role))
-                    resources.append(FutureGrant(priv=priv, on_future_views_in=schema, to=role))
+                    resources.append(Grant(priv=priv, on=["ALL", "VIEWS", schema], to=role))
+                    resources.append(Grant(priv=priv, on=["FUTURE", "VIEWS", schema], to=role))
 
             elif view_identifier.endswith("*"):
                 # table: "db.schema.table_*"

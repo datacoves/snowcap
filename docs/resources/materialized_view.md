@@ -13,6 +13,16 @@ It is physically stored and automatically updated as data changes, providing fas
 
 ## Examples
 
+### YAML
+
+```yaml
+materialized_views:
+  - name: some_materialized_view
+    owner: SYSADMIN
+    secure: true
+    as_: SELECT * FROM some_table
+```
+
 ### Python
 
 ```python
@@ -22,17 +32,6 @@ materialized_view = MaterializedView(
     secure=True,
     as_="SELECT * FROM some_table",
 )
-```
-
-
-### YAML
-
-```yaml
-materialized_views:
-  - name: some_materialized_view
-    owner: SYSADMIN
-    secure: true
-    as_: SELECT * FROM some_table
 ```
 
 

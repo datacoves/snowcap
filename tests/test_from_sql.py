@@ -10,10 +10,10 @@ def test_from_sql_fqn_parsing():
     assert isinstance(grant.to, ResourcePointer)
     assert grant.to.resource_type == ResourceType.ROLE
     assert grant.to.name == "my_role"
-    assert grant.on == '"My_databasE".MY_SCHEMA'
+    assert grant.on == '"MY_DATABASE".MY_SCHEMA'
     schema_ref = None
     for ref in grant.refs:
-        if ref.resource_type == ResourceType.SCHEMA and ref.name == "my_schema":
+        if ref.resource_type == ResourceType.SCHEMA and ref.name == "MY_SCHEMA":
             schema_ref = ref
     assert schema_ref
-    assert schema_ref.container.name == '"My_databasE"'
+    assert schema_ref.container.name == '"MY_DATABASE"'

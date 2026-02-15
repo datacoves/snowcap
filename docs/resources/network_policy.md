@@ -14,20 +14,6 @@ managing network traffic and securing access based on network policies.
 
 ## Examples
 
-### Python
-
-```python
-network_policy = NetworkPolicy(
-    name="some_network_policy",
-    allowed_network_rule_list=[NetworkRule(name="rule1"), NetworkRule(name="rule2")],
-    blocked_network_rule_list=[NetworkRule(name="rule3")],
-    allowed_ip_list=["192.168.1.1", "192.168.1.2"],
-    blocked_ip_list=["10.0.0.1"],
-    comment="Example network policy"
-)
-```
-
-
 ### YAML
 
 ```yaml
@@ -41,6 +27,20 @@ network_policies:
     allowed_ip_list: ["192.168.1.1", "192.168.1.2"]
     blocked_ip_list: ["10.0.0.1"]
     comment: "Example network policy"
+```
+
+
+### Python
+
+```python
+network_policy = NetworkPolicy(
+    name="some_network_policy",
+    allowed_network_rule_list=[NetworkRule(name="rule1"), NetworkRule(name="rule2")],
+    blocked_network_rule_list=[NetworkRule(name="rule3")],
+    allowed_ip_list=["192.168.1.1", "192.168.1.2"],
+    blocked_ip_list=["10.0.0.1"],
+    comment="Example network policy"
+)
 ```
 
 

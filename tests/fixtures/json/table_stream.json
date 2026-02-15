@@ -3,9 +3,7 @@
     "on_table": "STATIC_DATABASE.PUBLIC.STATIC_TABLE",
     "owner": "SYSADMIN",
     "copy_grants": null,
-    "at": {
-        "stream": "STATIC_DATABASE.PUBLIC.STATIC_STREAM"
-    },
+    "at": null,
     "before": null,
     "append_only": false,
     "show_initial_rows": null,

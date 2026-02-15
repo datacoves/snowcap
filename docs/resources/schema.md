@@ -12,23 +12,6 @@ Represents a schema in Snowflake, which is a logical grouping of database object
 
 ## Examples
 
-### Python
-
-```python
-schema = Schema(
-    name="some_schema",
-    transient=True,
-    managed_access=True,
-    data_retention_time_in_days=7,
-    max_data_extension_time_in_days=28,
-    default_ddl_collation="utf8",
-    tags={"project": "analytics"},
-    owner="SYSADMIN",
-    comment="Schema for analytics project."
-)
-```
-
-
 ### YAML
 
 ```yaml
@@ -43,6 +26,22 @@ schemas:
       project: analytics
     owner: SYSADMIN
     comment: Schema for analytics project.
+```
+
+### Python
+
+```python
+schema = Schema(
+    name="some_schema",
+    transient=True,
+    managed_access=True,
+    data_retention_time_in_days=7,
+    max_data_extension_time_in_days=28,
+    default_ddl_collation="utf8",
+    tags={"project": "analytics"},
+    owner="SYSADMIN",
+    comment="Schema for analytics project."
+)
 ```
 
 

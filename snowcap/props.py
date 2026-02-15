@@ -433,6 +433,9 @@ class EnumProp(Prop):
     def render(self, value):
         if value is None:
             return ""
+        # Use .value for enum types to get the raw value string
+        if hasattr(value, "value"):
+            value = value.value
         eq = " = " if self.eq else " "
         if self.quoted:
             value = f"'{value}'"

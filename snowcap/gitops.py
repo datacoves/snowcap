@@ -10,7 +10,7 @@ from pathspec.patterns.gitwildmatch import GitWildMatchPattern
 from .blueprint_config import BlueprintConfig, set_vars_defaults
 from .enums import BlueprintScope, ResourceType
 from .identifiers import resource_label_for_type, resource_type_for_label
-from .resources import Database, DatabaseRoleGrant, Resource, RoleGrant, Schema, User
+from .resources import DatabaseRoleGrant, Resource, RoleGrant
 from .resources.resource import ResourcePointer
 from .var import process_for_each, string_contains_var
 

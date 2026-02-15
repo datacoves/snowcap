@@ -474,12 +474,18 @@ class Resource(metaclass=_Resource):
             if container is None:
                 raise Exception(f"Cannot resolve vars for container {self.container} of {self}")
 
-            for f in fields(container._data):
-                field_value = getattr(container._data, f.name)
-                if isinstance(field_value, str):
-                    parent[f.name] = field_value
-                elif isinstance(field_value, ResourcePointer):
-                    parent[f.name] = str(field_value.fqn)
+            # Only extract fields if container has a proper _data dataclass
+            if hasattr(container, '_data') and container._data is not None:
+                try:
+                    for f in fields(container._data):
+                        field_value = getattr(container._data, f.name)
+                        if isinstance(field_value, str):
+                            parent[f.name] = field_value
+                        elif isinstance(field_value, ResourcePointer):
+                            parent[f.name] = str(field_value.fqn)
+                except TypeError:
+                    # container._data is not a dataclass, skip field extraction
+                    pass
 
         def _render_vars(field_value):
             if isinstance(field_value, VarString):

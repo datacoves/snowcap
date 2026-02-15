@@ -1,0 +1,11 @@
+{
+    "name": "TEST_AWS_OUTBOUND_NOTIFICATION",
+    "type": "QUEUE",
+    "direction": "OUTBOUND",
+    "notification_provider": "AWS_SNS",
+    "enabled": true,
+    "aws_sns_topic_arn": "arn:aws:sns:us-east-1:123456789012:test-topic",
+    "aws_sns_role_arn": "arn:aws:iam::123456789012:role/test-role",
+    "owner": "ACCOUNTADMIN",
+    "comment": "Test AWS outbound notification integration"
+}

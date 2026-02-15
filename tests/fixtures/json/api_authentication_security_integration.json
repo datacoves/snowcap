@@ -1,0 +1,15 @@
+{
+    "name": "TEST_API_AUTH_INTEGRATION",
+    "type": "API_AUTHENTICATION",
+    "enabled": true,
+    "auth_type": "OAUTH2",
+    "oauth_client_id": "test_client_id",
+    "oauth_client_secret": "test_secret",
+    "oauth_token_endpoint": "https://example.com/oauth/token",
+    "oauth_client_auth_method": "CLIENT_SECRET_POST",
+    "oauth_access_token_validity": 0,
+    "oauth_allowed_scopes": null,
+    "oauth_grant": null,
+    "owner": "ACCOUNTADMIN",
+    "comment": "Test API authentication integration"
+}

@@ -12,25 +12,6 @@ Manages API authentication security integrations in Snowflake, allowing for secu
 
 ## Examples
 
-### Python
-
-```python
-api_auth_integration = APIAuthenticationSecurityIntegration(
-    name="some_api_authentication_security_integration",
-    auth_type="OAUTH2",
-    oauth_token_endpoint="https://example.com/oauth/token",
-    oauth_client_auth_method="CLIENT_SECRET_POST",
-    oauth_client_id="your_client_id",
-    oauth_client_secret="your_client_secret",
-    oauth_grant="client_credentials",
-    oauth_access_token_validity=3600,
-    oauth_allowed_scopes=["read", "write"],
-    enabled=True,
-    comment="Integration for external API authentication."
-)
-```
-
-
 ### YAML
 
 ```yaml
@@ -47,6 +28,25 @@ security_integrations:
     oauth_allowed_scopes: [read, write]
     enabled: true
     comment: Integration for external API authentication.
+```
+
+
+### Python
+
+```python
+api_auth_integration = APIAuthenticationSecurityIntegration(
+    name="some_api_authentication_security_integration",
+    auth_type="OAUTH2",
+    oauth_token_endpoint="https://example.com/oauth/token",
+    oauth_client_auth_method="CLIENT_SECRET_POST",
+    oauth_client_id="your_client_id",
+    oauth_client_secret="your_client_secret",
+    oauth_grant="client_credentials",
+    oauth_access_token_validity=3600,
+    oauth_allowed_scopes=["read", "write"],
+    enabled=True,
+    comment="Integration for external API authentication."
+)
 ```
 
 

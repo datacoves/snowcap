@@ -13,20 +13,6 @@ that will be loaded into or unloaded from Snowflake tables.
 
 ## Examples
 
-### Python
-
-```python
-internal_stage = InternalStage(
-    name="some_internal_stage",
-    owner="SYSADMIN",
-    encryption={"type": "SNOWFLAKE_SSE"},
-    directory={"enable": True},
-    tags={"department": "finance"},
-    comment="Data loading stage"
-)
-```
-
-
 ### YAML
 
 ```yaml
@@ -41,6 +27,19 @@ stages:
     tags:
       department: finance
     comment: Data loading stage
+```
+
+### Python
+
+```python
+internal_stage = InternalStage(
+    name="some_internal_stage",
+    owner="SYSADMIN",
+    encryption={"type": "SNOWFLAKE_SSE"},
+    directory={"enable": True},
+    tags={"department": "finance"},
+    comment="Data loading stage"
+)
 ```
 
 

@@ -12,18 +12,6 @@ Manages the integration of Google Cloud Storage (GCS) as an external stage for s
 
 ## Examples
 
-### Python
-
-```python
-gcs_storage_integration = GCSStorageIntegration(
-    name="some_gcs_storage_integration",
-    enabled=True,
-    storage_allowed_locations=['gcs://bucket/path/'],
-    storage_blocked_locations=['gcs://bucket/blocked_path/']
-)
-```
-
-
 ### YAML
 
 ```yaml
@@ -34,6 +22,18 @@ gcs_storage_integrations:
       - 'gcs://bucket/path/'
     storage_blocked_locations:
       - 'gcs://bucket/blocked_path/'
+```
+
+
+### Python
+
+```python
+gcs_storage_integration = GCSStorageIntegration(
+    name="some_gcs_storage_integration",
+    enabled=True,
+    storage_allowed_locations=['gcs://bucket/path/'],
+    storage_blocked_locations=['gcs://bucket/blocked_path/']
+)
 ```
 
 

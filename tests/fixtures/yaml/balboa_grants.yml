@@ -1,0 +1,97 @@
+# Balboa-style grant configuration using for_each for multiple grants
+# Multi-privilege grants are created by having each privilege as a separate item
+
+vars:
+  - name: database_grants
+    type: list
+    default:
+      # LOADER_ROLE database grants
+      - database: RAW_DB
+        role: LOADER_ROLE
+        priv: USAGE
+      - database: RAW_DB
+        role: LOADER_ROLE
+        priv: CREATE SCHEMA
+      # TRANSFORMER_ROLE database grants
+      - database: RAW_DB
+        role: TRANSFORMER_ROLE
+        priv: USAGE
+      - database: STAGING_DB
+        role: TRANSFORMER_ROLE
+        priv: USAGE
+      - database: STAGING_DB
+        role: TRANSFORMER_ROLE
+        priv: CREATE SCHEMA
+      - database: ANALYTICS_DB
+        role: TRANSFORMER_ROLE
+        priv: USAGE
+      - database: ANALYTICS_DB
+        role: TRANSFORMER_ROLE
+        priv: CREATE SCHEMA
+      # REPORTER_ROLE database grants
+      - database: ANALYTICS_DB
+        role: REPORTER_ROLE
+        priv: USAGE
+
+  - name: warehouse_grants
+    type: list
+    default:
+      # LOADER_ROLE warehouse grants
+      - warehouse: LOADING_WH
+        role: LOADER_ROLE
+        priv: USAGE
+      - warehouse: LOADING_WH
+        role: LOADER_ROLE
+        priv: MONITOR
+      # TRANSFORMER_ROLE warehouse grants
+      - warehouse: TRANSFORMING_WH
+        role: TRANSFORMER_ROLE
+        priv: USAGE
+      - warehouse: TRANSFORMING_WH
+        role: TRANSFORMER_ROLE
+        priv: MONITOR
+      # REPORTER_ROLE warehouse grants
+      - warehouse: REPORTING_WH
+        role: REPORTER_ROLE
+        priv: USAGE
+      - warehouse: REPORTING_WH
+        role: TRANSFORMER_ROLE
+        priv: USAGE
+      - warehouse: REPORTING_WH
+        role: TRANSFORMER_ROLE
+        priv: MONITOR
+
+  - name: schema_grants
+    type: list
+    default:
+      - schema: RAW_DB.SALESFORCE
+        role: TRANSFORMER_ROLE
+        priv: USAGE
+      - schema: ANALYTICS_DB.CORE
+        role: REPORTER_ROLE
+        priv: USAGE
+      - schema: ANALYTICS_DB.MARTS
+        role: REPORTER_ROLE
+        priv: USAGE
+      - schema: ANALYTICS_DB.REPORTING
+        role: REPORTER_ROLE
+        priv: USAGE
+
+grants:
+  # Database-level grants via for_each
+  - for_each: var.database_grants
+    priv: "{{ each.value.priv }}"
+    on_database: "{{ each.value.database }}"
+    to_role: "{{ each.value.role }}"
+
+  # Warehouse-level grants via for_each
+  - for_each: var.warehouse_grants
+    priv: "{{ each.value.priv }}"
+    on_warehouse: "{{ each.value.warehouse }}"
+    to_role: "{{ each.value.role }}"
+
+  # Schema-level grants via for_each
+  - for_each: var.schema_grants
+    priv: "{{ each.value.priv }}"
+    on_schema: "{{ each.value.schema }}"
+    to_role: "{{ each.value.role }}"

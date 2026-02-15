@@ -1,7 +1,5 @@
 name: account-parameters-snowcap-example
-run_mode: sync
-allowlist:
-  - account parameter
+# Note: run_mode and allowlist are not currently supported in config
 
 account_parameters:
   - name: ALLOW_CLIENT_MFA_CACHING

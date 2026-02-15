@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass, field
 
 from ..enums import ResourceType
@@ -13,8 +14,52 @@ from ..props import (
 from ..resource_name import ResourceName
 from ..role_ref import RoleRef
 from ..scope import SchemaScope, TableScope
-from .resource import NamedResource, Resource, ResourceSpec
+from .resource import NamedResource, Resource, ResourcePointer, ResourceSpec
 from .tag import TaggableResource
+
+
+def _extract_table_refs_from_sql(sql: str) -> list[str]:
+    """
+    Extract table/view references from a SQL SELECT statement.
+
+    Parses FROM and JOIN clauses to find referenced tables/views.
+    Returns a list of fully qualified or simple table names.
+
+    Examples:
+        "SELECT * FROM my_table" -> ["my_table"]
+        "SELECT * FROM db.schema.table" -> ["db.schema.table"]
+        "SELECT * FROM t1 JOIN t2 ON ..." -> ["t1", "t2"]
+    """
+    if not sql:
+        return []
+
+    # Pattern to match table names after FROM or JOIN keywords
+    # Handles: FROM table, JOIN table, LEFT JOIN table, INNER JOIN table, etc.
+    # Table names can be: simple (table), qualified (schema.table), or fully qualified (db.schema.table)
+    # Also handles quoted identifiers like "TABLE_NAME" or "db"."schema"."table"
+    identifier = r'(?:"[^"]+"|[A-Za-z_][A-Za-z0-9_$]*)'
+    qualified_name = rf'{identifier}(?:\.{identifier})*'
+
+    # Match FROM or any type of JOIN followed by a table name
+    # Use word boundary and handle optional keywords like LATERAL, NATURAL, etc.
+    pattern = rf'''
+        (?:FROM|(?:CROSS|INNER|LEFT|RIGHT|FULL|NATURAL|LATERAL)\s+(?:OUTER\s+)?JOIN|JOIN)
+        \s+
+        ({qualified_name})
+    '''
+
+    matches = re.findall(pattern, sql, re.IGNORECASE | re.VERBOSE)
+
+    # Clean up quoted identifiers and normalize
+    result = []
+    for match in matches:
+        # Remove surrounding quotes from each part if present
+        cleaned = ".".join(
+            part.strip('"') for part in match.split(".")
+        )
+        result.append(cleaned)
+
+    return result
 
 
 @dataclass(unsafe_hash=True)
@@ -174,3 +219,13 @@ class View(NamedResource, TaggableResource, Resource):
             as_=as_,
         )
         self.set_tags(tags)
+
+        # Extract table dependencies from the SELECT statement
+        # Only add dependencies for fully qualified table names (db.schema.table format)
+        # Simple names like "my_table" can't be resolved to a specific resource without
+        # knowing the view's container, which isn't set until later in the build process.
+        if as_:
+            for table_ref in _extract_table_refs_from_sql(as_):
+                # Only track fully qualified names (at least schema.table format)
+                if "." in table_ref:
+                    self.requires(ResourcePointer(name=table_ref, resource_type=ResourceType.TABLE))

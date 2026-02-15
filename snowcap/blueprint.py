@@ -1,10 +1,8 @@
 import json
 import logging
-import threading
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from queue import Queue
 from typing import (
     Any,
     Generator,
@@ -39,7 +37,6 @@ from .enums import (
 )
 from .exceptions import (
     DuplicateResourceException,
-    InvalidResourceException,
     MissingPrivilegeException,
     MissingResourceException,
     NonConformingPlanException,
@@ -577,9 +574,9 @@ class Blueprint:
             threads=max(1, threads),  # Ensure at least 1 thread
         )
         self._finalized = False
-        self._staged = []
+        self._staged: list[Resource] = []
         self._root = ResourcePointer(name="ACCOUNT", resource_type=ResourceType.ACCOUNT)
-        self._levels = {}  # Store dependency levels
+        self._levels: dict[URN, int] = {}  # Store dependency levels
         self.add(resources or [])
 
     @classmethod
@@ -641,15 +638,15 @@ class Blueprint:
 
         if grant_to_system:
             warnings.append(
-                f"Grants to system role found. They will be always recreated since system roles are not managed by Snowcap"
+                "Grants to system role found. They will be always recreated since system roles are not managed by Snowcap"
             )
         if role_grant_to_system:
             warnings.append(
-                f"Role grants to system role found. They will be always recreated since system roles are not managed by Snowcap"
+                "Role grants to system role found. They will be always recreated since system roles are not managed by Snowcap"
             )
         if grant_on_all:
             warnings.append(
-                f"Grants of type ALL found. They will be always recreated since Snowcap does not compare the affected objects."
+                "Grants of type ALL found. They will be always recreated since Snowcap does not compare the affected objects."
             )
 
         if warnings:
@@ -665,21 +662,24 @@ class Blueprint:
 
         data_provider.use_secondary_roles(session, all=True)
 
-        urns = [item for item in manifest.urns if item.resource_type not in self._config.sync_resources]
-        for resource_type in self._config.sync_resources:
-            for fqn in data_provider.list_resource(session, resource_label_for_type(resource_type)):
-                if self._config.scope == BlueprintScope.DATABASE and fqn.database != self._config.database:
-                    continue
-                if self._config.scope == BlueprintScope.SCHEMA and fqn.schema != self._config.schema:
-                    continue
+        if self._config.sync_resources:
+            urns = [item for item in manifest.urns if item.resource_type not in self._config.sync_resources]
+            for resource_type in self._config.sync_resources:
+                for fqn in data_provider.list_resource(session, resource_label_for_type(resource_type)):
+                    if self._config.scope == BlueprintScope.DATABASE and fqn.database != self._config.database:
+                        continue
+                    if self._config.scope == BlueprintScope.SCHEMA and fqn.schema != self._config.schema:
+                        continue
 
-                urns.append(
-                    URN(
-                        resource_type=resource_type,
-                        fqn=fqn,
-                        account_locator=session_ctx["account_locator"],
+                    urns.append(
+                        URN(
+                            resource_type=resource_type,
+                            fqn=fqn,
+                            account_locator=session_ctx["account_locator"],
+                        )
                     )
-                )
+        else:
+            urns = list(manifest.urns)
 
         urns = list(set(urns))  # Deduplicate urns
 
@@ -690,7 +690,7 @@ class Blueprint:
                 try:
                     data = future.result()
                     if data:
-                        if urn.resource_type in self._config.sync_resources:
+                        if self._config.sync_resources and urn.resource_type in self._config.sync_resources:
                             resource_cls = Resource.resolve_resource_cls(urn.resource_type, data)
                         else:
                             item = manifest[urn]
@@ -701,7 +701,7 @@ class Blueprint:
                             )
                         state[urn] = resource_cls.spec(**data).to_dict(session_ctx["account_edition"])
                     else:
-                        if urn.resource_type in self._config.sync_resources:
+                        if self._config.sync_resources and urn.resource_type in self._config.sync_resources:
                             raise MissingResourceException(f"Resource {urn} not found")
                 except Exception as e:
                     logger.error(f"Failed to fetch resource {urn}: {e}")
@@ -728,8 +728,10 @@ class Blueprint:
         return state
 
     def _resolve_vars(self):
-        for resource in self._staged:
-            resource._resolve_vars(self._config.vars, self._staged)
+        # Get all resources from the graph (after _build_resource_graph has run)
+        all_resources = [r for r in _walk(self._root) if isinstance(r, Resource)]
+        for resource in all_resources:
+            resource._resolve_vars(self._config.vars, all_resources)
 
     def _resolve_role_refs(self):
         for resource in _walk(self._root):
@@ -838,9 +840,13 @@ class Blueprint:
             for ref in resource.refs:
                 resource_and_ref_share_scope = isinstance(ref.scope, resource.scope.__class__)
                 if ref.container is None and resource.container is not None and resource_and_ref_share_scope:
-                    # If a resource requires another, and that secondary resource couldn't be resolved into
-                    # an existing scope, then assume it lives in the same container as the original resource
-                    resource.container.add(ref)
+                    if isinstance(ref, ResourcePointer):
+                        # For ResourcePointers, set the container directly (for URN matching)
+                        # but don't add them to the container's items (they're just dependency refs)
+                        ref._container = resource.container
+                    else:
+                        # For actual Resource objects, add them to the container
+                        resource.container.add(ref)
 
     def _create_tag_references(self) -> None:
         """
@@ -965,8 +971,8 @@ class Blueprint:
         if self._finalized:
             raise RuntimeError("Blueprint already finalized")
         self._finalized = True
-        self._resolve_vars()
         self._build_resource_graph(session_ctx)
+        self._resolve_vars()
         self._resolve_role_refs()
         self._create_tag_references()
         self._create_ownership_refs(session_ctx)
@@ -1020,7 +1026,7 @@ class Blueprint:
                 resource_set.add(ref[0])
                 resource_set.add(ref[1])
             self._levels = compute_levels(resource_set, set(manifest.refs))
-        except Exception as e:
+        except Exception:
             logger.error("~" * 80 + "REMOTE STATE")
             logger.error(remote_state)
             logger.error("~" * 80 + "MANIFEST")
@@ -1102,22 +1108,22 @@ class Blueprint:
         _raise_if_plan_would_drop_session_user(session_ctx, plan)
 
         sql_commands_per_change = compile_plan_to_sql(session_ctx, plan)
-        roles = []
+        roles_list: list[Any] = []
         additive_commands = []
         destructive_commands = []
         for command in sql_commands_per_change:
-            roles.append(command["role"])
+            roles_list.append(command["role"])
             if isinstance(command["change"], (CreateResource, UpdateResource, TransferOwnership)):
                 additive_commands.append(command)
             elif isinstance(command["change"], DropResource):
                 destructive_commands.append(command)
-        roles = set(roles)
+        roles_set = set(roles_list)
 
         # Process additive changes
-        process_commands(additive_commands, roles, session_ctx["available_roles"])
+        process_commands(additive_commands, roles_set, session_ctx["available_roles"])
 
         # Process destructive changes
-        process_commands(destructive_commands, roles, session_ctx["available_roles"])
+        process_commands(destructive_commands, roles_set, session_ctx["available_roles"])
 
     def _add(self, resource: Resource):
         if self._finalized:
@@ -1316,7 +1322,8 @@ def sql_commands_for_change(
             copy_current_grants=True,
         )
 
-    return execution_role, before_change_cmd + [change_cmd] + after_change_cmd
+    all_cmds = before_change_cmd + [change_cmd] + after_change_cmd
+    return execution_role, [cmd for cmd in all_cmds if cmd is not None]
 
 
 def compile_plan_to_sql(session_ctx: SessionContext, plan: Plan) -> list[dict]:
@@ -1362,7 +1369,7 @@ def compute_levels(resource_set: Set[URN], references: Set[tuple[URN, URN]]) -> 
     in_degrees = {urn: 0 for urn in resources}
 
     # Build adjacency list for faster processing
-    adjacency_list = {urn: [] for urn in resources}
+    adjacency_list: dict[URN, list[URN]] = {urn: [] for urn in resources}
 
     # Compute in-degrees and build adjacency list
     # Note: (parent, ref) means parent depends on ref
@@ -1467,7 +1474,7 @@ def diff(remote_state: State, manifest: Manifest) -> list:
                 delta[field_name] = rhs_value
         return delta
 
-    changes = []
+    changes: list[ResourceChange] = []
     state_urns = set(remote_state.keys())
     manifest_urns = set(manifest.urns)
 

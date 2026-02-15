@@ -12,23 +12,6 @@ An event table captures events, including logged messages from functions and pro
 
 ## Examples
 
-### Python
-
-```python
-event_table = EventTable(
-    name="some_event_table",
-    cluster_by=["timestamp", "user_id"],
-    data_retention_time_in_days=365,
-    max_data_extension_time_in_days=30,
-    change_tracking=True,
-    default_ddl_collation="utf8",
-    copy_grants=True,
-    comment="This is a sample event table.",
-    tags={"department": "analytics"}
-)
-```
-
-
 ### YAML
 
 ```yaml
@@ -45,6 +28,23 @@ event_tables:
     comment: This is a sample event table.
     tags:
       department: analytics
+```
+
+
+### Python
+
+```python
+event_table = EventTable(
+    name="some_event_table",
+    cluster_by=["timestamp", "user_id"],
+    data_retention_time_in_days=365,
+    max_data_extension_time_in_days=30,
+    change_tracking=True,
+    default_ddl_collation="utf8",
+    copy_grants=True,
+    comment="This is a sample event table.",
+    tags={"department": "analytics"}
+)
 ```
 
 

@@ -12,17 +12,6 @@ Represents a tag in Snowflake, which can be used to label various resources for 
 
 ## Examples
 
-### Python
-
-```python
-tag = Tag(
-    name="cost_center",
-    allowed_values=["finance", "engineering", "sales"],
-    comment="This is a sample tag",
-)
-```
-
-
 ### YAML
 
 ```yaml
@@ -33,6 +22,16 @@ tags:
       - finance
       - engineering
       - sales
+```
+
+### Python
+
+```python
+tag = Tag(
+    name="cost_center",
+    allowed_values=["finance", "engineering", "sales"],
+    comment="This is a sample tag",
+)
 ```
 
 

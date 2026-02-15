@@ -12,6 +12,22 @@ A Parquet file format in Snowflake.
 
 ## Examples
 
+### YAML
+
+```yaml
+file_formats:
+  - name: some_file_format
+    type: PARQUET
+    owner: SYSADMIN
+    compression: AUTO
+    binary_as_text: true
+    trim_space: false
+    replace_invalid_characters: false
+    null_if:
+      - NULL
+    comment: This is a Parquet file format.
+```
+
 ### Python
 
 ```python
@@ -25,22 +41,6 @@ file_format = ParquetFileFormat(
     null_if=["NULL"],
     comment="This is a Parquet file format."
 )
-```
-
-
-### YAML
-
-```yaml
-file_formats:
-  - name: some_file_format
-    owner: SYSADMIN
-    compression: AUTO
-    binary_as_text: true
-    trim_space: false
-    replace_invalid_characters: false
-    null_if:
-      - NULL
-    comment: This is a Parquet file format.
 ```
 
 

@@ -351,6 +351,7 @@ class GCPInboundNotificationIntegration(NamedResource, Resource):
         **kwargs,
     ):
         kwargs.pop("type", None)
+        kwargs.pop("direction", None)
         kwargs.pop("notification_provider", None)
         super().__init__(name, **kwargs)
         self._data: _GCPInboundNotificationIntegration = _GCPInboundNotificationIntegration(
@@ -413,6 +414,7 @@ class AzureInboundNotificationIntegration(NamedResource, Resource):
         **kwargs,
     ):
         kwargs.pop("type", None)
+        kwargs.pop("direction", None)
         kwargs.pop("notification_provider", None)
         super().__init__(name, **kwargs)
         self._data: _AzureInboundNotificationIntegration = _AzureInboundNotificationIntegration(

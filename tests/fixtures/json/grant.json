@@ -1,12 +1,12 @@
 {
-    "priv": "USAGE",
-    "on_type": "DATABASE",
-    "on": "STATIC_DATABASE",
+    "priv": "OPERATE",
+    "on_type": "WAREHOUSE",
+    "on": "STATIC_WAREHOUSE",
     "to": "STATIC_ROLE",
     "to_type": "ROLE",
     "owner": "SYSADMIN",
     "grant_option": false,
     "_privs": [
-        "USAGE"
+        "OPERATE"
     ]
 }

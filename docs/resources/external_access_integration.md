@@ -12,17 +12,6 @@ External Access Integrations enable code within functions and stored procedures 
 
 ## Examples
 
-### Python
-
-```python
-external_access_integration = ExternalAccessIntegration(
-    name="some_external_access_integration",
-    allowed_network_rules=["rule1", "rule2"],
-    enabled=True
-)
-```
-
-
 ### YAML
 
 ```yaml
@@ -32,6 +21,17 @@ external_access_integrations:
       - rule1
       - rule2
     enabled: true
+```
+
+
+### Python
+
+```python
+external_access_integration = ExternalAccessIntegration(
+    name="some_external_access_integration",
+    allowed_network_rules=["rule1", "rule2"],
+    enabled=True
+)
 ```
 
 

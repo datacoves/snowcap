@@ -1,0 +1,41 @@
+# Balboa-style warehouse configuration using for_each with default values
+# This pattern uses get() and default() for optional properties with fallbacks
+
+vars:
+  - name: warehouses
+    type: list
+    default:
+      - name: LOADING_WH
+        size: XSMALL
+        auto_suspend: 60
+        comment: "ETL and data loading workloads"
+      - name: TRANSFORMING_WH
+        size: SMALL
+        auto_suspend: 120
+        min_cluster_count: 1
+        max_cluster_count: 3
+        comment: "dbt transformations and scheduled jobs"
+      - name: REPORTING_WH
+        size: MEDIUM
+        auto_suspend: 300
+        min_cluster_count: 1
+        max_cluster_count: 5
+        comment: "BI tools and ad-hoc analyst queries"
+      - name: DEV_WH
+        size: XSMALL
+        comment: "Development and testing"
+      - name: DATA_SCIENCE_WH
+        size: LARGE
+        auto_suspend: 600
+        min_cluster_count: 1
+        max_cluster_count: 2
+        comment: "ML training and data science workloads"
+
+warehouses:
+  - for_each: var.warehouses
+    name: "{{ each.value.name }}"
+    warehouse_size: "{{ each.value.size }}"
+    auto_suspend: "{{ each.value.get('auto_suspend', 300) }}"
+    auto_resume: true
+    initially_suspended: true
+    comment: "{{ each.value.get('comment', '') }}"

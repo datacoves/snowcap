@@ -13,19 +13,6 @@ This class defines a password secret.
 
 ## Examples
 
-### Python
-
-```python
-secret = PasswordSecret(
-    name="some_secret",
-    username="some_username",
-    password="some_password",
-    comment="some_comment",
-    owner="SYSADMIN",
-)
-```
-
-
 ### YAML
 
 ```yaml
@@ -36,6 +23,19 @@ secrets:
     password: some_password
     comment: some_comment
     owner: SYSADMIN
+```
+
+
+### Python
+
+```python
+secret = PasswordSecret(
+    name="some_secret",
+    username="some_username",
+    password="some_password",
+    comment="some_comment",
+    owner="SYSADMIN",
+)
 ```
 
 

@@ -125,6 +125,12 @@ class JavascriptUDF(NamedResource, Resource):
         null_handling: NullHandling = None,
         volatility: Volatility = None,
         comment: str = None,
+        external_access_integrations: list = None,
+        handler: str = None,
+        imports: list = None,
+        packages: list = None,
+        runtime_version: str = None,
+        secrets: dict = None,
         **kwargs,
     ):
         kwargs.pop("language", None)
@@ -140,6 +146,12 @@ class JavascriptUDF(NamedResource, Resource):
             null_handling=null_handling,
             volatility=volatility,
             comment=comment,
+            external_access_integrations=external_access_integrations,
+            handler=handler,
+            imports=imports,
+            packages=packages,
+            runtime_version=runtime_version,
+            secrets=secrets,
         )
 
     @property

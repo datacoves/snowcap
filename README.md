@@ -1,6 +1,22 @@
 # `snowcap` - Snowflake infrastructure as code
 
+[![PyPI](https://img.shields.io/pypi/v/snowcap)](https://pypi.org/project/snowcap/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+
 *formerly Titan Core*
+
+## Table of Contents
+
+- [Why Snowcap?](#why-snowcap)
+- [Key Features](#key-features)
+- [Real-World Pattern: Modular RBAC](#real-world-pattern-modular-rbac)
+- [Getting Started](#getting-started)
+- [Using the CLI](#using-the-cli)
+- [Using the GitHub Action](#using-the-github-action)
+- [Documentation](#documentation)
+- [Contributing](#contributing)
+- [Support](#support)
 
 ## Brought to you by Datacoves
 
@@ -24,31 +40,43 @@ Snowcap is the power tools. Datacoves is the workshop.
 
 ---
 
-Snowcap replaces tools like Terraform, Schemachange, or Permifrost.
+## Why Snowcap?
+
+Snowcap replaces tools like Terraform, Schemachange, or Permifrost with a single, purpose-built tool for Snowflake.
+
+| Feature | Snowcap | Terraform | Permifrost |
+|---------|---------|-----------|------------|
+| Snowflake-native | Yes | No (generic) | Yes |
+| State file | No | Yes | No |
+| YAML + Python | Yes | HCL only | YAML only |
+| Speed | 50-90% faster | Baseline | Medium |
+| All resource types | Yes | Most | Roles/grants only |
+| `for_each` templating | Yes | Yes | No |
+| Export existing resources | Yes | Import only | No |
 
 Deploy any Snowflake resource, including users, roles, schemas, databases, integrations, pipes, stages, functions, stored procedures, and more. Convert adhoc, bug-prone SQL management scripts into simple, repeatable configuration.
 
-Snowcap is for:
+### Who is Snowcap for?
 
-* DevOps engineers looking to automate and manage Snowflake infrastructure.
-* Analytics engineers working with dbt who want to manage Snowflake resources without macros.
-* Data platform teams who need to reliably manage Snowflake with CI/CD.
-* Organizations that prefer a git-based workflow for infrastructure management.
-* Teams seeking to replace Terraform for Snowflake-related tasks.
+* **DevOps engineers** looking to automate and manage Snowflake infrastructure
+* **Analytics engineers** working with dbt who want to manage Snowflake resources without macros
+* **Data platform teams** who need to reliably manage Snowflake with CI/CD
+* **Organizations** that prefer a git-based workflow for infrastructure management
+* **Teams** seeking to replace Terraform for Snowflake-related tasks
 
 ```
-    ╔══════════╗                                           ╔═══════════╗       
-    ║  CONFIG  ║                                           ║ SNOWFLAKE ║       
-    ╚══════════╝                                           ╚═══════════╝       
-  ┏━━━━━━━━━━━┓                                        ┏━━━━━━━━━━━┓            
+    ╔══════════╗                                           ╔═══════════╗
+    ║  CONFIG  ║                                           ║ SNOWFLAKE ║
+    ╚══════════╝                                           ╚═══════════╝
+  ┏━━━━━━━━━━━┓                                        ┏━━━━━━━━━━━┓
 ┌─┫ WAREHOUSE ┣─────┐                                ┌─┫ WAREHOUSE ┣───────────┐
 │ ┗━━━━━━━━━━━┛     │                    ALTER       │ ┗━━━━━━━━━━━┛           │
 │ name:         ETL │─────┐           ┌─ WAREHOUSE ─▶│ name:         ETL       │
 │ auto_suspend: 60  │     │           │              │ auto_suspend: 300 -> 60 │
 └───────────────────┘  ╔══▼═══════════╩═╗            └─────────────────────────┘
-                       ║                ║                                      
-                       ║    SNOWCAP     ║                                      
-  ┏━━━━━━┓             ║                ║              ┏━━━━━━┓                
+                       ║                ║
+                       ║    SNOWCAP     ║
+  ┏━━━━━━┓             ║                ║              ┏━━━━━━┓
 ┌─┫ ROLE ┣──────────┐  ╚══▲═══════════╦═╝            ┌─┫ ROLE ┣────────────────┐
 │ ┗━━━━━━┛          │     │           │              │ ┗━━━━━━┛                │
 │ name: TRANSFORMER │─────┘           └─ CREATE ────▶│ name: TRANSFORMER       │
@@ -58,49 +86,288 @@ Snowcap is for:
 
 ## Key Features
 
- * **Declarative** » Generates the right SQL to make your config and account match
+ * **Declarative** — Generates the right SQL to make your config and account match
+ * **Comprehensive** — Nearly every Snowflake resource is supported
+ * **Flexible** — Write resource configuration in YAML or Python
+ * **Fast** — Snowcap runs 50-90% faster than Terraform and Permifrost
+ * **Migration-friendly** — Generate config automatically with the export CLI
 
- * **Comprehensive** » Nearly every Snowflake resource is supported
 
- * **Flexible** » Write resource configuration in YAML or Python
+## Real-World Pattern: Modular RBAC
 
- * **Fast** » Snowcap runs 50-90% faster than Terraform and Permifrost
+Snowcap's `for_each` templating makes it easy to implement composable role architectures used in production environments.
 
- * **Migration-friendly** » Generate config automatically with the export CLI
+### The Problem
 
-## Open Source
+Managing Snowflake permissions typically leads to:
+- Scattered SQL scripts that drift from reality
+- No audit trail for "who granted what to whom"
+- Copy-paste errors when adding new resources
+- Overly permissive roles because granular management is painful
 
-This project is a fork of [Titan Core](https://github.com/Titan-Systems/titan), originally created by [Titan Systems](https://github.com/Titan-Systems). The original project appears to be unmaintained, so Datacoves has forked it to continue development, fix bugs, and add new features.
+### The Solution: Atomic Building Blocks
 
-We are grateful to the Titan Systems team for creating this project and releasing it under an open source license.
+Create atomic roles that grant a single privilege on a single resource type, then compose them into functional roles.
 
-This project is licensed under the Apache 2.0 License - see [LICENSE](LICENSE) for details.
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    FUNCTIONAL ROLES                         │
+│            (analyst, loader, transformer_dbt)               │
+│                  Users are assigned here                    │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ inherits
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    ATOMIC ROLES                             │
+│  z_db__<database>       → USAGE on database                 │
+│  z_schema__<schema>     → USAGE on schema                   │
+│  z_wh__<warehouse>      → USAGE + MONITOR on warehouse      │
+│  z_stage__<stage>       → READ/WRITE on stage               │
+│  z_tables_views__select → SELECT on tables/views            │
+└─────────────────────────────────────────────────────────────┘
+```
 
-## Documentation
+### Implementation with Snowcap
 
-You can find comprehensive [Snowcap documentation on GitBook](https://titan-core.gitbook.io/titan-core).
+**Step 1: Define your databases**
+
+```yaml
+# databases.yml
+vars:
+  - name: databases
+    type: list
+    default:
+      - name: raw
+        owner: loader
+      - name: analytics
+        owner: transformer
+      - name: reporting
+        owner: transformer
+```
+
+**Step 2: Auto-generate atomic roles with templates**
+
+```yaml
+# object_templates/database.yml
+
+# Databases
+databases:
+  - for_each: var.databases
+    name: "{{ each.value.name }}"
+    owner: "{{ each.value.owner }}"
+
+# Database roles
+roles:
+  - for_each: var.databases
+    name: "z_db__{{ each.value.name }}"
+
+# Database grants
+grants:
+  - for_each: var.databases
+    priv: USAGE
+    on: "database {{ each.value.name }}"
+    to: "z_db__{{ each.value.name }}"
+```
+
+**Step 3: Compose functional roles**
+
+```yaml
+# roles__functional.yml
+roles:
+  - name: analyst
+  - name: loader
+  - name: transformer
+
+role_grants:
+  - to_role: analyst
+    roles:
+      - z_db__analytics
+      - z_db__reporting
+      - z_schema__marts
+      - z_schema__reports
+      - z_wh__querying
+      - z_tables_views__select
+
+  - to_role: transformer
+    roles:
+      - z_db__raw
+      - z_db__analytics
+      - z_wh__transforming
+```
+
+### Why This Pattern Works
+
+| Benefit | Description |
+|---------|-------------|
+| **Auditable** | Each atomic role does one thing—easy to audit and understand |
+| **DRY** | Add a database to the list, templates auto-create the role + grants |
+| **Least Privilege** | Users get functional roles, never atomic roles directly |
+| **Composable** | Mix and match atomic roles to create new personas in minutes |
+| **Git-native** | Full audit trail via version control |
+
 
 ## Getting Started
 
-If you're new, the best place to start is with the Python package.
+**Requirements:** Python 3.10 or higher
 
-### Install from PyPi (MacOS, Linux)
+### Install from PyPI
 
 ```sh
+# MacOS / Linux
 python -m venv .venv
 source .venv/bin/activate
-python -m pip install snowcap
-```
+pip install snowcap
 
-### Install from PyPi (Windows)
-
-```bat
+# Windows
 python -m venv .venv
 .\.venv\Scripts\activate
-python -m pip install snowcap
+pip install snowcap
 ```
 
-### Python example
+### Quick Start: Create a Warehouse
+
+The simplest way to get started—define a single resource and deploy it:
+
+```yaml
+# snowcap.yml
+warehouses:
+  - name: analytics
+    warehouse_size: xsmall
+    auto_suspend: 60
+```
+
+Create a `.env` file for credentials (add `.env` to `.gitignore`!):
+
+```sh
+# .env
+SNOWFLAKE_ACCOUNT=my-account
+SNOWFLAKE_USER=my-user
+SNOWFLAKE_PASSWORD=my-password
+SNOWFLAKE_ROLE=SYSADMIN
+```
+
+Run snowcap:
+
+```sh
+# Load environment variables
+export $(cat .env | xargs)
+
+# Preview changes
+snowcap plan --config snowcap.yml
+
+# Apply changes
+snowcap apply --config snowcap.yml
+```
+
+That's it. Snowcap compares your config to Snowflake and generates the SQL to make them match.
+
+### Scaling Up: Directory Structure with Templates
+
+As your infrastructure grows, organize configs into directories and use templates for scalability:
+
+```
+snowcap/
+├── resources/
+│   ├── databases.yml            # Database definitions
+│   ├── schemas.yml              # Schema definitions
+│   ├── warehouses.yml           # Warehouse definitions
+│   ├── stages.yml               # Stage definitions
+│   ├── users.yml                # User definitions
+│   ├── roles__base.yml          # Atomic privilege roles
+│   └── roles__functional.yml    # Functional roles + grants
+│
+└── object_templates/            # Auto-generate resources with for_each
+    ├── database.yml
+    ├── schema.yml
+    └── warehouses.yml
+```
+
+**databases.yml** - Define your databases:
+
+```yaml
+vars:
+  - name: databases
+    type: list
+    default:
+      - name: raw
+        owner: loader
+      - name: analytics
+        owner: transformer
+      - name: analytics_dev
+        owner: transformer
+```
+
+**object_templates/database.yml** - Auto-generate databases, roles, and grants:
+
+```yaml
+# Databases
+databases:
+  - for_each: var.databases
+    name: "{{ each.value.name }}"
+    owner: "{{ each.value.owner }}"
+
+# Database roles
+roles:
+  - for_each: var.databases
+    name: "z_db__{{ each.value.name }}"
+
+# Database grants
+grants:
+  - for_each: var.databases
+    priv: USAGE
+    on: "database {{ each.value.name }}"
+    to: "z_db__{{ each.value.name }}"
+```
+
+**roles__functional.yml** - Compose into functional roles:
+
+```yaml
+roles:
+  - name: analyst
+  - name: loader
+  - name: transformer
+
+role_grants:
+  - to_role: analyst
+    roles:
+      - z_db__analytics
+      - z_schema__marts
+      - z_wh__querying
+      - z_tables_views__select
+
+  - to_role: transformer
+    roles:
+      - z_db__raw
+      - z_db__analytics
+      - z_wh__transforming
+```
+
+**Run snowcap:**
+
+```sh
+# Load environment variables from .env
+export $(cat .env | xargs)
+
+# Preview all changes
+snowcap plan --config ./snowcap/
+
+# Apply all changes
+snowcap apply --config ./snowcap/
+```
+
+Adding a new database? Just add one line to `databases.yml`—the template auto-creates the database, role, and grant.
+
+### Export Existing Resources
+
+Already have a Snowflake environment? Generate config from your existing setup:
+
+```sh
+snowcap export \
+  --resource=warehouse,role,grant \
+  --out=snowcap.yml
+```
+
+### Python Example
 
 ```Python
 import os
@@ -187,46 +454,18 @@ bp.apply(session, plan) # =>
 """
 ```
 
-### Using the CLI
+
+## Using the CLI
 
 You can use the CLI to generate a plan, apply a plan, or export resources. To use the CLI, install the Python package and call `python -m snowcap` from the command line.
 
 The CLI allows you to `plan` and `apply` a Snowcap YAML config. You can specify a single input file or a directory of configs.
 
-In addition to `plan` and `apply`, the CLI also allows you to `export` resources. This makes it easy to generate a config for an existing Snowflake environment.
-
-To connect with Snowflake, the CLI uses environment variables. The following are supported:
-
-* `SNOWFLAKE_ACCOUNT`
-* `SNOWFLAKE_USER`
-* `SNOWFLAKE_PASSWORD`
-* `SNOWFLAKE_DATABASE`
-* `SNOWFLAKE_SCHEMA`
-* `SNOWFLAKE_ROLE`
-* `SNOWFLAKE_WAREHOUSE`
-* `SNOWFLAKE_MFA_PASSCODE`
-* `SNOWFLAKE_AUTHENTICATOR`
-
-If using [key-pair auth](https://docs.snowflake.com/en/user-guide/key-pair-auth) instead of password, use the following environment variables in place of `SNOWFLAKE_PASSWORD`:
-* `SNOWFLAKE_PRIVATE_KEY_PATH`
-* `PRIVATE_KEY_PASSPHRASE` (if using encrypted key)
-
-Note: the value for `SNOWFLAKE_AUTHENTICATOR` should be set to `SNOWFLAKE_JWT` when using key-pair auth.
-
-### CLI Example
-
-Show the help message
+### CLI Commands
 
 ```sh
 snowcap --help
 
-# Usage: snowcap [OPTIONS] COMMAND [ARGS]...
-#
-#   snowcap helps you manage your Snowflake environment.
-#
-# Options:
-#   --help  Show this message and exit.
-#
 # Commands:
 #   apply    Apply a resource config to a Snowflake account
 #   connect  Test the connection to Snowflake
@@ -234,267 +473,96 @@ snowcap --help
 #   plan     Compare a resource config to the current state of Snowflake
 ```
 
-Apply a resource config to Snowflake
+### Environment Variables
 
-```sh
-# Create a resource config file
-cat <<EOF > snowcap.yml
-roles:
-  - name: transformer
+To connect with Snowflake, the CLI uses environment variables:
 
-warehouses:
-  - name: transforming
-    warehouse_size: LARGE
-    auto_suspend: 60
+| Variable | Description |
+|----------|-------------|
+| `SNOWFLAKE_ACCOUNT` | Your Snowflake account identifier |
+| `SNOWFLAKE_USER` | Username |
+| `SNOWFLAKE_PASSWORD` | Password |
+| `SNOWFLAKE_DATABASE` | Default database (optional) |
+| `SNOWFLAKE_SCHEMA` | Default schema (optional) |
+| `SNOWFLAKE_ROLE` | Role to use |
+| `SNOWFLAKE_WAREHOUSE` | Warehouse to use |
+| `SNOWFLAKE_MFA_PASSCODE` | MFA passcode (if required) |
+| `SNOWFLAKE_AUTHENTICATOR` | Authentication method |
 
-grants:
-  - to_role: transformer
-    priv: usage
-    on_warehouse: transforming
-EOF
+For [key-pair auth](https://docs.snowflake.com/en/user-guide/key-pair-auth), use these instead of `SNOWFLAKE_PASSWORD`:
+* `SNOWFLAKE_PRIVATE_KEY_PATH`
+* `PRIVATE_KEY_PASSPHRASE` (if using encrypted key)
 
-# Set connection variables
-export SNOWFLAKE_ACCOUNT="my-account"
-export SNOWFLAKE_USER="my-user"
-export SNOWFLAKE_PASSWORD="my-password"
+Set `SNOWFLAKE_AUTHENTICATOR` to `SNOWFLAKE_JWT` when using key-pair auth.
 
-# Generate a plan
-snowcap plan --config snowcap.yml
 
-# Apply the config
-snowcap apply --config snowcap.yml
-```
+## Using the GitHub Action
 
-Export existing Snowflake resources to YAML.
+Automate Snowflake deployments with GitHub Actions. Here's an example workflow:
 
-```sh
-snowcap export \
-  --resource=warehouse,grant,role \
-  --out=snowcap.yml
-```
-
-The Snowcap Python package installs the CLI script `snowcap`. You can alternatively use Python CLI module syntax if you need fine-grained control over the Python environment.
-
-```sh
-python -m snowcap plan --config snowcap.yml
-```
-
-### Using the GitHub Action
-The Snowcap GitHub Action allows you to automate the deployment of Snowflake resources using a git-based workflow.
-
-### GitHub Action Example
-
-```YAML
--- .github/workflows/snowcap.yml
+```yaml
+# .github/workflows/snowcap.yml
 name: Deploy to Snowflake with Snowcap
+
 on:
   push:
     branches: [ main ]
     paths:
-    - 'snowcap/**'
+      - 'snowcap/**'
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Deploy to Snowflake
-        uses: datacoves/snowcap-action@main
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          run-mode: 'create-or-update'
-          resource-path: './snowcap'
-          allowlist: 'warehouse,role,grant'
-          dry-run: 'false'
+          python-version: '3.11'
+
+      - name: Install Snowcap
+        run: pip install snowcap
+
+      - name: Plan changes
+        run: snowcap plan --config ./snowcap/
         env:
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
           SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
           SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
-          SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+
+      - name: Apply changes
+        if: github.ref == 'refs/heads/main'
+        run: snowcap apply --config ./snowcap/
+        env:
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
+          SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
 ```
 
-## Snowcap Limitations
 
- - **Snowcap uses names as unique identifiers**. Renaming a resource will create a new one.
- - Snowcap is not an ORM. It's not built to replace tools like SQLAlchemy.
- - Snowcap is under active development. Some resources are not yet supported.
+## Documentation
 
-
-## `snowcap` vs other tools
-
-| Feature                                 | Snowcap | Terraform | Schemachange | Permifrost | SnowDDL |
-|-----------------------------------------|------------|-----------|--------------| -----------| -------- |
-| Plan and Execute Changes                | ✅ | ✅        | ❌ | ✅ | ✅ |
-| Declarative Config                      | ✅ | ✅        | ❌ | ✅ | ✅ |
-| No State File Dependency                | ✅ | ❌        | ✅ | ✅ | ✅ |
-| Python-Based Definitions                | ✅ | w/ CDKTF  | ❌ | ❌ | ✅ |
-| SQL Support                             | ✅ | ❌        | ✅ | ❌ | ❌ |
-| Dynamic Role Switching                  | ✅ | ❌        | N/A | ❌ | ❌ |
-| Export Snowflake resources              | ✅ | ❌        | ❌ | ❌ | ❌ |
+Full documentation is available at [datacoves.github.io/snowcap](https://datacoves.github.io/snowcap).
 
 
-### `snowcap` vs Terraform
-Terraform is an infrastructure-as-code tool using the HCL config language.
+## Open Source
 
-The [Snowflake provider for Terraform](https://github.com/Snowflake-Labs/terraform-provider-snowflake) is limited to **1 role per provider**. This limitation is at odds with Snowflake's design, which is built to use multiple roles. This mismatch forces you into a complex multi-provider setup which can result in drift, permission errors, and broken plans.
+This project is a fork of [Titan Core](https://github.com/Titan-Systems/titan), originally created by [Titan Systems](https://github.com/Titan-Systems). The original project appears to be unmaintained, so Datacoves has forked it to continue development, fix bugs, and add new features.
 
-Snowcap streamlines this with **dynamic role switching**. Snowcap automatically detects which role is needed for a given change, and switches to that role before making it. This speeds up development cycles and helps eliminate the use of `ACCOUNTADMIN`.
+We are grateful to the Titan Systems team for creating this project and releasing it under an open source license.
 
-Snowcap doesn't use a state file. This provides more accurate plans and eliminates issues with stale state.
+This project is licensed under the Apache 2.0 License - see [LICENSE](LICENSE) for details.
 
-
-### `snowcap` vs Schemachange
-[Schemachange](https://github.com/Snowflake-Labs/schemachange) is a database migration tool based on Flyway. It uses SQL scripts to deploy resources to different environments.
-
-Schemachange is an imperative migration tool. For developers, that means you must know Snowflake's current state and the exact SQL commands needed to update it to the desired state. If environments get changed outside of the tool, your migration scripts may need significant adjustments.
-
-Snowcap simplifies this with a declarative approach. With Snowcap, just define what an environment should look like, you don't need to know the detailed steps or SQL commands needed to get there.
-
-Declarative config is less error-prone and more scalable, especially in dynamic and complex data environments.
-
-### `snowcap` vs Permifrost
-[Permifrost](https://gitlab.com/gitlab-data/permifrost/) is an access-management tool for Snowflake. It helps you automate the creation of users, roles, and grants. Permifrost only manages permissions, it doesn't manage any other aspect of your Snowflake account.
-
-Permifrost can be very slow. Running simple Permifrost configs can take minutes to run. Snowcap is designed to run in seconds, even with complex environments.
-
-### `snowcap` vs SnowDDL
-[SnowDDL](https://github.com/littleK0i/SnowDDL) is a declarative object management tool for Snowflake, similar to Snowcap. It uses a streamlined [permissions model](https://docs.snowddl.com/guides/permission-model) that simplifies granting read and write access to databases and schemas.
-
-SnowDDL takes a strongly opinionated stance on roles in Snowflake. If you don't need a [3-tier role heirarchy](https://docs.snowddl.com/guides/role-hierarchy), SnowDDL may not be a good fit.
-
-## Resource support
-
-### Legend
-
-- ✅ Supported
-- 🚧 Unstable
-- ❌ Not Yet Supported
-
-
-| Name                          | Supported |
-|-------------------------------|----|
-| **Account Resources**         | |
-| Account Parameter             | ✅ |
-| API Integration               | ✅ |
-| Catalog Integration           | |
-| ↳ Glue                        | ✅ |
-| ↳ Object Store                | ✅ |
-| Compute Pool                  | ✅ |
-| Connection                    | ❌ |
-| Database                      | ✅ |
-| External Access Integration   | ✅ |
-| External Volume               | ✅ |
-| Failover Group                | 🚧 |
-| Grant                         | |
-| ↳ Future Grant                | ✅ |
-| ↳ Privilege Grant             | ✅ |
-| ↳ Role Grant                  | ✅ |
-| Network Policy                | ✅ |
-| Notification Integration      | |
-| ↳ Email                       | 🚧 |
-| ↳ AWS                         | 🚧 |
-| ↳ Azure                       | 🚧 |
-| ↳ GCP                         | 🚧 |
-| Replication Group             | 🚧 |
-| Resource Monitor              | ✅ |
-| Role                          | ✅ |
-| Role Grant                    | ✅ |
-| Scanner Package               | ✅ |
-| Security Integration          | |
-| ↳ External API                | ❌ |
-| ↳ External OAuth              | ❌ |
-| ↳ Snowflake OAuth             | 🚧 |
-| ↳ SAML2                       | ❌ |
-| ↳ SCIM                        | ❌ |
-| Share                         | ✅ |
-| Storage Integration           | |
-| ↳ AWS                         | ✅ |
-| ↳ Azure                       | ✅ |
-| ↳ GCS                         | ✅ |
-| Tag Reference                 | ✅ |
-| User                          | ✅ |
-| Warehouse                     | ✅ |
-|                               | |
-| **Database Resources**        | |
-| Database Role                 | ✅ |
-| Schema                        | ✅ |
-|                               | |
-| **Schema Resources**          | |
-| Aggregation Policy            | ✅ |
-| Alert                         | ✅ |
-| Authentication Policy         | ✅ |
-| Dynamic Table                 | ✅ |
-| Event Table                   | ✅ |
-| External Function             | 🚧 |
-| External Table                | ❌ |
-| File Format                   | |
-| ↳ CSV                         | ✅ |
-| ↳ JSON                        | ✅ |
-| ↳ AVRO                        | ❌ |
-| ↳ ORC                         | ❌ |
-| ↳ Parquet                     | ✅ |
-| Hybrid Table                  | 🚧 |
-| Iceberg Table                 | |
-| ↳ Snowflake Catalog           | ✅ |
-| ↳ AWS Glue                    | ❌ |
-| ↳ Iceberg files               | ❌ |
-| ↳ Delta files                 | ❌ |
-| ↳ REST Catalog                | ❌ |
-| ↳ Open Catalog                | ❌ |
-| Image Repository              | ✅ |
-| Masking Policy                | ❌ |
-| Materialized View             | 🚧 |
-| Model                         | ❌ |
-| Network Rule                  | ✅ |
-| Notebook                      | ✅ |
-| Packages Policy               | ✅ |
-| Password Policy               | ✅ |
-| Pipe                          | ✅ |
-| Projection Policy             | ❌ |
-| Row Access Policy             | ❌ |
-| Secret                        | |
-| ↳ Generic                     | ✅ |
-| ↳ OAuth                       | ✅ |
-| ↳ Password                    | ✅ |
-| Sequence                      | ✅ |
-| Service                       | ✅ |
-| Session Policy                | 🚧 |
-| Stage                         | ✅ |
-| ↳ External                    | ✅ |
-| ↳ Internal                    | ✅ |
-| Stored Procedure              | |
-| ↳ Java                        | ❌ |
-| ↳ Javascript                  | ❌ |
-| ↳ Python                      | 🚧 |
-| ↳ Scala                       | ❌ |
-| ↳ SQL                         | ❌ |
-| Stream                        | |
-| ↳ External Table              | ❌ |
-| ↳ Stage                       | ✅ |
-| ↳ Table                       | ✅ |
-| ↳ View                        | ✅ |
-| Streamlit                     | ❌ |
-| Table                         | 🚧 |
-| Tag                           | ✅ |
-| Task                          | ✅ |
-| User-Defined Function         | |
-| ↳ Java                        | ❌ |
-| ↳ Javascript                  | 🚧 |
-| ↳ Python                      | ✅ |
-| ↳ Scala                       | ❌ |
-| ↳ SQL                         | ❌ |
-| View                          | ✅ |
-
-### What if I need a type of resource isn't supported?
-
-Please [create a GitHub issue](https://github.com/datacoves/snowcap/issues) if there's a resource you need that isn't currently supported.
 
 ## Contributing
 
-Contributions are welcome! Snowcap does not require a contributor license agreement.
+We welcome contributions! Please see our [contributing guidelines](CONTRIBUTING.md) for details.
 
-## The End
 
-If you got this far, don't forget to star this repo.
+## Support
+
+- [Documentation](https://datacoves.github.io/snowcap)
+- [GitHub Issues](https://github.com/datacoves/snowcap/issues)

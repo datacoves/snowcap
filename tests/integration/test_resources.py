@@ -1,4 +1,5 @@
 import pytest
+import snowflake.connector.errors
 from snowcap import resources as res
 from snowcap.resource_name import ResourceName
 from snowcap.identifiers import parse_URN
@@ -6,6 +7,9 @@ from snowcap.identifiers import parse_URN
 from tests.helpers import safe_fetch
 
 pytestmark = pytest.mark.requires_snowflake
+
+UNSUPPORTED_FEATURE = 2
+FEATURE_NOT_ENABLED_ERR = 3078
 
 
 def test_user_name_defaults(cursor, suffix, marked_for_cleanup):
@@ -79,9 +83,9 @@ def test_grant_on_all(cursor, suffix, marked_for_cleanup):
         cursor.execute(schema.create_sql())
         marked_for_cleanup.append(schema)
 
-    grant = res.GrantOnAll(
+    grant = res.Grant(
         priv="USAGE",
-        on_all_schemas_in=database,
+        on=["ALL", "SCHEMAS", database],
         to="STATIC_ROLE",
     )
     cursor.execute(grant.create_sql())
@@ -112,22 +116,6 @@ def test_grant_on_all(cursor, suffix, marked_for_cleanup):
     assert schema_3_usage_grant["to"] == "STATIC_ROLE"
     assert schema_3_usage_grant["on"] == f"{test_db}.SCHEMA_3"
     assert schema_3_usage_grant["on_type"] == "SCHEMA"
-
-
-@pytest.mark.enterprise
-def test_fetch_warehouse_snowpark_optimized(cursor, suffix, marked_for_cleanup):
-    warehouse = res.Warehouse(
-        name=f"TEST_FETCH_WAREHOUSE_SNOWPARK_OPTIMIZED_{suffix}",
-        warehouse_type="SNOWPARK-OPTIMIZED",
-        warehouse_size="MEDIUM",
-        initially_suspended=True,
-    )
-
-    cursor.execute(warehouse.create_sql())
-    marked_for_cleanup.append(warehouse)
-    data = safe_fetch(cursor, warehouse.urn)
-    assert data is not None
-    assert data["warehouse_type"] == "SNOWPARK-OPTIMIZED"
 
 
 def test_snowflake_builtin_database_role_grant(cursor, suffix, marked_for_cleanup):

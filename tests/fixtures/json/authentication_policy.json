@@ -6,13 +6,11 @@
     "comment": null,
     "owner": "SECURITYADMIN",
     "mfa_enrollment": "OPTIONAL",
+    "mfa_authentication_methods": null,
     "security_integrations": [
         "ALL"
     ],
     "authentication_methods": [
         "ALL"
-    ],
-    "mfa_authentication_methods": [
-        "PASSWORD"
     ]
 }

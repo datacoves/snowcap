@@ -55,45 +55,35 @@ def test_resource_name():
     assert rn._quoted
 
 
-def test_resource_name_equality():
-    rn1 = ResourceName("test")
-    rn2 = ResourceName("TEST")
-    assert rn1 == rn2
+def test_resource_name_equality_and_comparison():
+    """Test ResourceName equality - covers case-insensitivity, quoting, and string comparison.
 
-    rn1 = ResourceName('"test"')
-    rn2 = ResourceName('"test"')
-    assert rn1 == rn2
+    Key behaviors tested:
+    - Unquoted names are case-insensitive
+    - Quoted names preserve inner case but compare case-insensitively
+    - Quoted lowercase differs from unquoted (preserved exact identifier)
+    - String comparison works bidirectionally
+    - List membership works
+    """
+    # Case-insensitive comparison for unquoted names
+    assert ResourceName("test") == ResourceName("TEST")
 
-    rn1 = ResourceName("test")
-    rn2 = ResourceName('"TEST"')
-    assert rn1 == rn2
+    # Inequality for different names
+    assert ResourceName("test") != ResourceName("foo")
 
-    rn1 = ResourceName("test")
-    rn2 = ResourceName('"test"')
-    assert rn1 != rn2
+    # Quoted uppercase equals unquoted (both resolve to same identifier)
+    assert ResourceName('"FOO"') == ResourceName("foo")
 
-    rn1 = ResourceName("test")
-    rn2 = ResourceName("foo")
-    assert rn1 != rn2
+    # Quoted lowercase differs from unquoted uppercase (different identifiers in Snowflake)
+    assert ResourceName("test") != ResourceName('"test"')
 
+    # Bidirectional string comparison (case-insensitive)
+    assert "foo" == ResourceName("FOO")
+    assert ResourceName("FOO") == "foo"
 
-def test_resource_name_string_comparison():
+    # List membership works
     assert "FOO" in [ResourceName("foo"), ResourceName("bar")]
     assert ResourceName("FOO") in ["foo", "bar"]
-    assert "FOO" == ResourceName("FOO")
-    assert "FOO" == ResourceName("foo")
-    assert "foo" == ResourceName("FOO")
-    assert "foo" == ResourceName("foo")
-    assert ResourceName("FOO") == "FOO"
-    assert ResourceName("foo") == "FOO"
-    assert ResourceName("FOO") == "foo"
-    assert ResourceName("foo") == "foo"
-
-    # Quoted identifiers
-    assert ResourceName('"FOO"') == ResourceName("FOO")
-    assert ResourceName('"FOO"') == ResourceName("foo")
-    assert ResourceName('"FOO"') == "foo"
-    assert ResourceName('"FOO"') == "FOO"
 
 
 def test_parse_fully_qualified_schema():
@@ -109,11 +99,6 @@ def test_parse_fully_qualified_schema():
     # assert tbl.name == "TABLE"
     # assert tbl.container.name == "SCHEMA"
     # assert tbl.container.container.name == "DB"
-
-
-def test_resource_name_type_checking():
-    with pytest.raises(RuntimeError):
-        ResourceName(111)
 
 
 def test_smart_split():

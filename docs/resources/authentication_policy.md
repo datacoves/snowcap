@@ -12,21 +12,6 @@ Defines the rules and constraints for authentication within the system, ensuring
 
 ## Examples
 
-### Python
-
-```python
-authentication_policy = AuthenticationPolicy(
-    name="some_authentication_policy",
-    authentication_methods=["PASSWORD", "SAML"],
-    mfa_authentication_methods=["PASSWORD"],
-    mfa_enrollment="REQUIRED",
-    client_types=["SNOWFLAKE_UI"],
-    security_integrations=["ALL"],
-    comment="Policy for secure authentication."
-)
-```
-
-
 ### YAML
 
 ```yaml
@@ -43,6 +28,21 @@ authentication_policies:
     security_integrations:
       - ALL
     comment: Policy for secure authentication.
+```
+
+
+### Python
+
+```python
+authentication_policy = AuthenticationPolicy(
+    name="some_authentication_policy",
+    authentication_methods=["PASSWORD", "SAML"],
+    mfa_authentication_methods=["PASSWORD"],
+    mfa_enrollment="REQUIRED",
+    client_types=["SNOWFLAKE_UI"],
+    security_integrations=["ALL"],
+    comment="Policy for secure authentication."
+)
 ```
 
 

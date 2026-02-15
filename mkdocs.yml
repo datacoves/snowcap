@@ -1,0 +1,146 @@
+site_name: Snowcap
+site_url: https://datacoves.github.io/snowcap/
+site_description: Snowflake infrastructure as code
+repo_url: https://github.com/datacoves/snowcap
+repo_name: datacoves/snowcap
+
+theme:
+  name: material
+  icon:
+    logo: material/snowflake
+  # favicon: images/favicon.png  # Add a favicon.png to docs/images/
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+
+extra_css:
+  - stylesheets/extra.css
+
+extra_javascript:
+  - javascripts/extra.js
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - tables
+  - toc:
+      permalink: true
+
+docs_dir: docs
+
+nav:
+  - Overview: README.md
+  - Getting Started: getting-started.md
+  - Role-Based Access Control: role-based-access-control.md
+  - YAML Configuration: yaml-configuration.md
+  - GitHub Action: snowcap-github-action.md
+  - Export Existing Resources: export.md
+  - Advanced:
+    - Python API: python-api.md
+    - Blueprint: blueprint.md
+    - Working With Resources: working-with-resources.md
+  - Resources:
+    - Access Control:
+      - DatabaseRole: resources/database_role.md
+      - Grant: resources/grant.md
+      - Role: resources/role.md
+      - RoleGrant: resources/role_grant.md
+      - User: resources/user.md
+    - Account & Monitoring:
+      - AccountParameter: resources/account_parameter.md
+      - EventTable: resources/event_table.md
+      - ResourceMonitor: resources/resource_monitor.md
+    - Apps:
+      - Streamlit: resources/streamlit.md
+    - Data Loading:
+      - File Formats:
+        - JSONFileFormat: resources/json_file_format.md
+        - ParquetFileFormat: resources/parquet_file_format.md
+      - Pipe: resources/pipe.md
+      - Stages:
+        - ExternalStage: resources/external_stage.md
+        - InternalStage: resources/internal_stage.md
+      - Streams:
+        - StageStream: resources/stage_stream.md
+        - TableStream: resources/table_stream.md
+        - ViewStream: resources/view_stream.md
+    - Data Sharing & Replication:
+      - FailoverGroup: resources/failover_group.md
+      - ReplicationGroup: resources/replication_group.md
+      - Share: resources/share.md
+    - Database Objects:
+      - Database: resources/database.md
+      - DynamicTable: resources/dynamic_table.md
+      - HybridTable: resources/hybrid_table.md
+      - MaterializedView: resources/materialized_view.md
+      - Schema: resources/schema.md
+      - Sequence: resources/sequence.md
+      - Table: resources/table.md
+      - Tag: resources/tag.md
+      - View: resources/view.md
+    - Functions & Procedures:
+      - JavascriptUDF: resources/javascript_udf.md
+      - PythonStoredProcedure: resources/python_stored_procedure.md
+      - PythonUDF: resources/python_udf.md
+    - Integrations:
+      - Catalog:
+        - GlueCatalogIntegration: resources/glue_catalog_integration.md
+        - ObjectStoreCatalogIntegration: resources/object_store_catalog_integration.md
+      - Other:
+        - APIIntegration: resources/api_integration.md
+        - EmailNotificationIntegration: resources/email_notification_integration.md
+        - ExternalAccessIntegration: resources/external_access_integration.md
+      - Security:
+        - APIAuthenticationSecurityIntegration: resources/api_authentication_security_integration.md
+        - SnowflakePartnerOAuthSecurityIntegration: resources/snowflake_partner_oauth_security_integration.md
+        - SnowservicesOAuthSecurityIntegration: resources/snowservices_oauth_security_integration.md
+      - Storage:
+        - AzureStorageIntegration: resources/azure_storage_integration.md
+        - GCSStorageIntegration: resources/gcs_storage_integration.md
+        - S3StorageIntegration: resources/s3storage_integration.md
+    - Orchestration:
+      - Alert: resources/alert.md
+      - Task: resources/task.md
+    - Secrets:
+      - GenericSecret: resources/generic_secret.md
+      - OAuthSecret: resources/oauth_secret.md
+      - PasswordSecret: resources/password_secret.md
+      - Secret: resources/secret.md
+    - Security & Policies:
+      - AggregationPolicy: resources/aggregation_policy.md
+      - AuthenticationPolicy: resources/authentication_policy.md
+      - NetworkPolicy: resources/network_policy.md
+      - NetworkRule: resources/network_rule.md
+      - PackagesPolicy: resources/packages_policy.md
+      - PasswordPolicy: resources/password_policy.md
+      - SessionPolicy: resources/session_policy.md
+    - Snowpark Container Services:
+      - ComputePool: resources/compute_pool.md
+      - ImageRepository: resources/image_repository.md
+      - Service: resources/service.md
+    - Warehouse: resources/warehouse.md

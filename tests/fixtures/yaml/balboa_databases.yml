@@ -1,0 +1,35 @@
+# Balboa-style database configuration using for_each with object list
+# This pattern allows defining multiple databases with complex properties
+
+vars:
+  - name: databases
+    type: list
+    default:
+      - name: RAW_DB
+        owner: LOADER_ROLE
+        data_retention_time_in_days: 7
+        max_data_extension_time_in_days: 14
+        comment: "Landing zone for raw data from external sources"
+      - name: STAGING_DB
+        owner: TRANSFORMER_ROLE
+        data_retention_time_in_days: 3
+        max_data_extension_time_in_days: 7
+        comment: "Intermediate transformations and staging tables"
+      - name: ANALYTICS_DB
+        owner: TRANSFORMER_ROLE
+        data_retention_time_in_days: 14
+        max_data_extension_time_in_days: 28
+        comment: "Curated data models for BI and reporting"
+      - name: DEV_DB
+        owner: DEVELOPER_ROLE
+        data_retention_time_in_days: 1
+        max_data_extension_time_in_days: 1
+        comment: "Development and testing environment"
+
+databases:
+  - for_each: var.databases
+    name: "{{ each.value.name }}"
+    owner: "{{ each.value.owner }}"
+    data_retention_time_in_days: "{{ each.value.data_retention_time_in_days }}"
+    max_data_extension_time_in_days: "{{ each.value.max_data_extension_time_in_days }}"
+    comment: "{{ each.value.comment }}"

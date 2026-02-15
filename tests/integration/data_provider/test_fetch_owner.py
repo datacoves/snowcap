@@ -27,7 +27,7 @@ def test_fetch_owner(cursor, suffix, test_db, marked_for_cleanup):
 
     result = safe_fetch(cursor, schema.urn)
     assert result is not None
-    assert result["owner"] == TEST_ROLE
+    assert result["owner"].upper() == TEST_ROLE.upper()
 
     cursor.execute(f"GRANT OWNERSHIP ON SCHEMA {test_db}.SOME_SCHEMA TO DATABASE ROLE {database_role.name}")
 

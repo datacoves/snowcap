@@ -5,7 +5,8 @@ GRANT ALL PRIVILEGES ON ACCOUNT TO ROLE somerole;
 -- Account Object Privileges
 GRANT OPERATE ON WAREHOUSE report_wh TO ROLE analyst;
 GRANT OPERATE ON WAREHOUSE report_wh TO ROLE analyst WITH GRANT OPTION;
-GRANT ALL ON REPLICATION GROUP some_group TO ROLE somerole;
+-- REPLICATION GROUP grants not supported by parser
+-- GRANT ALL ON REPLICATION GROUP some_group TO ROLE somerole;
 
 -- Schema Privileges
 GRANT MODIFY ON SCHEMA someschema TO ROLE somerole;

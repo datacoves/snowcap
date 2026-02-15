@@ -12,49 +12,39 @@ Represents a grant of a role to another role or user in Snowflake.
 
 ## Examples
 
+### YAML
+
+```yaml
+role_grants:
+  # Grant multiple roles to a role
+  - to_role: analyst
+    roles:
+      - z_db__raw
+      - z_db__analytics
+      - z_wh__transforming
+
+  # Grant multiple roles to a user
+  - to_user: jane_doe
+    roles:
+      - analyst
+      - developer
+```
+
 ### Python
 
 ```python
 # Grant to Role:
 role_grant = RoleGrant(role="somerole", to_role="someotherrole")
-role_grant = RoleGrant(role="somerole", to=Role(name="someotherrole"))
+
 # Grant to User:
 role_grant = RoleGrant(role="somerole", to_user="someuser")
-role_grant = RoleGrant(role="somerole", to=User(name="someuser"))
-```
-
-
-### YAML
-
-```yaml
-role_grants:
-  - role: somerole
-    to_role: someotherrole
-  - role: somerole
-    to_user: someuser
-  - role: somerole
-    to_users:
-      - user_a
-      - user_b
-  - role: somerole
-    to_roles:
-      - role_a
-      - role_b
-  - to_user: someuser
-    roles:
-      - role_a
-      - role_b
-  - to_role: somerole
-    roles:
-      - role_a
-      - role_b
 ```
 
 
 ## Fields
 
-* `role` (string or [Role](role.md), required) - The role to be granted.
-* `to_role` (string or [Role](role.md)) - The role to which the role is granted.
-* `to_user` (string or [User](user.md)) - The user to which the role is granted.
+* `to_role` (string or [Role](role.md)) - The role to receive the grants.
+* `to_user` (string or [User](user.md)) - The user to receive the grants.
+* `roles` (list) - List of roles to grant to the target role or user.
 
 

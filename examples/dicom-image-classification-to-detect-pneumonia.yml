@@ -6,8 +6,7 @@ roles:
 
 role_grants:
   - role: data_scientist
-    roles:
-      - SYSADMIN
+    to_role: SYSADMIN
 
 databases:
   - name: IND_SOL_DICOM

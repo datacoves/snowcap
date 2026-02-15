@@ -12,18 +12,6 @@ Manages external stages in Snowflake, which are used to reference external stora
 
 ## Examples
 
-### Python
-
-```python
-external_stage = ExternalStage(
-    name="some_external_stage",
-    url="https://example.com/storage",
-    owner="SYSADMIN",
-    storage_integration="some_integration"
-)
-```
-
-
 ### YAML
 
 ```yaml
@@ -33,6 +21,17 @@ stages:
     url: https://example.com/storage
     owner: SYSADMIN
     storage_integration: some_integration
+```
+
+### Python
+
+```python
+external_stage = ExternalStage(
+    name="some_external_stage",
+    url="https://example.com/storage",
+    owner="SYSADMIN",
+    storage_integration="some_integration"
+)
 ```
 
 

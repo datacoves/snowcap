@@ -11,6 +11,29 @@ Represents a Streamlit app in Snowflake, which is a schema-scoped resource for c
 
 ## Examples
 
+### YAML
+
+```yaml
+streamlits:
+  # From a stage
+  - name: my_db.my_schema.my_streamlit
+    from: "@my_stage"
+    main_file: app.py
+    title: My Streamlit App
+    query_warehouse: my_warehouse
+    comment: A sample Streamlit app from a stage
+    owner: SYSADMIN
+    tags:
+      project: demo
+
+  # From a Git repository
+  - name: my_streamlit
+    from: https://github.com/user/repo.git
+    version: main
+    main_file: app.py
+    title: Repo Streamlit App
+```
+
 ### Python
 
 ```python
@@ -34,26 +57,6 @@ streamlit_repo = Streamlit(
     title="Repo Streamlit App",
     owner="SYSADMIN"
 )
-```
-
-### YAML
-
-```yaml
-streamlits:
-  - name: my_db.my_schema.my_streamlit
-    from: "@my_stage"
-    main_file: "app.py"
-    title: "My Streamlit App"
-    query_warehouse: "my_warehouse"
-    comment: "A sample Streamlit app from a stage"
-    owner: SYSADMIN
-    tags:
-      project: demo
-  - name: my_streamlit
-    from: "https://github.com/user/repo.git"
-    version: "main"
-    main_file: "app.py"
-    title: "Repo Streamlit App"
 ```
 
 ## Fields

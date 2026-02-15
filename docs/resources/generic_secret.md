@@ -13,18 +13,6 @@ This class defines a generic secret.
 
 ## Examples
 
-### Python
-
-```python
-secret = GenericSecret(
-    name="some_secret",
-    secret_string="some_secret_string",
-    comment="some_comment",
-    owner="SYSADMIN",
-)
-```
-
-
 ### YAML
 
 ```yaml
@@ -34,6 +22,18 @@ secrets:
     secret_string: some_secret_string
     comment: some_comment
     owner: SYSADMIN
+```
+
+
+### Python
+
+```python
+secret = GenericSecret(
+    name="some_secret",
+    secret_string="some_secret_string",
+    comment="some_comment",
+    owner="SYSADMIN",
+)
 ```
 
 

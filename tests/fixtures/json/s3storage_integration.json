@@ -1,0 +1,12 @@
+{
+    "name": "TEST_S3_STORAGE",
+    "enabled": true,
+    "storage_provider": "S3",
+    "storage_aws_role_arn": "arn:aws:iam::123456789012:role/test-role",
+    "storage_allowed_locations": ["s3://test-bucket/"],
+    "storage_blocked_locations": null,
+    "storage_aws_object_acl": null,
+    "type": "EXTERNAL_STAGE",
+    "owner": "ACCOUNTADMIN",
+    "comment": "Test S3 storage integration"
+}

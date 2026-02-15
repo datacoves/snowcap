@@ -12,6 +12,16 @@ Manages OAuth security integrations for Snowservices in Snowflake, allowing exte
 
 ## Examples
 
+### YAML
+
+```yaml
+snowservices_oauth:
+  - name: some_security_integration
+    enabled: true
+    comment: Integration for external OAuth services.
+```
+
+
 ### Python
 
 ```python
@@ -20,16 +30,6 @@ snowservices_oauth = SnowservicesOAuthSecurityIntegration(
     enabled=True,
     comment="Integration for external OAuth services."
 )
-```
-
-
-### YAML
-
-```yaml
-snowservices_oauth:
-  - name: some_security_integration
-    enabled: true
-    comment: Integration for external OAuth services.
 ```
 
 

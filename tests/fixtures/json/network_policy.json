@@ -1,11 +1,7 @@
 {
     "name": "some_network_policy",
-    "allowed_network_rule_list": [
-        "static_database.public.static_network_rule_ingress_allow_all"
-    ],
-    "blocked_network_rule_list": [
-        "static_database.public.static_network_rule_ingress_suspicious_ip"
-    ],
+    "allowed_network_rule_list": null,
+    "blocked_network_rule_list": null,
     "allowed_ip_list": [
         "192.168.1.0/24"
     ],

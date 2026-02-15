@@ -1,0 +1,69 @@
+# Balboa-style role hierarchy configuration
+# This pattern defines roles and their hierarchy with role_grants
+
+vars:
+  - name: functional_roles
+    type: list
+    default:
+      - name: LOADER_ROLE
+        comment: "ETL processes and data loading - owns raw tables"
+      - name: TRANSFORMER_ROLE
+        comment: "dbt and transformation jobs - owns staging and analytics"
+      - name: REPORTER_ROLE
+        comment: "BI tools and analysts - read-only analytics access"
+      - name: DEVELOPER_ROLE
+        comment: "Development environment access for engineers"
+      - name: DATA_SCIENTIST_ROLE
+        comment: "ML and data science workloads"
+
+  - name: access_roles
+    type: list
+    default:
+      - name: RAW_READ_AR
+        comment: "Read access to RAW_DB"
+      - name: STAGING_READ_AR
+        comment: "Read access to STAGING_DB"
+      - name: ANALYTICS_READ_AR
+        comment: "Read access to ANALYTICS_DB"
+      - name: ANALYTICS_WRITE_AR
+        comment: "Write access to ANALYTICS_DB"
+
+roles:
+  # Functional roles - granted to users
+  - for_each: var.functional_roles
+    name: "{{ each.value.name }}"
+    comment: "{{ each.value.comment }}"
+
+  # Access roles - granted to functional roles
+  - for_each: var.access_roles
+    name: "{{ each.value.name }}"
+    comment: "{{ each.value.comment }}"
+
+role_grants:
+  # Functional roles roll up to SYSADMIN
+  - roles:
+      - LOADER_ROLE
+      - TRANSFORMER_ROLE
+      - REPORTER_ROLE
+      - DEVELOPER_ROLE
+      - DATA_SCIENTIST_ROLE
+    to_role: SYSADMIN
+
+  # Access roles granted to functional roles
+  - role: RAW_READ_AR
+    to_role: TRANSFORMER_ROLE
+  - role: RAW_READ_AR
+    to_role: DEVELOPER_ROLE
+
+  - role: STAGING_READ_AR
+    to_role: TRANSFORMER_ROLE
+  - role: STAGING_READ_AR
+    to_role: DEVELOPER_ROLE
+
+  - role: ANALYTICS_READ_AR
+    to_role: REPORTER_ROLE
+  - role: ANALYTICS_READ_AR
+    to_role: DATA_SCIENTIST_ROLE
+
+  - role: ANALYTICS_WRITE_AR
+    to_role: TRANSFORMER_ROLE

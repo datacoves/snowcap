@@ -1,0 +1,61 @@
+/* Light/dark mode image switching */
+.light-mode-only {
+  display: inline;
+}
+.dark-mode-only {
+  display: none;
+}
+
+[data-md-color-scheme="slate"] .light-mode-only {
+  display: none;
+}
+[data-md-color-scheme="slate"] .dark-mode-only {
+  display: inline;
+}
+
+/* Datacoves brand colors */
+:root {
+  --md-primary-fg-color: #0a1f44;
+  --md-primary-fg-color--light: #1a3a6e;
+  --md-primary-fg-color--dark: #061230;
+  --md-accent-fg-color: #3497e1;
+  --md-accent-fg-color--transparent: rgba(52, 151, 225, 0.1);
+}
+
+/* Dark mode adjustments */
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #3497e1;
+  --md-accent-fg-color: #5fb3f0;
+}
+
+/* Header link styling */
+.md-header__button.md-logo,
+.md-header__title {
+  cursor: pointer;
+}
+
+/* Code block styling */
+.highlight code {
+  font-size: 0.85em;
+}
+
+/* Table styling */
+.md-typeset table:not([class]) {
+  font-size: 0.8rem;
+}
+
+/* Admonition styling for Snowflake-specific notes */
+.md-typeset .admonition.snowflake,
+.md-typeset details.snowflake {
+  border-color: #29b5e8;
+}
+
+.md-typeset .snowflake > .admonition-title,
+.md-typeset .snowflake > summary {
+  background-color: rgba(41, 181, 232, 0.1);
+}
+
+.md-typeset .snowflake > .admonition-title::before,
+.md-typeset .snowflake > summary::before {
+  background-color: #29b5e8;
+}

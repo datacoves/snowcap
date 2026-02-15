@@ -12,6 +12,20 @@ Represents a data ingestion pipeline in Snowflake, which automates the loading o
 
 ## Examples
 
+### YAML
+
+```yaml
+pipes:
+  - name: some_pipe
+    as_: COPY INTO some_table FROM @%some_stage
+    owner: SYSADMIN
+    auto_ingest: true
+    error_integration: some_integration
+    aws_sns_topic: some_topic
+    integration: some_integration
+    comment: This is a sample pipe
+```
+
 ### Python
 
 ```python
@@ -25,21 +39,6 @@ pipe = Pipe(
     integration="some_integration",
     comment="This is a sample pipe"
 )
-```
-
-
-### YAML
-
-```yaml
-pipes:
-  - name: some_pipe
-    as_: "COPY INTO some_table FROM @%some_stage"
-    owner: SYSADMIN
-    auto_ingest: true
-    error_integration: some_integration
-    aws_sns_topic: some_topic
-    integration: some_integration
-    comment: "This is a sample pipe"
 ```
 
 

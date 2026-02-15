@@ -13,6 +13,21 @@ This class supports creating, replacing, and checking the existence of API integ
 
 ## Examples
 
+### YAML
+
+```yaml
+api_integrations:
+  - name: some_api_integration
+    api_provider: AWS_API_GATEWAY
+    api_aws_role_arn: "arn:aws:iam::123456789012:role/MyRole"
+    enabled: true
+    api_allowed_prefixes: ["/prod/", "/dev/"]
+    api_blocked_prefixes: ["/test/"]
+    api_key: "ABCD1234"
+    comment: "Example API integration"
+```
+
+
 ### Python
 
 ```python
@@ -29,25 +44,10 @@ api_integration = APIIntegration(
 ```
 
 
-### YAML
-
-```yaml
-api_integrations:
-  - name: some_api_integration
-    api_provider: AWS_API_GATEWAY
-    api_aws_role_arn: "arn:aws:iam::123456789012:role/MyRole"
-    enabled: true
-    api_allowed_prefixes: ["/prod/", "/dev/"]
-    api_blocked_prefixes: ["/test/"]
-    api_key: "ABCD1234"
-    comment: "Example API integration"
-```
-
-
 ## Fields
 
 * `name` (string, required) - The unique name of the API integration.
-* `api_provider` (string or [ApiProvider](api_provider.md), required) - The provider of the API service. Defaults to AWS_API_GATEway.
+* `api_provider` (string or ApiProvider, required) - The provider of the API service. Defaults to AWS_API_GATEway.
 * `api_aws_role_arn` (string, required) - The AWS IAM role ARN associated with the API integration.
 * `api_key` (string) - The API key used for authentication.
 * `api_allowed_prefixes` (list) - The list of allowed prefixes for the API endpoints.

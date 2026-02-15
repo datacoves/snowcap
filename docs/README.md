@@ -1,12 +1,9 @@
 # `snowcap` - Snowflake infrastructure as code
-### Formerly Titan Core
 
 ## Brought to you by Datacoves
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="images/datacoves-dark.png">
-  <img alt="Datacoves" src="images/datacoves-light.png" width="150">
-</picture>
+<img src="images/datacoves-light.png" alt="Datacoves" width="150" class="light-mode-only">
+<img src="images/datacoves-dark.png" alt="Datacoves" width="150" class="dark-mode-only">
 
 Snowcap helps you provision, deploy, and secure resources in Snowflake. Datacoves takes it further: a managed DataOps platform for dbt and Airflow, deployable in your private cloud or available as SaaS.
 
@@ -50,8 +47,15 @@ Deploy any Snowflake resource, including users, roles, schemas, databases, integ
 
 ## Contents
 
-* [Getting Started](getting-started.md): Installation and initial setup guide.
-* [Role-Based Access Control](role-based-access-control.md): Best practices for managing permissions with composite roles.
-* [Blueprint](blueprint.md): Customize and control how resources are deployed to Snowflake.
-* [GitHub Action](snowcap-github-action.md): For git-based workflows, including dbt.
+* [Getting Started](getting-started.md) - Installation, authentication, and first config
+* [Role-Based Access Control](role-based-access-control.md) - Best practices for managing permissions
+* [YAML Configuration](yaml-configuration.md) - Variables, loops, and scope
+* [GitHub Action](snowcap-github-action.md) - Automate deployments with CI/CD
+* [Export Existing Resources](export.md) - Generate config from your current Snowflake setup
+
+### Advanced Usage
+
+* [Python API](python-api.md) - Programmatic control with Python
+* [Blueprint](blueprint.md) - Python API reference and parameters
+* [Working With Resources](working-with-resources.md) - Resource classes and relationships
 

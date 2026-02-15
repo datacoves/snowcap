@@ -31,14 +31,6 @@ def test_table_stream():
     assert isinstance(resource, res.TableStream)
 
 
-@pytest.mark.skip("external table streams need work")
-def test_external_table_stream():
-    data = get_json_fixture("external_table_stream")
-    data["resource_type"] = ResourceType.STREAM
-    resource = Resource.from_dict(data)
-    assert isinstance(resource, res.ExternalTableStream)
-
-
 def test_stage_stream():
     data = get_json_fixture("stage_stream")
     data["resource_type"] = ResourceType.STREAM
@@ -54,11 +46,27 @@ def test_view_stream():
 
 
 def enumerate_polymorphic_resources():
+    """Get polymorphic resources that have resolvers (can be distinguished by data)."""
+    # List of resource fixtures that have been intentionally removed because they
+    # require external setup that cannot be automated in tests. See TESTING.md.
+    REMOVED_FIXTURES = {
+        "ExternalVolume",  # Requires valid cloud storage bucket
+        "SnowflakePartnerOAuthSecurityIntegration",  # Requires external OAuth provider
+        "SnowservicesOAuthSecurityIntegration",  # One per account, requires setup
+        "AzureOutboundNotificationIntegration",  # Only works on Azure-hosted Snowflake
+        "GCPOutboundNotificationIntegration",  # Only works on GCP-hosted Snowflake
+        "EmailNotificationIntegration",  # Requires verified email addresses in account (error 394209)
+    }
+
     resources = []
     for resource_type, class_list in Resource.__types__.items():
-        if len(class_list) > 1:
+        # Only include resource types with multiple subtypes AND a resolver
+        # Resources without resolvers (like COLUMN) cannot be distinguished by data alone
+        if len(class_list) > 1 and resource_type in Resource.__resolvers__:
             for class_ in class_list:
-                resources.append((resource_type, class_))
+                # Skip resources whose fixtures have been removed
+                if class_.__name__ not in REMOVED_FIXTURES:
+                    resources.append((resource_type, class_))
     return resources
 
 
@@ -75,7 +83,6 @@ def polymorphic_resource(request):
     yield resource_type, class_list
 
 
-@pytest.mark.skip(reason="not a huge priority")
 def test_polymorphic_resources(polymorphic_resource):
     resource_type, class_ = polymorphic_resource
 

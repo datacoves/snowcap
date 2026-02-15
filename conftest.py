@@ -3,21 +3,40 @@ import uuid
 
 import pytest
 import snowflake.connector
-from dotenv import dotenv_values
+from dotenv import load_dotenv, dotenv_values
 
 from snowcap.enums import ResourceType
 
+# Load environment variables from tests/.env if it exists
+load_dotenv("tests/.env")
 
 TEST_ROLE = os.environ.get("TEST_SNOWFLAKE_ROLE")
+TEST_WAREHOUSE = os.environ.get("TEST_SNOWFLAKE_WAREHOUSE")
 
 
 def connection_params():
-    return {
+    params = {
         "account": os.environ["TEST_SNOWFLAKE_ACCOUNT"],
         "user": os.environ["TEST_SNOWFLAKE_USER"],
-        "password": os.environ["TEST_SNOWFLAKE_PASSWORD"],
         "role": TEST_ROLE,
     }
+
+    # Key-pair auth (preferred) or password auth
+    private_key_path = os.environ.get("TEST_SNOWFLAKE_PRIVATE_KEY_PATH")
+    if private_key_path:
+        params["private_key_file"] = private_key_path
+        passphrase = os.environ.get("TEST_SNOWFLAKE_PRIVATE_KEY_PASSPHRASE")
+        if passphrase:
+            params["private_key_file_pwd"] = passphrase
+    else:
+        params["password"] = os.environ["TEST_SNOWFLAKE_PASSWORD"]
+
+    # Optional warehouse
+    warehouse = os.environ.get("TEST_SNOWFLAKE_WAREHOUSE")
+    if warehouse:
+        params["warehouse"] = warehouse
+
+    return params
 
 
 def pytest_addoption(parser):
@@ -67,11 +86,34 @@ def marked_for_cleanup() -> list:
     return []
 
 
+def _verify_static_resources(cursor):
+    """Verify that required static test resources exist in Snowflake."""
+    required_resources = [
+        ("SHOW ROLES LIKE 'STATIC_ROLE'", "STATIC_ROLE"),
+        ("SHOW DATABASES LIKE 'STATIC_DATABASE'", "STATIC_DATABASE"),
+        ("SHOW WAREHOUSES LIKE 'STATIC_WAREHOUSE'", "STATIC_WAREHOUSE"),
+    ]
+    missing = []
+    for query, name in required_resources:
+        result = cursor.execute(query).fetchall()
+        if not result:
+            missing.append(name)
+
+    if missing:
+        pytest.exit(
+            f"\n\nMissing required static test resources: {', '.join(missing)}\n\n"
+            f"Please run 'make setup-test-resources' to create them.\n"
+            f"See tests/fixtures/static_resources/README.md for details.\n",
+            returncode=1,
+        )
+
+
 @pytest.fixture(scope="session")
 def cursor(suffix, test_db, marked_for_cleanup):
     session = snowflake.connector.connect(**connection_params())
     with session.cursor(snowflake.connector.DictCursor) as cur:
         cur.execute(f"ALTER SESSION set query_tag='snowcap_package:test::{suffix}'")
+        _verify_static_resources(cur)
         cur.execute(f"CREATE DATABASE {test_db}")
         try:
             yield cur
@@ -112,6 +154,7 @@ def reset_cursor_context(dummy_cursor, test_db):
     cursor = dummy_cursor
     if cursor:
         cursor.execute(f"USE ROLE {TEST_ROLE}")
-        cursor.execute("USE WAREHOUSE CI")
+        if TEST_WAREHOUSE:
+            cursor.execute(f"USE WAREHOUSE {TEST_WAREHOUSE}")
         cursor.execute(f"USE DATABASE {test_db}")
     yield

@@ -1,0 +1,38 @@
+# Balboa-style schema configuration using for_each with Jinja filters
+# This pattern uses split() to extract database and schema from qualified names
+
+vars:
+  - name: schemas
+    type: list
+    default:
+      - name: RAW_DB.SALESFORCE
+        owner: LOADER_ROLE
+        comment: "Salesforce CRM data"
+      - name: RAW_DB.HUBSPOT
+        owner: LOADER_ROLE
+        comment: "HubSpot marketing data"
+      - name: RAW_DB.STRIPE
+        owner: LOADER_ROLE
+        comment: "Stripe payment data"
+      - name: STAGING_DB.MODELS
+        owner: TRANSFORMER_ROLE
+        comment: "Intermediate dbt models"
+      - name: STAGING_DB.SNAPSHOTS
+        owner: TRANSFORMER_ROLE
+        comment: "dbt snapshots for SCD2"
+      - name: ANALYTICS_DB.CORE
+        owner: TRANSFORMER_ROLE
+        comment: "Core dimensional models"
+      - name: ANALYTICS_DB.MARTS
+        owner: TRANSFORMER_ROLE
+        comment: "Business-level data marts"
+      - name: ANALYTICS_DB.REPORTING
+        owner: REPORTER_ROLE
+        comment: "BI-optimized reporting views"
+
+schemas:
+  - for_each: var.schemas
+    name: "{{ each.value.name.split('.')[1] }}"
+    database: "{{ each.value.name.split('.')[0] }}"
+    owner: "{{ each.value.owner }}"
+    comment: "{{ each.value.comment }}"
