@@ -2,7 +2,7 @@ import logging
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Callable, Dict, Generator, Iterable, Optional, TypeVar, Union
+from typing import Any, Callable, Generator, Iterable, Optional, Union
 
 import snowflake.connector
 from snowflake.connector.connection import SnowflakeConnection

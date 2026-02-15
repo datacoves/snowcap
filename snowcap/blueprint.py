@@ -1,10 +1,8 @@
 import json
 import logging
-import threading
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from queue import Queue
 from typing import (
     Any,
     Generator,
@@ -39,7 +37,6 @@ from .enums import (
 )
 from .exceptions import (
     DuplicateResourceException,
-    InvalidResourceException,
     MissingPrivilegeException,
     MissingResourceException,
     NonConformingPlanException,
@@ -641,15 +638,15 @@ class Blueprint:
 
         if grant_to_system:
             warnings.append(
-                f"Grants to system role found. They will be always recreated since system roles are not managed by Snowcap"
+                "Grants to system role found. They will be always recreated since system roles are not managed by Snowcap"
             )
         if role_grant_to_system:
             warnings.append(
-                f"Role grants to system role found. They will be always recreated since system roles are not managed by Snowcap"
+                "Role grants to system role found. They will be always recreated since system roles are not managed by Snowcap"
             )
         if grant_on_all:
             warnings.append(
-                f"Grants of type ALL found. They will be always recreated since Snowcap does not compare the affected objects."
+                "Grants of type ALL found. They will be always recreated since Snowcap does not compare the affected objects."
             )
 
         if warnings:
@@ -1029,7 +1026,7 @@ class Blueprint:
                 resource_set.add(ref[0])
                 resource_set.add(ref[1])
             self._levels = compute_levels(resource_set, set(manifest.refs))
-        except Exception as e:
+        except Exception:
             logger.error("~" * 80 + "REMOTE STATE")
             logger.error(remote_state)
             logger.error("~" * 80 + "MANIFEST")

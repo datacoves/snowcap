@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from .enums import BlueprintScope, ResourceType
-from .exceptions import InvalidResourceException, MissingVarException
+from .exceptions import MissingVarException
 from .resource_name import ResourceName
 from .resources.resource import Resource
 

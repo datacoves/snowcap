@@ -1,5 +1,4 @@
 import json
-import os
 from typing import Any
 
 import rich_click as click
