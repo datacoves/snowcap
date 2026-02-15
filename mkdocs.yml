@@ -54,7 +54,7 @@ markdown_extensions:
 docs_dir: docs
 
 nav:
-  - Overview: README.md
+  - Overview: index.md
   - Getting Started: getting-started.md
   - Role-Based Access Control: role-based-access-control.md
   - YAML Configuration: yaml-configuration.md
