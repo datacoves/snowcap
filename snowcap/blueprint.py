@@ -574,9 +574,9 @@ class Blueprint:
             threads=max(1, threads),  # Ensure at least 1 thread
         )
         self._finalized = False
-        self._staged = []
+        self._staged: list[Resource] = []
         self._root = ResourcePointer(name="ACCOUNT", resource_type=ResourceType.ACCOUNT)
-        self._levels = {}  # Store dependency levels
+        self._levels: dict[URN, int] = {}  # Store dependency levels
         self.add(resources or [])
 
     @classmethod
@@ -1108,22 +1108,22 @@ class Blueprint:
         _raise_if_plan_would_drop_session_user(session_ctx, plan)
 
         sql_commands_per_change = compile_plan_to_sql(session_ctx, plan)
-        roles = []
+        roles_list: list[Any] = []
         additive_commands = []
         destructive_commands = []
         for command in sql_commands_per_change:
-            roles.append(command["role"])
+            roles_list.append(command["role"])
             if isinstance(command["change"], (CreateResource, UpdateResource, TransferOwnership)):
                 additive_commands.append(command)
             elif isinstance(command["change"], DropResource):
                 destructive_commands.append(command)
-        roles = set(roles)
+        roles_set = set(roles_list)
 
         # Process additive changes
-        process_commands(additive_commands, roles, session_ctx["available_roles"])
+        process_commands(additive_commands, roles_set, session_ctx["available_roles"])
 
         # Process destructive changes
-        process_commands(destructive_commands, roles, session_ctx["available_roles"])
+        process_commands(destructive_commands, roles_set, session_ctx["available_roles"])
 
     def _add(self, resource: Resource):
         if self._finalized:
@@ -1322,7 +1322,8 @@ def sql_commands_for_change(
             copy_current_grants=True,
         )
 
-    return execution_role, before_change_cmd + [change_cmd] + after_change_cmd
+    all_cmds = before_change_cmd + [change_cmd] + after_change_cmd
+    return execution_role, [cmd for cmd in all_cmds if cmd is not None]
 
 
 def compile_plan_to_sql(session_ctx: SessionContext, plan: Plan) -> list[dict]:
@@ -1368,7 +1369,7 @@ def compute_levels(resource_set: Set[URN], references: Set[tuple[URN, URN]]) -> 
     in_degrees = {urn: 0 for urn in resources}
 
     # Build adjacency list for faster processing
-    adjacency_list = {urn: [] for urn in resources}
+    adjacency_list: dict[URN, list[URN]] = {urn: [] for urn in resources}
 
     # Compute in-degrees and build adjacency list
     # Note: (parent, ref) means parent depends on ref
@@ -1473,7 +1474,7 @@ def diff(remote_state: State, manifest: Manifest) -> list:
                 delta[field_name] = rhs_value
         return delta
 
-    changes = []
+    changes: list[ResourceChange] = []
     state_urns = set(remote_state.keys())
     manifest_urns = set(manifest.urns)
 
