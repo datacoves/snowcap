@@ -413,9 +413,70 @@ snowcap apply \
 | Base/Composite | Combination of other roles | (via role_grants) |
 | Functional | End-user grouping | (via role_grants) |
 
+## Design Decisions
+
+This section explains the reasoning behind the patterns recommended in this guide.
+
+### Account-Level Roles vs Database Roles
+
+Snowflake offers two types of roles:
+
+| Type | Scope | Can Grant to Users | Included in Clones |
+|------|-------|-------------------|-------------------|
+| Account-level roles | Global across account | Yes | No |
+| Database roles | Single database only | No (must grant to account role) | Yes |
+
+**We recommend account-level roles** for most use cases because:
+
+1. **Unified management** - All roles defined in one place, version-controlled in your Snowcap config
+2. **Cross-database access** - One role can grant access to multiple databases (e.g., `z_tables_views__select` across all databases)
+3. **Direct user assignment** - Roles can be granted directly to users without an extra layer
+4. **Simpler hierarchy** - One inheritance tree to reason about
+
+**Database roles are useful when:**
+
+- **Data sharing** - Database roles can be included in shares to external accounts; account roles cannot
+- **Database owner autonomy** - When a database owner needs to manage access independently
+
+Snowcap supports both. See [DatabaseRole](resources/database_role.md) for database role configuration.
+
+### Why Not Grant Custom Roles to SYSADMIN?
+
+Snowflake's documentation suggests granting all custom roles to SYSADMIN so administrators can access all objects. We don't recommend this approach because:
+
+1. **Violates least privilege** - SYSADMIN gains access to everything, even sensitive data it doesn't need
+2. **Blurs responsibility** - SYSADMIN is meant for creating and managing objects, not accessing business data
+3. **Complicates auditing** - When SYSADMIN can access everything, it's harder to track who accessed what and why
+4. **PII/compliance concerns** - Regulatory requirements often mandate restricted access to sensitive data; granting SYSADMIN blanket access can violate these requirements
+
+Instead, we recommend:
+
+- Keep SYSADMIN focused on infrastructure (creating databases, warehouses, schemas)
+- Use functional roles for data access, granted only to users who need it
+- Grant SECURITYADMIN or a dedicated security role the ability to manage grants
+- If admins need data access, grant them the appropriate functional role explicitly
+
+### Managed Access Schemas
+
+By default, object owners can grant privileges on objects they create. This can lead to ad-hoc grants that bypass your centralized RBAC.
+
+**Managed access schemas** restrict grant authority to the schema owner (or roles with MANAGE GRANTS):
+
+```yaml
+schemas:
+  - for_each: var.schemas
+    name: "{{ each.value.name.split('.')[1] }}"
+    database: "{{ each.value.name.split('.')[0] }}"
+    owner: "{{ each.value.get('owner', parent.owner) }}"
+    managed_access: true
+```
+
+With `managed_access: true`, even if an analyst creates a view, they cannot grant SELECT on it—only the schema owner can. This ensures all access flows through your defined role hierarchy.
+
 ## See Also
 
 - [Grant](resources/grant.md)
 - [Role](resources/role.md)
 - [RoleGrant](resources/role_grant.md)
+- [DatabaseRole](resources/database_role.md)
 - [Blueprint](blueprint.md)
