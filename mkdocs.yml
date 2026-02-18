@@ -1,14 +1,14 @@
 site_name: Snowcap
-site_url: https://datacoves.github.io/snowcap/
+site_url: https://snowcap.datacoves.com/
 site_description: Snowflake infrastructure as code
 repo_url: https://github.com/datacoves/snowcap
 repo_name: datacoves/snowcap
 
 theme:
   name: material
-  icon:
-    logo: material/snowflake
-  # favicon: images/favicon.png  # Add a favicon.png to docs/images/
+  custom_dir: docs/overrides
+  logo: images/snowcap-header-logo.svg
+  favicon: images/favicon.png
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
@@ -30,6 +30,11 @@ theme:
     - search.highlight
     - search.suggest
     - content.code.copy
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/datacoves/snowcap
 
 extra_css:
   - stylesheets/extra.css

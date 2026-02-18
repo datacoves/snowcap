@@ -1,0 +1,52 @@
+<svg width="1200" height="630" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1a2e"/>
+      <stop offset="100%" style="stop-color:#16213e"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="630" fill="url(#bgGradient)"/>
+
+  <!-- Snowflakes scattered -->
+  <text x="100" y="120" fill="#E8F4FE" font-size="24" opacity="0.6">❄</text>
+  <text x="250" y="80" fill="#E8F4FE" font-size="18" opacity="0.4">❄</text>
+  <text x="180" y="200" fill="#E8F4FE" font-size="14" opacity="0.3">❄</text>
+  <text x="1000" y="150" fill="#E8F4FE" font-size="28" opacity="0.5">❄</text>
+  <text x="1100" y="100" fill="#E8F4FE" font-size="16" opacity="0.3">❄</text>
+  <text x="750" y="120" fill="#E8F4FE" font-size="14" opacity="0.3">❄</text>
+  <text x="550" y="90" fill="#E8F4FE" font-size="12" opacity="0.25">❄</text>
+
+  <!-- Mountain group - right side -->
+  <g transform="translate(700, 140)">
+    <!-- Back mountain (darker, behind) -->
+    <polygon points="280,490 430,220 580,490" fill="#2a4a6d" opacity="0.7"/>
+
+    <!-- Main mountain (blue) -->
+    <polygon points="80,490 300,120 520,490" fill="#3496E0"/>
+
+    <!-- Snow cap - white triangle on top of mountain -->
+    <polygon points="300,120 380,220 300,190 220,220" fill="#E8F4FE"/>
+    <polygon points="300,120 350,180 300,160 250,180" fill="#ffffff"/>
+  </g>
+
+  <!-- Main title: snowcap (no space) -->
+  <text x="100" y="280" font-family="system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="96" font-weight="300" letter-spacing="-2">
+    <tspan fill="#E8F4FE">snow</tspan><tspan fill="#3496E0">cap</tspan>
+  </text>
+
+  <!-- Tagline -->
+  <text x="100" y="340" font-family="system-ui, -apple-system, sans-serif" font-size="32" fill="#E8F4FE" opacity="0.9">Snowflake Infrastructure as Code</text>
+
+  <!-- by Datacoves -->
+  <text x="100" y="420" font-family="system-ui, -apple-system, sans-serif" font-size="24" fill="#FFD101">by Datacoves</text>
+
+  <!-- URL at bottom -->
+  <text x="100" y="580" font-family="system-ui, -apple-system, sans-serif" font-size="22" fill="#E8F4FE" opacity="0.6">snowcap.datacoves.com</text>
+
+  <!-- Small decorative elements -->
+  <circle cx="1100" cy="580" r="4" fill="#3496E0" opacity="0.5"/>
+  <circle cx="1120" cy="570" r="3" fill="#E8F4FE" opacity="0.4"/>
+  <circle cx="1080" cy="575" r="2" fill="#FFD101" opacity="0.4"/>
+</svg>

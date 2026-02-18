@@ -34,6 +34,17 @@
   cursor: pointer;
 }
 
+/* Hide site name - it's in the logo now */
+.md-header__topic:first-child .md-ellipsis {
+  display: none;
+}
+
+/* Make logo bigger to fit text */
+.md-header__button.md-logo img {
+  height: 1.8rem;
+  width: auto;
+}
+
 /* Code block styling */
 .highlight code {
   font-size: 0.85em;

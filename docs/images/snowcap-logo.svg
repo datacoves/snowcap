@@ -1,0 +1,7 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- Mountain body (dark blue with light stroke for visibility on dark backgrounds) -->
+  <polygon points="256,60 460,452 52,452" fill="#0a1f44" stroke="#3496E0" stroke-width="8"/>
+  <!-- Snow cap (white/light blue on top) -->
+  <polygon points="256,60 340,200 256,160 172,200" fill="#E8F4FE"/>
+  <polygon points="256,60 310,150 256,120 202,150" fill="#ffffff"/>
+</svg>
