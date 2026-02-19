@@ -204,6 +204,47 @@ snowcap --help
 #   plan     Compare a resource config to the current state of Snowflake
 ```
 
+## Optimizing Grant Fetching with ACCOUNT_USAGE
+
+Snowcap uses Snowflake's `ACCOUNT_USAGE` views to fetch grant information efficiently. This reduces API calls from O(N) to O(1) where N is the number of roles—a 90%+ reduction in grant-related queries for accounts with many roles.
+
+### Enabling ACCOUNT_USAGE Access
+
+To enable this optimization, grant `IMPORTED PRIVILEGES` on the `SNOWFLAKE` database to your role:
+
+```sql
+GRANT IMPORTED PRIVILEGES ON DATABASE SNOWFLAKE TO ROLE <your_role>;
+```
+
+Replace `<your_role>` with the role you use for Snowcap (e.g., `SYSADMIN` or a custom deployment role).
+
+??? note "About ACCOUNT_USAGE Latency"
+    ACCOUNT_USAGE views have up to 2 hours of latency—data may not reflect very recent changes. This is acceptable for grants because:
+
+    - **GRANT statements are idempotent**: Re-granting an existing privilege succeeds without error
+    - **REVOKE has IF EXISTS semantics**: Revoking a non-existent grant won't fail
+    - **Worst case**: The plan shows a grant change that's already applied, and re-applies it harmlessly
+
+### Disabling ACCOUNT_USAGE
+
+If you encounter issues or prefer the traditional per-role `SHOW GRANTS` approach, you can disable ACCOUNT_USAGE:
+
+**CLI (via environment variable or config file):**
+```yaml
+# snowcap.yml
+use_account_usage: false
+```
+
+**Python API:**
+```python
+bp = Blueprint(
+    resources=[...],
+    use_account_usage=False,
+)
+```
+
+When disabled (or when `IMPORTED PRIVILEGES` is not granted), Snowcap falls back automatically to the traditional `SHOW GRANTS` approach with a warning.
+
 ## Next Steps
 
 - [Export Existing Resources](export.md) - Generate config from your current Snowflake setup

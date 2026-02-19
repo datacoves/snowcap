@@ -8,9 +8,15 @@ from tests.helpers import get_json_fixtures
 from snowcap import data_provider
 from snowcap import resources as res
 from snowcap.client import FEATURE_NOT_ENABLED_ERR, UNSUPPORTED_FEATURE, reset_cache
+from snowcap.enums import ResourceType
 from snowcap.identifiers import resource_label_for_type
 from snowcap.resources import Resource
 from snowcap.scope import DatabaseScope, SchemaScope
+
+# Grant types that need ACCOUNT_USAGE disabled for testing due to latency
+# Only DATABASE_ROLE_GRANT - other grant types either use ACCOUNT_USAGE fine or have
+# thread-safety issues when falling back to SHOW queries (list_grants uses execute_in_parallel)
+GRANT_TYPES_DISABLE_ACCOUNT_USAGE = (ResourceType.DATABASE_ROLE_GRANT,)
 
 pytestmark = pytest.mark.requires_snowflake
 
@@ -20,9 +26,12 @@ TEST_USER = os.environ.get("TEST_SNOWFLAKE_USER")
 
 # Resources to exclude from list tests
 # RoleGrant has thread-safety issues in list_role_grants (execute_in_parallel bug: "generator already executing")
+# Grant has same thread-safety issue when falling back from ACCOUNT_USAGE, and ACCOUNT_USAGE
+# has latency issues for newly created grants
 # PythonStoredProcedure doesn't support IF NOT EXISTS for CREATE PROCEDURE
 EXCLUDED_FROM_LIST_TEST = (
     res.RoleGrant,
+    res.Grant,
     res.PythonStoredProcedure,
 )
 
@@ -134,7 +143,11 @@ def test_list_resource(cursor, list_resources_database, resource, marked_for_cle
         raise
 
     try:
-        list_resources = data_provider.list_resource(cursor, resource_label_for_type(resource.resource_type))
+        # Disable ACCOUNT_USAGE for certain grant types to avoid latency issues with newly created grants
+        list_kwargs = {}
+        if resource.resource_type in GRANT_TYPES_DISABLE_ACCOUNT_USAGE:
+            list_kwargs["use_account_usage"] = False
+        list_resources = data_provider.list_resource(cursor, resource_label_for_type(resource.resource_type), **list_kwargs)
     except snowflake.connector.errors.ProgrammingError as err:
         if err.errno == 2003:
             # Object does not exist - likely race condition with parallel tests

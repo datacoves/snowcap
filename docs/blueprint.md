@@ -108,6 +108,22 @@ scope="DATABASE",
 database="RAW",
 ```
 
+### use_account_usage
+
+Controls whether Snowcap uses `SNOWFLAKE.ACCOUNT_USAGE` views for fetching grants. Defaults to `True`.
+
+```python
+use_account_usage=True  # default
+```
+
+When enabled, Snowcap fetches grants with a single query instead of per-role `SHOW GRANTS` commands—a 90%+ reduction in grant queries for accounts with many roles.
+
+Requires `IMPORTED PRIVILEGES ON DATABASE SNOWFLAKE`. If unavailable, Snowcap falls back to `SHOW GRANTS` automatically.
+
+Set to `False` to always use the traditional `SHOW GRANTS` approach.
+
+See [Getting Started - Optimizing Grant Fetching](getting-started.md#optimizing-grant-fetching-with-account_usage) for setup instructions.
+
 ## Methods
 
 ### plan(session)

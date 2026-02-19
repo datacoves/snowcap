@@ -560,6 +560,7 @@ class Blueprint:
         database: Optional[str] = None,
         schema: Optional[str] = None,
         threads: int = 8,
+        use_account_usage: bool = True,
     ) -> None:
         self._config = BlueprintConfig(
             name=name,
@@ -572,6 +573,7 @@ class Blueprint:
             database=ResourceName(database) if database else None,
             schema=ResourceName(schema) if schema else None,
             threads=max(1, threads),  # Ensure at least 1 thread
+            use_account_usage=use_account_usage,
         )
         self._finalized = False
         self._staged: list[Resource] = []

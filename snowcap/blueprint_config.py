@@ -30,6 +30,7 @@ class BlueprintConfig:
     database: Optional[ResourceName] = None
     schema: Optional[ResourceName] = None
     threads: int = 8
+    use_account_usage: bool = True
 
     def __post_init__(self):
 
