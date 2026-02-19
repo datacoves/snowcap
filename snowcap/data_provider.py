@@ -857,6 +857,8 @@ def _fetch_grants_from_account_usage(session: SnowflakeConnection) -> list[dict[
             PRIVILEGE,
             GRANTED_ON,
             NAME,
+            TABLE_CATALOG,
+            TABLE_SCHEMA,
             GRANTED_TO,
             GRANTEE_NAME,
             GRANT_OPTION,
@@ -892,12 +894,38 @@ def _fetch_grants_from_account_usage(session: SnowflakeConnection) -> list[dict[
         # GRANT_OPTION is boolean in ACCOUNT_USAGE but string in SHOW
         grant_option = "true" if row["GRANT_OPTION"] else "false"
 
+        # Construct fully qualified name to match SHOW GRANTS output
+        # ACCOUNT_USAGE NAME column only has object name, not full path
+        granted_on = row["GRANTED_ON"]
+        name = row["NAME"]
+        table_catalog = row.get("TABLE_CATALOG")
+        table_schema = row.get("TABLE_SCHEMA")
+
+        if granted_on == "ACCOUNT":
+            # Account grants don't need qualification
+            pass
+        elif granted_on == "DATABASE":
+            # Database grants: NAME is already the database name
+            pass
+        elif granted_on == "SCHEMA":
+            # Schema grants: need DATABASE.SCHEMA
+            if table_catalog:
+                name = f"{table_catalog}.{name}"
+        elif granted_on in ("DATABASE ROLE",):
+            # Database role grants: need DATABASE.ROLE
+            if table_catalog:
+                name = f"{table_catalog}.{name}"
+        else:
+            # Schema-scoped objects (TABLE, VIEW, FUNCTION, etc.): need DATABASE.SCHEMA.OBJECT
+            if table_catalog and table_schema:
+                name = f"{table_catalog}.{table_schema}.{name}"
+
         normalized_grants.append(
             {
                 "created_on": row["CREATED_ON"],
                 "privilege": row["PRIVILEGE"],
-                "granted_on": row["GRANTED_ON"],
-                "name": row["NAME"],
+                "granted_on": granted_on,
+                "name": name,
                 "granted_to": granted_to,
                 "grantee_name": row["GRANTEE_NAME"],
                 "grant_option": grant_option,
