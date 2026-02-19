@@ -664,6 +664,11 @@ class Blueprint:
 
         data_provider.use_secondary_roles(session, all=True)
 
+        # Pre-populate ACCOUNT_USAGE caches if enabled
+        # This avoids many individual SHOW GRANTS commands later
+        if self._config.use_account_usage:
+            data_provider.populate_account_usage_caches(session)
+
         if self._config.sync_resources:
             urns = [item for item in manifest.urns if item.resource_type not in self._config.sync_resources]
             for resource_type in self._config.sync_resources:
@@ -702,9 +707,8 @@ class Blueprint:
                                 else Resource.resolve_resource_cls(urn.resource_type, data)
                             )
                         state[urn] = resource_cls.spec(**data).to_dict(session_ctx["account_edition"])
-                    else:
-                        if self._config.sync_resources and urn.resource_type in self._config.sync_resources:
-                            raise MissingResourceException(f"Resource {urn} not found")
+                    # If data is None, resource doesn't exist in Snowflake
+                    # Don't add to state - reconciliation will create it
                 except Exception as e:
                     logger.error(f"Failed to fetch resource {urn}: {e}")
                     raise  # Stop processing if any fetch fails

@@ -586,8 +586,16 @@ def _show_grants_to_role(
     role: ResourceName,
     role_type: ResourceType = ResourceType.ROLE,
     cacheable: bool = False,
+    use_account_usage: bool = True,
 ) -> list[dict[str, Any]]:
     """
+    Get grants to a role, using ACCOUNT_USAGE cache when available.
+
+    When use_account_usage is True and ACCOUNT_USAGE data is cached, filters the
+    cached data instead of issuing a SHOW GRANTS command. Falls back to SHOW GRANTS
+    when ACCOUNT_USAGE is unavailable or for database roles.
+
+    Returns:
     {
         'created_on': datetime.datetime(2024, 2, 28, 20, 5, 32, 166000, tzinfo=<DstTzInfo 'America/Los_Angeles' PST-1 day, 16:00:00 STD>),
         'privilege': 'USAGE',
@@ -599,6 +607,20 @@ def _show_grants_to_role(
         'granted_by': 'ACCOUNTADMIN'
     }
     """
+    # Try to use ACCOUNT_USAGE cache for regular roles
+    if use_account_usage and role_type == ResourceType.ROLE:
+        session_id = id(session)
+        if session_id in _ACCOUNT_USAGE_GRANTS_CACHE:
+            # Filter cached grants by role name (case-insensitive)
+            role_upper = str(role).upper()
+            filtered_grants = [
+                grant for grant in _ACCOUNT_USAGE_GRANTS_CACHE[session_id]
+                if grant["grantee_name"].upper() == role_upper and grant["granted_to"] == "ROLE"
+            ]
+            logger.debug(f"Using ACCOUNT_USAGE cache for grants to role {role} ({len(filtered_grants)} grants)")
+            return filtered_grants
+
+    # Fall back to SHOW GRANTS
     grants = execute(
         session,
         f"SHOW GRANTS TO {role_type} {role}",
@@ -801,6 +823,14 @@ _ACCOUNT_USAGE_ACCESS_CACHE: dict[int, bool] = {}
 # When True, that session should fall back to SHOW queries
 _ACCOUNT_USAGE_FALLBACK_CACHE: dict[int, bool] = {}
 
+# Cache for ACCOUNT_USAGE grants data (keyed by session id)
+# Stores the normalized grant list from GRANTS_TO_ROLES
+_ACCOUNT_USAGE_GRANTS_CACHE: dict[int, list[dict[str, Any]]] = {}
+
+# Cache for ACCOUNT_USAGE role-to-user grants (keyed by session id)
+# Stores the normalized grant list from GRANTS_TO_USERS
+_ACCOUNT_USAGE_USER_GRANTS_CACHE: dict[int, list[dict[str, Any]]] = {}
+
 
 def _mark_account_usage_fallback(session: SnowflakeConnection) -> None:
     """
@@ -833,6 +863,36 @@ def _should_use_account_usage(session: SnowflakeConnection, use_account_usage: b
         return False
 
     return _has_account_usage_access(session)
+
+
+def populate_account_usage_caches(session: SnowflakeConnection) -> bool:
+    """
+    Pre-populate ACCOUNT_USAGE caches for grants data.
+
+    This should be called early in the process when use_account_usage is True
+    to ensure the caches are populated before individual fetch functions are called.
+
+    Returns:
+        True if caches were populated successfully, False otherwise.
+    """
+    session_id = id(session)
+
+    # Skip if already populated
+    if session_id in _ACCOUNT_USAGE_GRANTS_CACHE and session_id in _ACCOUNT_USAGE_USER_GRANTS_CACHE:
+        return True
+
+    # Populate GRANTS_TO_ROLES cache
+    grants = _fetch_grants_from_account_usage(session)
+    if grants is None:
+        return False
+
+    # Populate GRANTS_TO_USERS cache
+    user_grants = _fetch_role_grants_to_users_from_account_usage(session)
+    if user_grants is None:
+        return False
+
+    logger.debug(f"Pre-populated ACCOUNT_USAGE caches: {len(grants)} role grants, {len(user_grants)} user grants")
+    return True
 
 
 def _has_account_usage_access(session: SnowflakeConnection) -> bool:
@@ -890,9 +950,16 @@ def _fetch_grants_from_account_usage(session: SnowflakeConnection) -> list[dict[
     (e.g., 'ACCOUNT ROLE' instead of 'ROLE'). This function normalizes the output
     to match the SHOW GRANTS structure.
 
+    Results are cached per session to avoid repeated queries.
+
     Returns:
         List of grant dictionaries, or None if the query fails (signaling fallback needed).
     """
+    # Check cache first
+    session_id = id(session)
+    if session_id in _ACCOUNT_USAGE_GRANTS_CACHE:
+        return _ACCOUNT_USAGE_GRANTS_CACHE[session_id]
+
     query = """
         SELECT
             CREATED_ON,
@@ -976,6 +1043,10 @@ def _fetch_grants_from_account_usage(session: SnowflakeConnection) -> list[dict[
         )
 
     logger.debug(f"Fetched {len(normalized_grants)} grants from ACCOUNT_USAGE.GRANTS_TO_ROLES")
+
+    # Cache the results
+    _ACCOUNT_USAGE_GRANTS_CACHE[session_id] = normalized_grants
+
     return normalized_grants
 
 
@@ -990,9 +1061,16 @@ def _fetch_role_grants_to_users_from_account_usage(session: SnowflakeConnection)
         - grantee_name: name of the user receiving the grant
         - granted_by: role that granted the privilege
 
+    Results are cached per session to avoid repeated queries.
+
     Returns:
         List of grant dictionaries, or None if the query fails (signaling fallback needed).
     """
+    # Check cache first
+    session_id = id(session)
+    if session_id in _ACCOUNT_USAGE_USER_GRANTS_CACHE:
+        return _ACCOUNT_USAGE_USER_GRANTS_CACHE[session_id]
+
     query = """
         SELECT
             CREATED_ON,
@@ -1031,6 +1109,10 @@ def _fetch_role_grants_to_users_from_account_usage(session: SnowflakeConnection)
         )
 
     logger.debug(f"Fetched {len(normalized_grants)} role grants to users from ACCOUNT_USAGE.GRANTS_TO_USERS")
+
+    # Cache the results
+    _ACCOUNT_USAGE_USER_GRANTS_CACHE[session_id] = normalized_grants
+
     return normalized_grants
 
 
@@ -2010,10 +2092,55 @@ def fetch_role(session: SnowflakeConnection, fqn: FQN):
     }
 
 
-def fetch_role_grant(session: SnowflakeConnection, fqn: FQN):
-    subject, name = fqn.params.copy().popitem()
+def fetch_role_grant(session: SnowflakeConnection, fqn: FQN, use_account_usage: bool = True):
+    """
+    Fetch a role grant (role granted to another role or user).
+
+    Uses ACCOUNT_USAGE cache when available to avoid SHOW GRANTS OF ROLE commands.
+    """
+    subject, grantee = fqn.params.copy().popitem()
     subject = ResourceName(subject)
-    name = ResourceName(name)
+    grantee = ResourceName(grantee)
+    role_name = str(fqn.name).upper()
+    grantee_upper = str(grantee).upper()
+
+    # Try to use ACCOUNT_USAGE cache
+    session_id = id(session)
+    if use_account_usage:
+        # For role-to-role grants, check GRANTS_TO_ROLES cache
+        if str(subject).upper() == "ROLE" and session_id in _ACCOUNT_USAGE_GRANTS_CACHE:
+            for grant in _ACCOUNT_USAGE_GRANTS_CACHE[session_id]:
+                if (
+                    grant["privilege"] == "USAGE"
+                    and grant["granted_on"] == "ROLE"
+                    and grant["name"].upper() == role_name
+                    and grant["grantee_name"].upper() == grantee_upper
+                    and grant["granted_to"] == "ROLE"
+                ):
+                    return {
+                        "role": fqn.name,
+                        "to_role": _quote_snowflake_identifier(grant["grantee_name"]),
+                    }
+            # If we have the cache but didn't find the grant, it doesn't exist
+            logger.debug(f"Role grant {fqn.name} to role {grantee} not found in ACCOUNT_USAGE cache")
+            return None
+
+        # For role-to-user grants, check GRANTS_TO_USERS cache
+        if str(subject).upper() == "USER" and session_id in _ACCOUNT_USAGE_USER_GRANTS_CACHE:
+            for grant in _ACCOUNT_USAGE_USER_GRANTS_CACHE[session_id]:
+                if (
+                    grant["role"].upper() == role_name
+                    and grant["grantee_name"].upper() == grantee_upper
+                ):
+                    return {
+                        "role": fqn.name,
+                        "to_user": _quote_snowflake_identifier(grant["grantee_name"]),
+                    }
+            # If we have the cache but didn't find the grant, it doesn't exist
+            logger.debug(f"Role grant {fqn.name} to user {grantee} not found in ACCOUNT_USAGE cache")
+            return None
+
+    # Fall back to SHOW GRANTS OF ROLE
     try:
         show_result = execute(session, f"SHOW GRANTS OF ROLE {fqn.name}", cacheable=True)
     except ProgrammingError as err:
@@ -2027,7 +2154,7 @@ def fetch_role_grant(session: SnowflakeConnection, fqn: FQN):
     for data in show_result:
         if (
             resource_name_from_snowflake_metadata(data["granted_to"]) == subject
-            and resource_name_from_snowflake_metadata(data["grantee_name"]) == name
+            and resource_name_from_snowflake_metadata(data["grantee_name"]) == grantee
         ):
             if data["granted_to"] == "ROLE":
                 return {
