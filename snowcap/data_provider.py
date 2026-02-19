@@ -161,6 +161,48 @@ def _fail_if_not_granted(result, *args):
         raise Exception(result[0]["status"], *args)
 
 
+def _fqn_names_match(name1: str, name2: str) -> bool:
+    """
+    Compare two FQN strings for equality, handling case-insensitivity for unquoted identifiers.
+
+    This function properly handles:
+    - Unquoted identifiers (case-insensitive): SUSHI_DB.SCHEMA.TABLE == sushi_db.schema.table
+    - Quoted identifiers (case-sensitive): "MyTable" != "mytable"
+    - Mixed FQNs: SUSHI_DB."mySchema".TABLE == sushi_db."mySchema".table
+
+    Uses parse_FQN to properly parse the identifiers and ResourceName for comparison.
+    Falls back to case-insensitive string comparison if parsing fails.
+    """
+    try:
+        # Try to parse as schema-scoped FQN (most common for grants)
+        fqn1 = parse_FQN(name1)
+        fqn2 = parse_FQN(name2)
+
+        # Compare name components
+        if fqn1.name != fqn2.name:
+            return False
+
+        # Compare database if present
+        if fqn1.database is not None or fqn2.database is not None:
+            if fqn1.database is None or fqn2.database is None:
+                return False
+            if fqn1.database != fqn2.database:
+                return False
+
+        # Compare schema if present
+        if fqn1.schema is not None or fqn2.schema is not None:
+            if fqn1.schema is None or fqn2.schema is None:
+                return False
+            if fqn1.schema != fqn2.schema:
+                return False
+
+        return True
+    except Exception:
+        # Fallback: case-insensitive string comparison for unquoted identifiers
+        # This handles cases where parsing fails
+        return name1.upper() == name2.upper()
+
+
 def _fetch_grant_to_role(
     session: SnowflakeConnection,
     grant_type: GrantType,
@@ -177,8 +219,8 @@ def _fetch_grant_to_role(
     )
     for grant in grants:
         name = "ACCOUNT" if grant["granted_on"] == "ACCOUNT" else grant["name"]
-        # Use ResourceName for comparison to handle quoted identifiers correctly
-        name_matches = ResourceName(name) == ResourceName(on_name) if name != "ACCOUNT" else name == on_name
+        # Use _fqn_names_match to handle FQN comparison with proper case-insensitivity
+        name_matches = name == on_name if name == "ACCOUNT" else _fqn_names_match(name, on_name)
         if grant["granted_on"] == granted_on and grant["privilege"] == privilege and name_matches:
             return grant
     # Debug: log when grant not found for schema grants
