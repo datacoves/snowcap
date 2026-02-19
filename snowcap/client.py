@@ -82,12 +82,21 @@ def execute(
         # logger.warning(f"{session_header}    \033[94m({len(result)} rows, cached)\033[0m")
         return result
 
+    # Log start message for potentially slow queries (ACCOUNT_USAGE, large SHOW commands)
+    is_slow_query = "ACCOUNT_USAGE" in sql_text or "GRANTS_TO_ROLES" in sql_text
+    if is_slow_query:
+        logger.warning(f"{session_header}    \033[93m(running...)\033[0m")
+
     start = time.time()
     try:
         cur.execute(sql_text)
         result = cur.fetchall()
         runtime = time.time() - start
-        logger.warning(f"{session_header}    \033[94m({len(result)} rows, {runtime:.2f}s)\033[0m")
+        # Clear the "running" line for slow queries by using carriage return
+        if is_slow_query:
+            logger.warning(f"{session_header}    \033[94m({len(result)} rows, {runtime:.2f}s)\033[0m")
+        else:
+            logger.warning(f"{session_header}    \033[94m({len(result)} rows, {runtime:.2f}s)\033[0m")
         if cacheable:
             if session.role not in _EXECUTION_CACHE:
                 _EXECUTION_CACHE[session.role] = {}

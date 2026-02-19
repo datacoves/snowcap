@@ -181,6 +181,12 @@ def _fetch_grant_to_role(
         name_matches = ResourceName(name) == ResourceName(on_name) if name != "ACCOUNT" else name == on_name
         if grant["granted_on"] == granted_on and grant["privilege"] == privilege and name_matches:
             return grant
+    # Debug: log when grant not found for schema grants
+    if granted_on == "SCHEMA":
+        logger.debug(f"Grant not found: privilege={privilege}, granted_on={granted_on}, on_name={on_name}, role={role}")
+        matching_schema_grants = [g for g in grants if g["granted_on"] == "SCHEMA"]
+        if matching_schema_grants:
+            logger.debug(f"  Available schema grants: {[g['name'] for g in matching_schema_grants]}")
     return None
 
 
