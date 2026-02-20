@@ -690,26 +690,37 @@ class Blueprint:
 
         urns = list(set(urns))  # Deduplicate urns
 
-        def _needs_params(urn: URN, manifest: Manifest) -> bool:
-            """Check if manifest specifies any parameter fields for this resource."""
-            resource_label = resource_label_for_type(urn.resource_type)
+        # Pre-compute which resource types need params by checking if ANY resource
+        # of that type in the manifest specifies parameter fields
+        def _resource_type_needs_params(resource_type: ResourceType, manifest: Manifest) -> bool:
+            """Check if any resource of this type in manifest specifies parameter fields."""
+            resource_label = resource_label_for_type(resource_type)
             param_fields = data_provider.PARAMETER_FIELDS.get(resource_label, set())
             if not param_fields:
                 return True  # No optimization for this resource type
 
-            # For sync_resources, always fetch params (we don't have manifest data)
-            if self._config.sync_resources and urn.resource_type in self._config.sync_resources:
-                return True
-
-            # Check if manifest item specifies any parameter fields
-            if urn in manifest:
+            # Check all resources of this type in manifest
+            for urn in manifest.urns:
+                if urn.resource_type != resource_type:
+                    continue
                 item = manifest[urn]
                 if isinstance(item, ManifestResource):
                     manifest_fields = set(item.data.keys())
                     if manifest_fields & param_fields:
-                        return True  # Manifest specifies at least one parameter field
-                    return False  # No parameter fields specified, skip SHOW PARAMETERS
-            return True  # Default to fetching params
+                        return True  # At least one resource specifies parameter fields
+            return False  # No resources of this type specify parameter fields
+
+        # Cache which resource types need params
+        resource_types_needing_params: dict[ResourceType, bool] = {}
+
+        def _needs_params(urn: URN) -> bool:
+            """Check if this resource needs parameter fields fetched."""
+            resource_type = urn.resource_type
+            if resource_type not in resource_types_needing_params:
+                resource_types_needing_params[resource_type] = _resource_type_needs_params(
+                    resource_type, manifest
+                )
+            return resource_types_needing_params[resource_type]
 
         with ThreadPoolExecutor(max_workers=self._config.threads) as executor:
             future_to_urn = {
@@ -717,7 +728,7 @@ class Blueprint:
                     data_provider.fetch_resource,
                     session,
                     urn,
-                    include_params=_needs_params(urn, manifest)
+                    include_params=_needs_params(urn)
                 ): urn
                 for urn in urns
             }
