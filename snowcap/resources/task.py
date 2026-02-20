@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from typing import Optional
 
 from ..enums import ResourceType, TaskState, WarehouseSize
 from ..props import (
@@ -24,20 +25,20 @@ from .warehouse import Warehouse
 class _Task(ResourceSpec):
     name: ResourceName
     owner: RoleRef = "SYSADMIN"
-    warehouse: Warehouse = None
-    user_task_managed_initial_warehouse_size: WarehouseSize = None
-    schedule: str = None
-    config: str = None
+    warehouse: Optional[Warehouse] = None
+    user_task_managed_initial_warehouse_size: Optional[WarehouseSize] = None
+    schedule: Optional[str] = None
+    config: Optional[str] = None
     allow_overlapping_execution: bool = False
-    user_task_timeout_ms: int = 3600000
-    suspend_task_after_num_failures: int = None
-    error_integration: str = None
+    user_task_timeout_ms: Optional[int] = None  # Uses Snowflake default (3600000) if not specified
+    suspend_task_after_num_failures: Optional[int] = None
+    error_integration: Optional[str] = None
     copy_grants: bool = field(default=None, metadata={"fetchable": False})
-    comment: str = None
-    after: list[str] = None
-    when: str = None
+    comment: Optional[str] = None
+    after: Optional[list[str]] = None
+    when: Optional[str] = None
     state: TaskState = TaskState.SUSPENDED
-    as_: str = None
+    as_: Optional[str] = None
 
     def __post_init__(self):
         super().__post_init__()
@@ -135,7 +136,7 @@ class Task(NamedResource, Resource):
         schedule: str = None,
         config: str = None,
         allow_overlapping_execution: bool = False,
-        user_task_timeout_ms: int = 3600000,
+        user_task_timeout_ms: int = None,
         suspend_task_after_num_failures: int = None,
         error_integration: str = None,
         copy_grants: bool = None,

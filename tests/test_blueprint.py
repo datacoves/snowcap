@@ -118,9 +118,9 @@ def test_blueprint_with_database(resource_manifest):
         "comment": None,
         "catalog": None,
         "external_volume": None,
-        "data_retention_time_in_days": 1,
-        "default_ddl_collation": None,
-        "max_data_extension_time_in_days": 14,
+        "data_retention_time_in_days": None,  # Uses Snowflake default
+        "default_ddl_collation": None,  # Uses Snowflake default
+        "max_data_extension_time_in_days": None,  # Uses Snowflake default
         "transient": False,
     }
 
@@ -130,10 +130,10 @@ def test_blueprint_with_schema(resource_manifest):
     assert schema_urn in resource_manifest
     assert resource_manifest[schema_urn].data == {
         "comment": None,
-        "data_retention_time_in_days": 1,
-        "default_ddl_collation": None,
+        "data_retention_time_in_days": None,  # Inherits from database
+        "default_ddl_collation": None,  # Inherits from database
         "managed_access": False,
-        "max_data_extension_time_in_days": 14,
+        "max_data_extension_time_in_days": None,  # Inherits from database
         "name": "SCHEMA",
         "owner": "SYSADMIN",
         "transient": False,
@@ -876,3 +876,81 @@ def test_blueprint_plan_scope_stubbing(session_ctx):
     manifest = blueprint.generate_manifest(session_ctx)
     plan = diff(remote_state, manifest)
     assert len(plan) == 2
+
+
+def test_resource_type_needs_params(session_ctx):
+    """Test that resource_type_needs_params correctly identifies when param fetching is needed.
+
+    Parameter fields (like max_data_extension_time_in_days) now default to None,
+    meaning "inherit from parent". The optimization skips SHOW PARAMETERS when
+    no resource explicitly sets these fields.
+    """
+    from snowcap.blueprint import Blueprint, resource_type_needs_params
+
+    # Schema without explicit parameter fields - should NOT need params
+    # (all param fields default to None = inherit from database)
+    blueprint = Blueprint(
+        resources=[
+            res.Schema(name="MY_SCHEMA", database="MY_DB", owner="SYSADMIN"),
+        ]
+    )
+    manifest = blueprint.generate_manifest(session_ctx)
+    assert resource_type_needs_params(ResourceType.SCHEMA, manifest) is False
+
+    # Schema with explicit default_ddl_collation - SHOULD need params
+    blueprint = Blueprint(
+        resources=[
+            res.Schema(
+                name="MY_SCHEMA",
+                database="MY_DB",
+                owner="SYSADMIN",
+                default_ddl_collation="en_US",
+            ),
+        ]
+    )
+    manifest = blueprint.generate_manifest(session_ctx)
+    assert resource_type_needs_params(ResourceType.SCHEMA, manifest) is True
+
+    # Schema with explicit max_data_extension_time_in_days - SHOULD need params
+    blueprint = Blueprint(
+        resources=[
+            res.Schema(
+                name="MY_SCHEMA",
+                database="MY_DB",
+                owner="SYSADMIN",
+                max_data_extension_time_in_days=28,
+            ),
+        ]
+    )
+    manifest = blueprint.generate_manifest(session_ctx)
+    assert resource_type_needs_params(ResourceType.SCHEMA, manifest) is True
+
+    # Database without explicit parameter fields - should NOT need params
+    blueprint = Blueprint(
+        resources=[
+            res.Database(name="MY_DB", owner="SYSADMIN"),
+        ]
+    )
+    manifest = blueprint.generate_manifest(session_ctx)
+    assert resource_type_needs_params(ResourceType.DATABASE, manifest) is False
+
+    # Database with explicit max_data_extension_time_in_days - SHOULD need params
+    blueprint = Blueprint(
+        resources=[
+            res.Database(name="MY_DB", owner="SYSADMIN", max_data_extension_time_in_days=7),
+        ]
+    )
+    manifest = blueprint.generate_manifest(session_ctx)
+    assert resource_type_needs_params(ResourceType.DATABASE, manifest) is True
+
+    # Empty manifest - should NOT need params (no resources of this type)
+    blueprint = Blueprint(resources=[])
+    manifest = blueprint.generate_manifest(session_ctx)
+    assert resource_type_needs_params(ResourceType.SCHEMA, manifest) is False
+
+    # Roles have no PARAMETER_FIELDS entry - should always return True (no optimization)
+    blueprint = Blueprint(
+        resources=[res.Role(name="MY_ROLE")],
+    )
+    manifest = blueprint.generate_manifest(session_ctx)
+    assert resource_type_needs_params(ResourceType.ROLE, manifest) is True

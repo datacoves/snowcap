@@ -68,8 +68,9 @@ class TestDatabase:
         """Test Database property defaults."""
         db = res.Database(name="test_db")
         assert db._data.transient is False
-        assert db._data.data_retention_time_in_days == 1
-        assert db._data.max_data_extension_time_in_days == 14
+        # data_retention and max_data_extension default to None (inherit from Snowflake defaults)
+        assert db._data.data_retention_time_in_days is None
+        assert db._data.max_data_extension_time_in_days is None
 
     def test_database_to_dict(self):
         """Test Database serialization."""
@@ -127,7 +128,8 @@ class TestSchema:
         """Test Schema property defaults."""
         schema = res.Schema(name="test_schema", database="test_db")
         assert schema._data.transient is False
-        assert schema._data.data_retention_time_in_days == 1
+        # data_retention defaults to None (inherit from database)
+        assert schema._data.data_retention_time_in_days is None
 
 
 class TestRole:
@@ -1107,13 +1109,16 @@ class TestResourceDefaults:
         """Test Database property defaults."""
         db = res.Database(name="test")
         assert db._data.transient is False
-        assert db._data.data_retention_time_in_days == 1
-        assert db._data.max_data_extension_time_in_days == 14
+        # data_retention and max_data_extension default to None (use Snowflake defaults)
+        assert db._data.data_retention_time_in_days is None
+        assert db._data.max_data_extension_time_in_days is None
 
     def test_schema_defaults(self):
         """Test Schema property defaults."""
         schema = res.Schema(name="test", database="db")
         assert schema._data.transient is False
+        # data_retention defaults to None (inherit from database)
+        assert schema._data.data_retention_time_in_days is None
 
     def test_warehouse_defaults(self):
         """Test Warehouse property defaults."""

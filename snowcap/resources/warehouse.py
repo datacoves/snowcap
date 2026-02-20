@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Union
+from typing import Optional, Union
 
 from ..enums import AccountEdition, ParseableEnum, ResourceType, WarehouseSize
 from ..props import (
@@ -60,9 +60,9 @@ class _Warehouse(ResourceSpec):
         default=8,
         metadata={"edition": {AccountEdition.ENTERPRISE, AccountEdition.BUSINESS_CRITICAL}},
     )
-    max_concurrency_level: int = 8
-    statement_queued_timeout_in_seconds: int = 0
-    statement_timeout_in_seconds: int = 172800
+    max_concurrency_level: Optional[int] = None  # Uses Snowflake default (8) if not specified
+    statement_queued_timeout_in_seconds: Optional[int] = None  # Uses Snowflake default (0) if not specified
+    statement_timeout_in_seconds: Optional[int] = None  # Uses Snowflake default (172800) if not specified
 
 
 class Warehouse(NamedResource, TaggableResource, Resource):
@@ -183,9 +183,9 @@ class Warehouse(NamedResource, TaggableResource, Resource):
         comment: str = None,
         enable_query_acceleration: bool = False,
         query_acceleration_max_scale_factor: int = 8,
-        max_concurrency_level: int = 8,
-        statement_queued_timeout_in_seconds: int = 0,
-        statement_timeout_in_seconds: int = 172800,
+        max_concurrency_level: int = None,
+        statement_queued_timeout_in_seconds: int = None,
+        statement_timeout_in_seconds: int = None,
         tags: dict[str, str] = None,
         **kwargs,
     ):

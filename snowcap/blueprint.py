@@ -75,6 +75,40 @@ ResourceRef = Union[tuple[ResourceType, str], str]
 logger = logging.getLogger("snowcap")
 
 
+def resource_type_needs_params(resource_type: ResourceType, manifest: "Manifest") -> bool:
+    """
+    Check if any resource of this type in the manifest specifies parameter fields
+    with non-None values.
+
+    This is used to optimize fetch_remote_state by skipping expensive SHOW PARAMETERS
+    queries when no resource of that type in the manifest needs the parameter data.
+
+    Args:
+        resource_type: The type of resource to check
+        manifest: The manifest to check
+
+    Returns:
+        True if any resource of this type needs parameter data, False otherwise
+    """
+    resource_label = resource_label_for_type(resource_type)
+    param_fields = data_provider.PARAMETER_FIELDS.get(resource_label, set())
+    if not param_fields:
+        return True  # No optimization for this resource type
+
+    # Check all resources of this type in manifest
+    for urn in manifest.urns:
+        if urn.resource_type != resource_type:
+            continue
+        item = manifest[urn]
+        if isinstance(item, ManifestResource):
+            # Only consider fields that have non-None values
+            # Fields with None values indicate the user didn't explicitly set them
+            for field in param_fields:
+                if field in item.data and item.data[field] is not None:
+                    return True  # At least one resource specifies a non-None parameter field
+    return False  # No resources of this type specify parameter fields with values
+
+
 @dataclass
 class ResourceChange(ABC):
     urn: URN
@@ -690,34 +724,14 @@ class Blueprint:
 
         urns = list(set(urns))  # Deduplicate urns
 
-        # Pre-compute which resource types need params by checking if ANY resource
-        # of that type in the manifest specifies parameter fields
-        def _resource_type_needs_params(resource_type: ResourceType, manifest: Manifest) -> bool:
-            """Check if any resource of this type in manifest specifies parameter fields."""
-            resource_label = resource_label_for_type(resource_type)
-            param_fields = data_provider.PARAMETER_FIELDS.get(resource_label, set())
-            if not param_fields:
-                return True  # No optimization for this resource type
-
-            # Check all resources of this type in manifest
-            for urn in manifest.urns:
-                if urn.resource_type != resource_type:
-                    continue
-                item = manifest[urn]
-                if isinstance(item, ManifestResource):
-                    manifest_fields = set(item.data.keys())
-                    if manifest_fields & param_fields:
-                        return True  # At least one resource specifies parameter fields
-            return False  # No resources of this type specify parameter fields
-
-        # Cache which resource types need params
+        # Cache which resource types need params (computed once per type)
         resource_types_needing_params: dict[ResourceType, bool] = {}
 
         def _needs_params(urn: URN) -> bool:
             """Check if this resource needs parameter fields fetched."""
             resource_type = urn.resource_type
             if resource_type not in resource_types_needing_params:
-                resource_types_needing_params[resource_type] = _resource_type_needs_params(
+                resource_types_needing_params[resource_type] = resource_type_needs_params(
                     resource_type, manifest
                 )
             return resource_types_needing_params[resource_type]
@@ -1516,6 +1530,9 @@ def diff(remote_state: State, manifest: Manifest) -> list:
         for field_name in lhs.keys():
             lhs_value = lhs[field_name]
             rhs_value = rhs[field_name]
+            # Skip fields where manifest value is None - means "use Snowflake default/inherit"
+            if rhs_value is None:
+                continue
             if lhs_value != rhs_value:
                 delta[field_name] = rhs_value
         return delta

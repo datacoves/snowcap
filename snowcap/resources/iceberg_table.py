@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from typing import Optional
 
 from ..enums import ParseableEnum, ResourceType
 from ..props import (
@@ -29,17 +30,17 @@ class _SnowflakeIcebergTable(ResourceSpec):
     name: ResourceName
     columns: list[Column]
     owner: Role = "SYSADMIN"
-    external_volume: ExternalVolume = None
-    catalog: str = "SNOWFLAKE"
-    base_location: str = None
-    catalog_sync: str = None
-    storage_serialization_policy: StorageSerializationPolicy = StorageSerializationPolicy.OPTIMIZED
-    data_retention_time_in_days: int = 1
-    max_data_extension_time_in_days: int = 14
+    external_volume: Optional[ExternalVolume] = None
+    catalog: Optional[str] = "SNOWFLAKE"
+    base_location: Optional[str] = None
+    catalog_sync: Optional[str] = None
+    storage_serialization_policy: Optional[StorageSerializationPolicy] = StorageSerializationPolicy.OPTIMIZED
+    data_retention_time_in_days: Optional[int] = None  # Uses Snowflake default if not specified
+    max_data_extension_time_in_days: Optional[int] = None  # Uses Snowflake default if not specified
     # Snowflake does not currently provide a way to check if change tracking is enabled for iceberg tables
     change_tracking: bool = field(default=None, metadata={"fetchable": False})
-    default_ddl_collation: str = None
-    comment: str = None
+    default_ddl_collation: Optional[str] = None
+    comment: Optional[str] = None
 
     def __post_init__(self):
         super().__post_init__()
@@ -79,8 +80,8 @@ class SnowflakeIcebergTable(NamedResource, TaggableResource, Resource):
         base_location: str = None,
         catalog_sync: str = None,
         storage_serialization_policy: str = "OPTIMIZED",
-        data_retention_time_in_days: int = 1,
-        max_data_extension_time_in_days: int = 14,
+        data_retention_time_in_days: int = None,
+        max_data_extension_time_in_days: int = None,
         change_tracking: bool = None,
         default_ddl_collation: str = None,
         comment: str = None,

@@ -45,6 +45,27 @@ def clean_resource_data(spec: type[ResourceSpec], data: dict) -> dict:
     return data
 
 
+def compare_fetched_to_fixture(spec: type[ResourceSpec], fetched: dict, fixture: dict) -> None:
+    """
+    Compare fetched data to fixture data, ignoring fields that were None in the original fixture.
+
+    When a fixture has None for a field, it means "use Snowflake default" - so we shouldn't
+    compare that field against whatever value Snowflake actually returns.
+    """
+    # Remember which fields had None in the original fixture
+    none_fields = {k for k, v in fixture.items() if v is None}
+
+    # Clean both dicts
+    fetched = clean_resource_data(spec, fetched)
+    fixture = clean_resource_data(spec, fixture)
+
+    # Remove fields from fetched that were None in the original fixture
+    for field in none_fields:
+        fetched.pop(field, None)
+
+    assert fetched == fixture
+
+
 def assert_resource_dicts_eq_ignore_nulls_and_unfetchable(spec, lhs: dict, rhs: dict) -> None:
     lhs = clean_resource_data(spec, lhs)
     rhs = clean_resource_data(spec, rhs)
