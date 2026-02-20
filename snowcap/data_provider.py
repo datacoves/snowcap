@@ -734,9 +734,45 @@ def use_role(session: SnowflakeConnection, role_name: ResourceName):
     execute(session, f"USE ROLE {role_name}")
 
 
-def fetch_resource(session: SnowflakeConnection, urn: URN) -> Optional[dict]:
+# Fields that come from SHOW PARAMETERS queries (expensive to fetch)
+# If manifest doesn't specify these fields, we can skip the SHOW PARAMETERS query
+# Only includes fields that are actually returned by the fetch functions
+PARAMETER_FIELDS = {
+    "database": {"max_data_extension_time_in_days", "external_volume", "catalog", "default_ddl_collation"},
+    "schema": {"max_data_extension_time_in_days", "default_ddl_collation"},
+    "user": {"network_policy"},
+    "warehouse": {"max_concurrency_level", "statement_queued_timeout_in_seconds", "statement_timeout_in_seconds"},
+    "table": {"default_ddl_collation"},
+    "task": {"suspend_task_after_num_failures", "user_task_managed_initial_warehouse_size", "user_task_timeout_ms"},
+    "iceberg_table": {
+        "catalog_sync",
+        "storage_serialization_policy",
+        "data_retention_time_in_days",
+        "max_data_extension_time_in_days",
+        "default_ddl_collation",
+    },
+}
+
+
+def fetch_resource(session: SnowflakeConnection, urn: URN, include_params: bool = True) -> Optional[dict]:
+    """
+    Fetch a resource from Snowflake.
+
+    Args:
+        session: Snowflake connection
+        urn: Resource URN
+        include_params: If False, skip expensive SHOW PARAMETERS queries.
+                       Use False when manifest doesn't specify parameter fields.
+    """
     try:
-        return getattr(__this__, f"fetch_{urn.resource_label}")(session, urn.fqn)
+        fetch_fn = getattr(__this__, f"fetch_{urn.resource_label}")
+        # Check if the fetch function accepts include_params
+        import inspect
+        sig = inspect.signature(fetch_fn)
+        if "include_params" in sig.parameters:
+            return fetch_fn(session, urn.fqn, include_params=include_params)
+        else:
+            return fetch_fn(session, urn.fqn)
     except ProgrammingError as err:
         # This try/catch block fixes a cache-inconsistency issue where _show_resources returns the object as it existed at the start of the cache window,
         # but _show_resource_parameters returns the object as it exists right now. If the object was dropped in between the cache window and the query execution,
@@ -1434,7 +1470,7 @@ def fetch_compute_pool(session: SnowflakeConnection, fqn: FQN):
     }
 
 
-def fetch_database(session: SnowflakeConnection, fqn: FQN):
+def fetch_database(session: SnowflakeConnection, fqn: FQN, include_params: bool = True):
     show_result = _show_resources(session, "DATABASES", fqn)
 
     if len(show_result) == 0:
@@ -1451,7 +1487,19 @@ def fetch_database(session: SnowflakeConnection, fqn: FQN):
         return None
 
     options = options_result_to_list(data["options"])
-    params = _show_resource_parameters(session, "DATABASE", fqn)
+
+    # Only fetch parameters if needed (expensive SHOW PARAMETERS query)
+    if include_params:
+        params = _show_resource_parameters(session, "DATABASE", fqn)
+        max_data_extension = params.get("max_data_extension_time_in_days")
+        external_volume = params.get("external_volume")
+        catalog = params.get("catalog")
+        default_ddl_collation = params["default_ddl_collation"]
+    else:
+        max_data_extension = None
+        external_volume = None
+        catalog = None
+        default_ddl_collation = None
 
     return {
         "name": _quote_snowflake_identifier(data["name"]),
@@ -1459,10 +1507,10 @@ def fetch_database(session: SnowflakeConnection, fqn: FQN):
         "comment": data["comment"] or None,
         "transient": "TRANSIENT" in options,
         "owner": _get_owner_identifier(data),
-        "max_data_extension_time_in_days": params.get("max_data_extension_time_in_days"),
-        "external_volume": params.get("external_volume"),
-        "catalog": params.get("catalog"),
-        "default_ddl_collation": params["default_ddl_collation"],
+        "max_data_extension_time_in_days": max_data_extension,
+        "external_volume": external_volume,
+        "catalog": catalog,
+        "default_ddl_collation": default_ddl_collation,
     }
 
 
@@ -1815,7 +1863,7 @@ def fetch_grant_on_all(session: SnowflakeConnection, fqn: FQN):
     return None
 
 
-def fetch_iceberg_table(session: SnowflakeConnection, fqn: FQN):
+def fetch_iceberg_table(session: SnowflakeConnection, fqn: FQN, include_params: bool = True):
     tables = _show_resources(session, "ICEBERG TABLES", fqn)
     if len(tables) == 0:
         return None
@@ -1824,8 +1872,14 @@ def fetch_iceberg_table(session: SnowflakeConnection, fqn: FQN):
 
     data = tables[0]
     columns = fetch_columns(session, "ICEBERG TABLE", fqn)
-    show_params_result = execute(session, f"SHOW PARAMETERS FOR TABLE {fqn}")
-    params = params_result_to_dict(show_params_result)
+
+    # Only fetch parameters if needed (expensive query)
+    if include_params:
+        show_params_result = execute(session, f"SHOW PARAMETERS FOR TABLE {fqn}")
+        params = params_result_to_dict(show_params_result)
+    else:
+        params = {}
+
     return {
         "name": fqn.name,
         "owner": data["owner"],
@@ -1833,12 +1887,12 @@ def fetch_iceberg_table(session: SnowflakeConnection, fqn: FQN):
         "external_volume": data["external_volume_name"],
         "catalog": data["catalog_name"],
         "base_location": data["base_location"].rstrip("/"),
-        "catalog_sync": params["catalog_sync"] or None,
-        "storage_serialization_policy": params["storage_serialization_policy"],
-        "data_retention_time_in_days": params["data_retention_time_in_days"],
-        "max_data_extension_time_in_days": params["max_data_extension_time_in_days"],
+        "catalog_sync": params.get("catalog_sync") or None,
+        "storage_serialization_policy": params.get("storage_serialization_policy"),
+        "data_retention_time_in_days": params.get("data_retention_time_in_days"),
+        "max_data_extension_time_in_days": params.get("max_data_extension_time_in_days"),
         # "change_tracking": data["change_tracking"],
-        "default_ddl_collation": params["default_ddl_collation"] or None,
+        "default_ddl_collation": params.get("default_ddl_collation") or None,
         "comment": data["comment"] or None,
     }
 
@@ -2276,7 +2330,7 @@ def fetch_scanner_package(session: SnowflakeConnection, fqn: FQN):
     }
 
 
-def fetch_schema(session: SnowflakeConnection, fqn: FQN):
+def fetch_schema(session: SnowflakeConnection, fqn: FQN, include_params: bool = True):
     if fqn.database is None:
         raise Exception(f"Schema {fqn} is missing a database name")
     try:
@@ -2292,7 +2346,15 @@ def fetch_schema(session: SnowflakeConnection, fqn: FQN):
     data = show_result[0]
 
     options = options_result_to_list(data["options"])
-    params = _show_resource_parameters(session, "SCHEMA", fqn)
+
+    # Only fetch parameters if needed (expensive SHOW PARAMETERS query)
+    if include_params:
+        params = _show_resource_parameters(session, "SCHEMA", fqn)
+        max_data_extension = params.get("max_data_extension_time_in_days")
+        default_ddl_collation = params["default_ddl_collation"]
+    else:
+        max_data_extension = None
+        default_ddl_collation = None
 
     return {
         "name": _quote_snowflake_identifier(data["name"]),
@@ -2300,8 +2362,8 @@ def fetch_schema(session: SnowflakeConnection, fqn: FQN):
         "owner": _get_owner_identifier(data),
         "managed_access": "MANAGED ACCESS" in options,
         "data_retention_time_in_days": int(data["retention_time"]),
-        "max_data_extension_time_in_days": params.get("max_data_extension_time_in_days"),
-        "default_ddl_collation": params["default_ddl_collation"],
+        "max_data_extension_time_in_days": max_data_extension,
+        "default_ddl_collation": default_ddl_collation,
         "comment": data["comment"] or None,
     }
 
@@ -2634,7 +2696,7 @@ def fetch_tag(session: SnowflakeConnection, fqn: FQN):
     }
 
 
-def fetch_task(session: SnowflakeConnection, fqn: FQN):
+def fetch_task(session: SnowflakeConnection, fqn: FQN, include_params: bool = True):
     show_result = _show_resources(session, "TASKS", fqn)
 
     if len(show_result) == 0:
@@ -2648,8 +2710,12 @@ def fetch_task(session: SnowflakeConnection, fqn: FQN):
         raise Exception(f"Failed to fetch task details for {fqn}")
     task_details = task_details_result[0]
 
-    show_params_result = execute(session, f"SHOW PARAMETERS FOR TASK {fqn}")
-    params = params_result_to_dict(show_params_result)
+    # Only fetch parameters if needed (expensive query)
+    if include_params:
+        show_params_result = execute(session, f"SHOW PARAMETERS FOR TASK {fqn}")
+        params = params_result_to_dict(show_params_result)
+    else:
+        params = {}
 
     error_integration = None
     if data["error_integration"] != "null":
@@ -2771,7 +2837,7 @@ def fetch_resource_tags(session: SnowflakeConnection, resource_type: ResourceTyp
     return tag_map
 
 
-def fetch_table(session: SnowflakeConnection, fqn: FQN):
+def fetch_table(session: SnowflakeConnection, fqn: FQN, include_params: bool = True):
     show_result = execute(session, "SHOW TABLES IN ACCOUNT", cacheable=True)
 
     tables = _filter_result(
@@ -2789,8 +2855,13 @@ def fetch_table(session: SnowflakeConnection, fqn: FQN):
     columns = fetch_columns(session, "TABLE", fqn)
 
     data = tables[0]
-    show_params_result = execute(session, f"SHOW PARAMETERS FOR TABLE {fqn}")
-    params = params_result_to_dict(show_params_result)
+
+    # Only fetch parameters if needed (expensive query)
+    if include_params:
+        show_params_result = execute(session, f"SHOW PARAMETERS FOR TABLE {fqn}")
+        params = params_result_to_dict(show_params_result)
+    else:
+        params = {}
 
     return {
         "name": _quote_snowflake_identifier(data["name"]),
@@ -2847,7 +2918,7 @@ def fetch_tag_reference(session: SnowflakeConnection, fqn: FQN):
     }
 
 
-def fetch_user(session: SnowflakeConnection, fqn: FQN) -> Optional[dict]:
+def fetch_user(session: SnowflakeConnection, fqn: FQN, include_params: bool = True) -> Optional[dict]:
     show_result = _show_users(session)
     users = _filter_result(show_result, name=fqn.name)
 
@@ -2860,8 +2931,13 @@ def fetch_user(session: SnowflakeConnection, fqn: FQN) -> Optional[dict]:
     desc_result = execute(session, f"DESC USER {fqn}")
     properties = _desc_result_to_dict(desc_result, lower_properties=True)
 
-    show_params_result = execute(session, f"SHOW PARAMETERS FOR USER {fqn}")
-    params = params_result_to_dict(show_params_result)
+    # Only fetch parameters if needed (expensive SHOW PARAMETERS query)
+    if include_params:
+        show_params_result = execute(session, f"SHOW PARAMETERS FOR USER {fqn}")
+        params = params_result_to_dict(show_params_result)
+        network_policy = params["network_policy"]
+    else:
+        network_policy = None
 
     user_type = properties["type"].upper()
 
@@ -2895,7 +2971,7 @@ def fetch_user(session: SnowflakeConnection, fqn: FQN) -> Optional[dict]:
         "default_secondary_roles": default_secondary_roles,
         "type": user_type,
         "rsa_public_key": rsa_public_key,
-        "network_policy": params["network_policy"],
+        "network_policy": network_policy,
         "owner": _get_owner_identifier(data),
     }
 
@@ -2931,7 +3007,7 @@ def fetch_view(session: SnowflakeConnection, fqn: FQN):
     }
 
 
-def fetch_warehouse(session: SnowflakeConnection, fqn: FQN):
+def fetch_warehouse(session: SnowflakeConnection, fqn: FQN, include_params: bool = True):
     try:
         show_result = _show_resources(session, "WAREHOUSES", fqn)
     except ProgrammingError:
@@ -2944,8 +3020,17 @@ def fetch_warehouse(session: SnowflakeConnection, fqn: FQN):
 
     data = show_result[0]
 
-    show_params_result = execute(session, f"SHOW PARAMETERS FOR WAREHOUSE {fqn}")
-    params = params_result_to_dict(show_params_result)
+    # Only fetch parameters if needed (expensive SHOW PARAMETERS query)
+    if include_params:
+        show_params_result = execute(session, f"SHOW PARAMETERS FOR WAREHOUSE {fqn}")
+        params = params_result_to_dict(show_params_result)
+        max_concurrency_level = params["max_concurrency_level"]
+        statement_queued_timeout = params["statement_queued_timeout_in_seconds"]
+        statement_timeout = params["statement_timeout_in_seconds"]
+    else:
+        max_concurrency_level = None
+        statement_queued_timeout = None
+        statement_timeout = None
 
     resource_monitor = None if data["resource_monitor"] == "null" else data["resource_monitor"]
 
@@ -2970,9 +3055,9 @@ def fetch_warehouse(session: SnowflakeConnection, fqn: FQN):
         "max_cluster_count": data.get("max_cluster_count", None),
         "min_cluster_count": data.get("min_cluster_count", None),
         "scaling_policy": data.get("scaling_policy", None),
-        "max_concurrency_level": params["max_concurrency_level"],
-        "statement_queued_timeout_in_seconds": params["statement_queued_timeout_in_seconds"],
-        "statement_timeout_in_seconds": params["statement_timeout_in_seconds"],
+        "max_concurrency_level": max_concurrency_level,
+        "statement_queued_timeout_in_seconds": statement_queued_timeout,
+        "statement_timeout_in_seconds": statement_timeout,
     }
 
     return warehouse_dict
