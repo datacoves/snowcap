@@ -183,6 +183,8 @@ class ResourceSpec:
 
         def _serialize_field(field, value):
             if field.name == "owner":
+                if value is None:
+                    return None
                 return str(value.fqn)
             elif isinstance(value, ResourcePointer):
                 return str(value.fqn)

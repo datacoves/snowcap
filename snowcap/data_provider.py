@@ -161,9 +161,42 @@ def _fail_if_not_granted(result, *args):
         raise Exception(result[0]["status"], *args)
 
 
+def _normalize_snowflake_metadata_name(name: ResourceName) -> ResourceName:
+    """
+    Normalize a ResourceName from Snowflake metadata for proper comparison.
+
+    When Snowflake returns metadata (e.g., from SHOW GRANTS), names are returned without
+    SQL quoting syntax. However, we can infer whether the original identifier was quoted
+    by checking if it contains lowercase letters - unquoted identifiers are always stored
+    as uppercase in Snowflake.
+
+    This function should ONLY be applied to names from Snowflake metadata (like SHOW GRANTS),
+    not to names from user manifests. User manifests already have the correct quoting.
+    """
+    import re
+
+    # If already marked as quoted, keep as-is
+    if name._quoted:
+        return name
+
+    # Check if the name looks like it was a quoted identifier in Snowflake
+    # Snowflake stores unquoted identifiers as uppercase, so any lowercase
+    # indicates it must have been quoted
+    if re.match(r"^[A-Z_][A-Z0-9_]*$", name._name):
+        # Valid uppercase identifier - keep as unquoted
+        return name
+    else:
+        # Contains lowercase or special characters - must have been quoted in Snowflake
+        return resource_name_from_snowflake_metadata(name._name)
+
+
 def _fqn_names_match(name1: str, name2: str) -> bool:
     """
     Compare two FQN strings for equality, handling case-insensitivity for unquoted identifiers.
+
+    Args:
+        name1: FQN from Snowflake metadata (SHOW GRANTS, etc.) - may need normalization
+        name2: FQN from user manifest - already correctly quoted/unquoted
 
     This function properly handles:
     - Unquoted identifiers (case-insensitive): SUSHI_DB.SCHEMA.TABLE == sushi_db.schema.table
@@ -172,28 +205,35 @@ def _fqn_names_match(name1: str, name2: str) -> bool:
 
     Uses parse_FQN to properly parse the identifiers and ResourceName for comparison.
     Falls back to case-insensitive string comparison if parsing fails.
+
+    Important: name1 (from Snowflake metadata) gets normalized to detect quoted identifiers
+    that don't have explicit quotes in the returned data. name2 (from manifest) is used as-is.
     """
     try:
-        # Try to parse as schema-scoped FQN (most common for grants)
+        # Parse both FQN strings
         fqn1 = parse_FQN(name1)
         fqn2 = parse_FQN(name2)
 
-        # Compare name components
-        if fqn1.name != fqn2.name:
+        # Normalize name1 components (from Snowflake metadata) to detect quoted identifiers
+        # name2 components (from manifest) are already correctly marked
+        name1_normalized = _normalize_snowflake_metadata_name(fqn1.name)
+        if name1_normalized != fqn2.name:
             return False
 
         # Compare database if present
         if fqn1.database is not None or fqn2.database is not None:
             if fqn1.database is None or fqn2.database is None:
                 return False
-            if fqn1.database != fqn2.database:
+            db1_normalized = _normalize_snowflake_metadata_name(fqn1.database)
+            if db1_normalized != fqn2.database:
                 return False
 
         # Compare schema if present
         if fqn1.schema is not None or fqn2.schema is not None:
             if fqn1.schema is None or fqn2.schema is None:
                 return False
-            if fqn1.schema != fqn2.schema:
+            schema1_normalized = _normalize_snowflake_metadata_name(fqn1.schema)
+            if schema1_normalized != fqn2.schema:
                 return False
 
         return True
@@ -212,6 +252,7 @@ def _fetch_grant_to_role(
     privilege: str,
     role_type: ResourceType = ResourceType.ROLE,
 ):
+    # First try with ACCOUNT_USAGE cache (if available)
     grants = (
         _show_future_grants_to_role(session, role, cacheable=True)
         if grant_type == GrantType.FUTURE
@@ -223,6 +264,29 @@ def _fetch_grant_to_role(
         name_matches = name == on_name if name == "ACCOUNT" else _fqn_names_match(name, on_name)
         if grant["granted_on"] == granted_on and grant["privilege"] == privilege and name_matches:
             return grant
+
+    # If not found and we used ACCOUNT_USAGE cache, try again with SHOW GRANTS
+    # This handles cases where grants were recently created (ACCOUNT_USAGE has latency)
+    session_id = id(session)
+    used_account_usage_cache = (
+        grant_type != GrantType.FUTURE
+        and role_type == ResourceType.ROLE
+        and session_id in _ACCOUNT_USAGE_GRANTS_CACHE
+    )
+    if used_account_usage_cache:
+        logger.debug(f"Grant not found in ACCOUNT_USAGE cache, falling back to SHOW GRANTS for role {role}")
+        grants = execute(
+            session,
+            f"SHOW GRANTS TO {role_type} {role}",
+            cacheable=True,
+            empty_response_codes=[DOES_NOT_EXIST_ERR],
+        )
+        for grant in grants:
+            name = "ACCOUNT" if grant["granted_on"] == "ACCOUNT" else grant["name"]
+            name_matches = name == on_name if name == "ACCOUNT" else _fqn_names_match(name, on_name)
+            if grant["granted_on"] == granted_on and grant["privilege"] == privilege and name_matches:
+                return grant
+
     # Debug: log when grant not found for schema grants
     if granted_on == "SCHEMA":
         logger.debug(f"Grant not found: privilege={privilege}, granted_on={granted_on}, on_name={on_name}, role={role}")
@@ -830,6 +894,22 @@ _ACCOUNT_USAGE_GRANTS_CACHE: dict[int, list[dict[str, Any]]] = {}
 # Cache for ACCOUNT_USAGE role-to-user grants (keyed by session id)
 # Stores the normalized grant list from GRANTS_TO_USERS
 _ACCOUNT_USAGE_USER_GRANTS_CACHE: dict[int, list[dict[str, Any]]] = {}
+
+
+def reset_account_usage_caches() -> None:
+    """
+    Clear all ACCOUNT_USAGE caches.
+
+    This should be called when you need to force a fresh query of grant data,
+    such as after applying changes that create new grants.
+    """
+    global _ACCOUNT_USAGE_ACCESS_CACHE, _ACCOUNT_USAGE_FALLBACK_CACHE
+    global _ACCOUNT_USAGE_GRANTS_CACHE, _ACCOUNT_USAGE_USER_GRANTS_CACHE
+
+    _ACCOUNT_USAGE_ACCESS_CACHE.clear()
+    _ACCOUNT_USAGE_FALLBACK_CACHE.clear()
+    _ACCOUNT_USAGE_GRANTS_CACHE.clear()
+    _ACCOUNT_USAGE_USER_GRANTS_CACHE.clear()
 
 
 def _mark_account_usage_fallback(session: SnowflakeConnection) -> None:
@@ -2097,6 +2177,7 @@ def fetch_role_grant(session: SnowflakeConnection, fqn: FQN, use_account_usage: 
     Fetch a role grant (role granted to another role or user).
 
     Uses ACCOUNT_USAGE cache when available to avoid SHOW GRANTS OF ROLE commands.
+    Falls back to SHOW GRANTS OF ROLE if grant not found in cache (to handle latency).
     """
     subject, grantee = fqn.params.copy().popitem()
     subject = ResourceName(subject)
@@ -2106,9 +2187,11 @@ def fetch_role_grant(session: SnowflakeConnection, fqn: FQN, use_account_usage: 
 
     # Try to use ACCOUNT_USAGE cache
     session_id = id(session)
+    used_account_usage_cache = False
     if use_account_usage:
         # For role-to-role grants, check GRANTS_TO_ROLES cache
         if str(subject).upper() == "ROLE" and session_id in _ACCOUNT_USAGE_GRANTS_CACHE:
+            used_account_usage_cache = True
             for grant in _ACCOUNT_USAGE_GRANTS_CACHE[session_id]:
                 if (
                     grant["privilege"] == "USAGE"
@@ -2121,12 +2204,12 @@ def fetch_role_grant(session: SnowflakeConnection, fqn: FQN, use_account_usage: 
                         "role": fqn.name,
                         "to_role": _quote_snowflake_identifier(grant["grantee_name"]),
                     }
-            # If we have the cache but didn't find the grant, it doesn't exist
-            logger.debug(f"Role grant {fqn.name} to role {grantee} not found in ACCOUNT_USAGE cache")
-            return None
+            # Not found in cache - will fall through to SHOW GRANTS fallback
+            logger.debug(f"Role grant {fqn.name} to role {grantee} not found in ACCOUNT_USAGE cache, trying SHOW GRANTS")
 
         # For role-to-user grants, check GRANTS_TO_USERS cache
         if str(subject).upper() == "USER" and session_id in _ACCOUNT_USAGE_USER_GRANTS_CACHE:
+            used_account_usage_cache = True
             for grant in _ACCOUNT_USAGE_USER_GRANTS_CACHE[session_id]:
                 if (
                     grant["role"].upper() == role_name
@@ -2136,11 +2219,10 @@ def fetch_role_grant(session: SnowflakeConnection, fqn: FQN, use_account_usage: 
                         "role": fqn.name,
                         "to_user": _quote_snowflake_identifier(grant["grantee_name"]),
                     }
-            # If we have the cache but didn't find the grant, it doesn't exist
-            logger.debug(f"Role grant {fqn.name} to user {grantee} not found in ACCOUNT_USAGE cache")
-            return None
+            # Not found in cache - will fall through to SHOW GRANTS fallback
+            logger.debug(f"Role grant {fqn.name} to user {grantee} not found in ACCOUNT_USAGE cache, trying SHOW GRANTS")
 
-    # Fall back to SHOW GRANTS OF ROLE
+    # Fall back to SHOW GRANTS OF ROLE (either cache not available or grant not found in cache)
     try:
         show_result = execute(session, f"SHOW GRANTS OF ROLE {fqn.name}", cacheable=True)
     except ProgrammingError as err:
@@ -3228,7 +3310,7 @@ def list_grants(session: SnowflakeConnection, use_account_usage: bool = True) ->
         logger.debug("list_grants: using SHOW GRANTS per role (ACCOUNT_USAGE disabled or unavailable)")
         # Fall back to per-role SHOW queries
         for role_name in role_names:
-            grant_data = _show_grants_to_role(session, role_name, role_type=ResourceType.ROLE, cacheable=True)
+            grant_data = _show_grants_to_role(session, role_name, role_type=ResourceType.ROLE, cacheable=True, use_account_usage=False)
             for data in grant_data:
                 if data["granted_on"] == "ROLE":
                     continue

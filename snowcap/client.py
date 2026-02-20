@@ -32,6 +32,14 @@ _EXECUTION_CACHE = {}
 
 
 def reset_cache():
+    """
+    Reset the SQL execution cache.
+
+    This clears cached query results so subsequent queries will re-execute.
+    Note: This does NOT clear ACCOUNT_USAGE caches, which are designed to persist
+    across queries for performance. The fallback to SHOW GRANTS handles cases
+    where newly created grants aren't in the ACCOUNT_USAGE cache.
+    """
     global _EXECUTION_CACHE
     _EXECUTION_CACHE = {}
 
