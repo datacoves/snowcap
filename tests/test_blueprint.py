@@ -943,6 +943,18 @@ def test_resource_type_needs_params(session_ctx):
     manifest = blueprint.generate_manifest(session_ctx)
     assert resource_type_needs_params(ResourceType.DATABASE, manifest) is True
 
+    # Database with params + schema without params - SCHEMA should need params
+    # (PUBLIC schema inherits from database)
+    blueprint = Blueprint(
+        resources=[
+            res.Database(name="MY_DB", owner="SYSADMIN", max_data_extension_time_in_days=7),
+            res.Schema(name="MY_SCHEMA", database="MY_DB", owner="SYSADMIN"),
+        ]
+    )
+    manifest = blueprint.generate_manifest(session_ctx)
+    assert resource_type_needs_params(ResourceType.DATABASE, manifest) is True
+    assert resource_type_needs_params(ResourceType.SCHEMA, manifest) is True  # Because database has params
+
     # Empty manifest - should NOT need params (no resources of this type)
     blueprint = Blueprint(resources=[])
     manifest = blueprint.generate_manifest(session_ctx)

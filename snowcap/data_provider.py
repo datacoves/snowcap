@@ -3327,7 +3327,7 @@ def list_functions(session: SnowflakeConnection) -> list[FQN]:
     return functions
 
 
-def list_grants(session: SnowflakeConnection, use_account_usage: bool = True) -> list[FQN]:
+def list_grants(session: SnowflakeConnection, use_account_usage: bool = True, include_future_grants: bool = True) -> list[FQN]:
     grants: list[FQN] = []
 
     # Get all non-system role names for processing
@@ -3426,27 +3426,30 @@ def list_grants(session: SnowflakeConnection, use_account_usage: bool = True) ->
                 )
 
     # Future grants always use SHOW commands (not available in ACCOUNT_USAGE)
-    # Fetch in parallel for all roles
-    logger.debug("list_grants: fetching future grants using SHOW FUTURE GRANTS")
-    future_grants_by_role = _fetch_future_grants_for_all_roles(session, role_names)
-    for role_name in role_names:
-        role_name_str = str(role_name)
-        grant_data = future_grants_by_role.get(role_name_str, [])
-        for data in grant_data:
-            on_type = data["granted_on"].lower()
-            collection = data["name"]
-            to = f"role/{role_name}"
-            grants.append(
-                FQN(
-                    name=ResourceName("GRANT"),
-                    params={
-                        "grant_type": "FUTURE",
-                        "priv": data["privilege"],
-                        "on": f"{on_type}/{collection}",
-                        "to": to,
-                    },
+    # Only fetch if include_future_grants is True (manifest has future grants)
+    if include_future_grants:
+        logger.debug("list_grants: fetching future grants using SHOW FUTURE GRANTS")
+        future_grants_by_role = _fetch_future_grants_for_all_roles(session, role_names)
+        for role_name in role_names:
+            role_name_str = str(role_name)
+            grant_data = future_grants_by_role.get(role_name_str, [])
+            for data in grant_data:
+                on_type = data["granted_on"].lower()
+                collection = data["name"]
+                to = f"role/{role_name}"
+                grants.append(
+                    FQN(
+                        name=ResourceName("GRANT"),
+                        params={
+                            "grant_type": "FUTURE",
+                            "priv": data["privilege"],
+                            "on": f"{on_type}/{collection}",
+                            "to": to,
+                        },
+                    )
                 )
-            )
+    else:
+        logger.debug("list_grants: skipping future grants (none in manifest)")
 
     return grants
 

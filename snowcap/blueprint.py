@@ -95,18 +95,55 @@ def resource_type_needs_params(resource_type: ResourceType, manifest: "Manifest"
     if not param_fields:
         return True  # No optimization for this resource type
 
+    # For schemas, also check if any database has param fields set
+    # (PUBLIC schema inherits from database)
+    if resource_type == ResourceType.SCHEMA:
+        db_param_fields = data_provider.PARAMETER_FIELDS.get("database", set())
+        # Check intersection of schema and database param fields
+        inherited_fields = param_fields & db_param_fields
+        if inherited_fields:
+            for urn in manifest.urns:
+                if urn.resource_type != ResourceType.DATABASE:
+                    continue
+                item = manifest[urn]
+                if isinstance(item, ManifestResource):
+                    for field in inherited_fields:
+                        if field in item.data and item.data[field] is not None:
+                            return True  # Database has param that PUBLIC schema inherits
+
     # Check all resources of this type in manifest
     for urn in manifest.urns:
         if urn.resource_type != resource_type:
             continue
         item = manifest[urn]
         if isinstance(item, ManifestResource):
+            # Skip implicit resources (like PUBLIC schema created by database)
+            # unless we already determined we need params from database inheritance check above
+            if item.implicit:
+                continue
             # Only consider fields that have non-None values
             # Fields with None values indicate the user didn't explicitly set them
             for field in param_fields:
                 if field in item.data and item.data[field] is not None:
                     return True  # At least one resource specifies a non-None parameter field
     return False  # No resources of this type specify parameter fields with values
+
+
+def manifest_has_future_grants(manifest: "Manifest") -> bool:
+    """
+    Check if the manifest contains any future grants.
+
+    This is used to optimize list_grants by skipping expensive SHOW FUTURE GRANTS
+    queries when the manifest doesn't define any future grants.
+    """
+    for urn in manifest.urns:
+        if urn.resource_type != ResourceType.GRANT:
+            continue
+        item = manifest[urn]
+        if isinstance(item, ManifestResource):
+            if item.data.get("grant_type") == "FUTURE":
+                return True
+    return False
 
 
 @dataclass
@@ -705,8 +742,14 @@ class Blueprint:
 
         if self._config.sync_resources:
             urns = [item for item in manifest.urns if item.resource_type not in self._config.sync_resources]
+            # Pre-compute whether manifest has future grants (for GRANT sync optimization)
+            has_future_grants = manifest_has_future_grants(manifest)
             for resource_type in self._config.sync_resources:
-                for fqn in data_provider.list_resource(session, resource_label_for_type(resource_type)):
+                # Pass include_future_grants=False for grants if manifest has no future grants
+                list_kwargs = {}
+                if resource_type == ResourceType.GRANT:
+                    list_kwargs["include_future_grants"] = has_future_grants
+                for fqn in data_provider.list_resource(session, resource_label_for_type(resource_type), **list_kwargs):
                     if self._config.scope == BlueprintScope.DATABASE and fqn.database != self._config.database:
                         continue
                     if self._config.scope == BlueprintScope.SCHEMA and fqn.schema != self._config.schema:

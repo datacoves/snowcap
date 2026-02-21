@@ -658,3 +658,191 @@ def test_grant_database_role_to_database_role(cursor, suffix, marked_for_cleanup
     assert grant2 is not None
     assert grant2["database_role"] == str(child2.fqn)
     assert grant2["to_database_role"] == str(parent.fqn)
+
+
+class TestQueryOptimizations:
+    """Tests for SHOW PARAMETERS and SHOW FUTURE GRANTS query optimizations."""
+
+    def test_show_parameters_skipped_for_schema_without_param_fields(self, cursor, suffix, caplog):
+        """
+        Test that SHOW PARAMETERS IN SCHEMA is skipped when no schema in manifest
+        has parameter fields (max_data_extension_time_in_days, default_ddl_collation) set.
+        """
+        import logging
+
+        session = cursor.connection
+        db_name = f"TEST_PARAMS_OPT_SCHEMA_{suffix}"
+
+        try:
+            cursor.execute(f"CREATE DATABASE {db_name}")
+            cursor.execute(f"CREATE SCHEMA {db_name}.TEST_SCHEMA")
+
+            # Schema WITHOUT parameter fields - should skip SHOW PARAMETERS
+            blueprint = Blueprint(
+                resources=[
+                    res.Schema(name="TEST_SCHEMA", database=db_name, owner=TEST_ROLE),
+                ],
+            )
+
+            with caplog.at_level(logging.WARNING, logger="snowcap"):
+                caplog.clear()
+                reset_cache()
+                blueprint.plan(session)
+
+            # Check that no SHOW PARAMETERS IN SCHEMA was executed
+            show_params_queries = [
+                r.message for r in caplog.records
+                if "SHOW PARAMETERS IN SCHEMA" in r.message
+            ]
+            assert len(show_params_queries) == 0, (
+                f"Expected no SHOW PARAMETERS IN SCHEMA queries but found: {show_params_queries}"
+            )
+        finally:
+            cursor.execute(f"DROP DATABASE IF EXISTS {db_name}")
+
+    def test_show_parameters_called_for_schema_with_param_fields(self, cursor, suffix, caplog):
+        """
+        Test that SHOW PARAMETERS IN SCHEMA is called when a schema in manifest
+        has parameter fields set.
+        """
+        import logging
+
+        session = cursor.connection
+        db_name = f"TEST_PARAMS_OPT_SCHEMA_WITH_{suffix}"
+
+        try:
+            cursor.execute(f"CREATE DATABASE {db_name}")
+            cursor.execute(f"CREATE SCHEMA {db_name}.TEST_SCHEMA")
+
+            # Schema WITH parameter field - should call SHOW PARAMETERS
+            blueprint = Blueprint(
+                resources=[
+                    res.Schema(
+                        name="TEST_SCHEMA",
+                        database=db_name,
+                        owner=TEST_ROLE,
+                        max_data_extension_time_in_days=14,  # Explicit parameter
+                    ),
+                ],
+            )
+
+            with caplog.at_level(logging.WARNING, logger="snowcap"):
+                caplog.clear()
+                reset_cache()
+                blueprint.plan(session)
+
+            # Check that SHOW PARAMETERS IN SCHEMA was executed
+            show_params_queries = [
+                r.message for r in caplog.records
+                if "SHOW PARAMETERS IN SCHEMA" in r.message
+            ]
+            assert len(show_params_queries) > 0, (
+                "Expected SHOW PARAMETERS IN SCHEMA query but none found"
+            )
+        finally:
+            cursor.execute(f"DROP DATABASE IF EXISTS {db_name}")
+
+    def test_show_parameters_skipped_for_warehouse_without_param_fields(self, cursor, suffix, caplog):
+        """
+        Test that SHOW PARAMETERS FOR WAREHOUSE is skipped when no warehouse in manifest
+        has parameter fields (max_concurrency_level, statement_*_timeout) set.
+        """
+        import logging
+
+        session = cursor.connection
+        wh_name = f"TEST_PARAMS_OPT_WH_{suffix}"
+
+        try:
+            cursor.execute(f"CREATE WAREHOUSE {wh_name} WAREHOUSE_SIZE = XSMALL")
+
+            # Warehouse WITHOUT parameter fields - should skip SHOW PARAMETERS
+            blueprint = Blueprint(
+                resources=[
+                    res.Warehouse(name=wh_name, owner=TEST_ROLE, warehouse_size="XSMALL"),
+                ],
+            )
+
+            with caplog.at_level(logging.WARNING, logger="snowcap"):
+                caplog.clear()
+                reset_cache()
+                blueprint.plan(session)
+
+            # Check that no SHOW PARAMETERS FOR WAREHOUSE was executed
+            show_params_queries = [
+                r.message for r in caplog.records
+                if "SHOW PARAMETERS FOR WAREHOUSE" in r.message
+            ]
+            assert len(show_params_queries) == 0, (
+                f"Expected no SHOW PARAMETERS FOR WAREHOUSE queries but found: {show_params_queries}"
+            )
+        finally:
+            cursor.execute(f"DROP WAREHOUSE IF EXISTS {wh_name}")
+
+    def test_show_future_grants_skipped_when_no_future_grants_in_manifest(self, cursor, suffix, caplog):
+        """
+        Test that SHOW FUTURE GRANTS TO ROLE is skipped when manifest has no future grants.
+        """
+        import logging
+
+        session = cursor.connection
+
+        # Blueprint with only regular grants (no future grants)
+        blueprint = Blueprint(
+            resources=[
+                res.Role(name=f"TEST_FUTURE_GRANT_OPT_{suffix}"),
+                res.Grant(priv="USAGE", on_warehouse="STATIC_WAREHOUSE", to_role=f"TEST_FUTURE_GRANT_OPT_{suffix}"),
+            ],
+            sync_resources=[ResourceType.GRANT],
+        )
+
+        try:
+            with caplog.at_level(logging.WARNING, logger="snowcap"):
+                caplog.clear()
+                reset_cache()
+                blueprint.plan(session)
+
+            # Check that no SHOW FUTURE GRANTS was executed
+            show_future_grants_queries = [
+                r.message for r in caplog.records
+                if "SHOW FUTURE GRANTS TO ROLE" in r.message
+            ]
+            assert len(show_future_grants_queries) == 0, (
+                f"Expected no SHOW FUTURE GRANTS queries but found: {show_future_grants_queries}"
+            )
+        finally:
+            cursor.execute(f"DROP ROLE IF EXISTS TEST_FUTURE_GRANT_OPT_{suffix}")
+
+    def test_show_future_grants_called_when_future_grants_in_manifest(self, cursor, suffix, caplog):
+        """
+        Test that SHOW FUTURE GRANTS TO ROLE is called when manifest has future grants.
+        """
+        import logging
+
+        session = cursor.connection
+        role_name = f"TEST_FUTURE_GRANT_OPT2_{suffix}"
+
+        # Blueprint with future grants
+        blueprint = Blueprint(
+            resources=[
+                res.Role(name=role_name),
+                res.Grant.from_sql(f"GRANT SELECT ON FUTURE TABLES IN SCHEMA STATIC_DATABASE.PUBLIC TO ROLE {role_name}"),
+            ],
+            sync_resources=[ResourceType.GRANT],
+        )
+
+        try:
+            with caplog.at_level(logging.WARNING, logger="snowcap"):
+                caplog.clear()
+                reset_cache()
+                blueprint.plan(session)
+
+            # Check that SHOW FUTURE GRANTS was executed
+            show_future_grants_queries = [
+                r.message for r in caplog.records
+                if "SHOW FUTURE GRANTS TO ROLE" in r.message
+            ]
+            assert len(show_future_grants_queries) > 0, (
+                "Expected SHOW FUTURE GRANTS queries but none found"
+            )
+        finally:
+            cursor.execute(f"DROP ROLE IF EXISTS {role_name}")
