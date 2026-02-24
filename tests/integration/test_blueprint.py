@@ -821,7 +821,10 @@ class TestQueryOptimizations:
         session = cursor.connection
         role_name = f"TEST_FUTURE_GRANT_OPT2_{suffix}"
 
-        # Blueprint with future grants
+        # Create the role first - SHOW FUTURE GRANTS can only query existing roles
+        cursor.execute(f"CREATE ROLE IF NOT EXISTS {role_name}")
+
+        # Blueprint with future grants (role already exists, only syncing grants)
         blueprint = Blueprint(
             resources=[
                 res.Role(name=role_name),

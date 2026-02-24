@@ -110,7 +110,12 @@ class TestAccountUsageGrantFetching:
         result = data_provider._fetch_grants_from_account_usage(session)
 
         if result and len(result) > 0:
-            grant = result[0]
+            # Find a ROLE grant to test (not all grants may be to ROLEs)
+            role_grants = [g for g in result if g.get("granted_to") in ("ROLE", "DATABASE ROLE")]
+            if not role_grants:
+                pytest.skip("No ROLE grants found in ACCOUNT_USAGE")
+
+            grant = role_grants[0]
 
             # Keys should be lowercase (not uppercase like raw ACCOUNT_USAGE)
             assert all(key.islower() or key == "grant_option" for key in grant.keys())

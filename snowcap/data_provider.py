@@ -754,7 +754,7 @@ PARAMETER_FIELDS = {
 }
 
 
-def fetch_resource(session: SnowflakeConnection, urn: URN, include_params: bool = True) -> Optional[dict]:
+def fetch_resource(session: SnowflakeConnection, urn: URN, include_params: bool = True, existence_only: bool = False) -> Optional[dict]:
     """
     Fetch a resource from Snowflake.
 
@@ -763,14 +763,21 @@ def fetch_resource(session: SnowflakeConnection, urn: URN, include_params: bool 
         urn: Resource URN
         include_params: If False, skip expensive SHOW PARAMETERS queries.
                        Use False when manifest doesn't specify parameter fields.
+        existence_only: If True, only check if resource exists (skip detailed queries like DESC USER).
+                       Use True for reference validation where we just need to verify existence.
     """
     try:
         fetch_fn = getattr(__this__, f"fetch_{urn.resource_label}")
-        # Check if the fetch function accepts include_params
+        # Check which optional parameters the fetch function accepts
         import inspect
         sig = inspect.signature(fetch_fn)
+        kwargs = {}
         if "include_params" in sig.parameters:
-            return fetch_fn(session, urn.fqn, include_params=include_params)
+            kwargs["include_params"] = include_params
+        if "existence_only" in sig.parameters:
+            kwargs["existence_only"] = existence_only
+        if kwargs:
+            return fetch_fn(session, urn.fqn, **kwargs)
         else:
             return fetch_fn(session, urn.fqn)
     except ProgrammingError as err:
@@ -1162,6 +1169,9 @@ def _fetch_grants_from_account_usage(session: SnowflakeConnection) -> list[dict[
 
     # Cache the results
     _ACCOUNT_USAGE_GRANTS_CACHE[session_id] = normalized_grants
+
+    # Also mark that we have ACCOUNT_USAGE access (query succeeded)
+    _ACCOUNT_USAGE_ACCESS_CACHE[session_id] = True
 
     return normalized_grants
 
@@ -2918,7 +2928,7 @@ def fetch_tag_reference(session: SnowflakeConnection, fqn: FQN):
     }
 
 
-def fetch_user(session: SnowflakeConnection, fqn: FQN, include_params: bool = True) -> Optional[dict]:
+def fetch_user(session: SnowflakeConnection, fqn: FQN, include_params: bool = True, existence_only: bool = False) -> Optional[dict]:
     show_result = _show_users(session)
     users = _filter_result(show_result, name=fqn.name)
 
@@ -2928,6 +2938,11 @@ def fetch_user(session: SnowflakeConnection, fqn: FQN, include_params: bool = Tr
         raise Exception(f"Found multiple users matching {fqn}")
 
     data = users[0]
+
+    # For existence checks (reference validation), skip expensive DESC USER
+    if existence_only:
+        return {"name": _quote_snowflake_identifier(data["name"]), "owner": ""}
+
     desc_result = execute(session, f"DESC USER {fqn}")
     properties = _desc_result_to_dict(desc_result, lower_properties=True)
 
@@ -3327,11 +3342,17 @@ def list_functions(session: SnowflakeConnection) -> list[FQN]:
     return functions
 
 
-def list_grants(session: SnowflakeConnection, use_account_usage: bool = True, include_future_grants: bool = True) -> list[FQN]:
+def list_grants(
+    session: SnowflakeConnection,
+    use_account_usage: bool = True,
+    include_future_grants: bool = True,
+    future_grant_roles: set = None,
+) -> list[FQN]:
     grants: list[FQN] = []
 
     # Get all non-system role names for processing
-    roles_result = execute(session, "SHOW ROLES", cacheable=True)
+    # Use "SHOW ROLES IN ACCOUNT" to match _show_resources for cache consistency
+    roles_result = execute(session, "SHOW ROLES IN ACCOUNT", cacheable=True)
     role_names = [
         resource_name_from_snowflake_metadata(role["name"])
         for role in roles_result
@@ -3428,9 +3449,20 @@ def list_grants(session: SnowflakeConnection, use_account_usage: bool = True, in
     # Future grants always use SHOW commands (not available in ACCOUNT_USAGE)
     # Only fetch if include_future_grants is True (manifest has future grants)
     if include_future_grants:
-        logger.debug("list_grants: fetching future grants using SHOW FUTURE GRANTS")
-        future_grants_by_role = _fetch_future_grants_for_all_roles(session, role_names)
-        for role_name in role_names:
+        # If future_grant_roles is provided, only fetch for those specific roles
+        # This optimization avoids querying all roles when only a few have future grants
+        if future_grant_roles:
+            roles_to_query = [
+                rn for rn in role_names
+                if str(rn).upper() in future_grant_roles
+            ]
+            logger.debug(f"list_grants: fetching future grants for {len(roles_to_query)} roles (filtered by manifest)")
+        else:
+            roles_to_query = role_names
+            logger.debug("list_grants: fetching future grants using SHOW FUTURE GRANTS")
+
+        future_grants_by_role = _fetch_future_grants_for_all_roles(session, roles_to_query)
+        for role_name in roles_to_query:
             role_name_str = str(role_name)
             grant_data = future_grants_by_role.get(role_name_str, [])
             for data in grant_data:
@@ -3511,7 +3543,8 @@ def list_resource_monitors(session: SnowflakeConnection) -> list[FQN]:
 
 
 def list_roles(session: SnowflakeConnection) -> list[FQN]:
-    show_result = execute(session, "SHOW ROLES", cacheable=True)
+    # Use "SHOW ROLES IN ACCOUNT" to match _show_resources for cache consistency
+    show_result = execute(session, "SHOW ROLES IN ACCOUNT", cacheable=True)
     return [
         FQN(name=resource_name_from_snowflake_metadata(row["name"]))
         for row in show_result
@@ -3533,7 +3566,8 @@ def list_role_grants(session: SnowflakeConnection, use_account_usage: bool = Tru
         List of FQN objects representing role grants, with params indicating
         whether the grantee is a 'user' or 'role'.
     """
-    roles = execute(session, "SHOW ROLES", cacheable=True)
+    # Use "SHOW ROLES IN ACCOUNT" to match _show_resources for cache consistency
+    roles = execute(session, "SHOW ROLES IN ACCOUNT", cacheable=True)
 
     # Build set of non-system role names for filtering
     role_name_set: set[str] = set()
