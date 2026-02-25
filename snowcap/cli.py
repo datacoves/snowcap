@@ -154,6 +154,16 @@ def debug_option():
     )
 
 
+def use_account_usage_option():
+    return click.option(
+        "--use-account-usage",
+        "use_account_usage",
+        is_flag=True,
+        default=False,
+        help="Use ACCOUNT_USAGE views for bulk grant fetching (faster for 50+ roles)",
+    )
+
+
 @snowcap_cli.command("plan", no_args_is_help=True)
 @config_path_option()
 @click.option("--json", "json_output", is_flag=True, help="Output plan in machine-readable JSON format")
@@ -163,8 +173,9 @@ def debug_option():
 @scope_option()
 @database_option()
 @schema_option()
+@use_account_usage_option()
 @debug_option()
-def plan(config_path, json_output, output_file, vars: dict, sync_resources, scope, database, schema, debug):
+def plan(config_path, json_output, output_file, vars: dict, sync_resources, scope, database, schema, use_account_usage, debug):
     """Compare a resource config to the current state of Snowflake"""
 
     if not config_path:
@@ -186,6 +197,8 @@ def plan(config_path, json_output, output_file, vars: dict, sync_resources, scop
         cli_config["database"] = database
     if schema:
         cli_config["schema"] = schema
+    if use_account_usage:
+        cli_config["use_account_usage"] = use_account_usage
 
     env_vars = collect_vars_from_environment()
     if env_vars:
@@ -219,8 +232,9 @@ def plan(config_path, json_output, output_file, vars: dict, sync_resources, scop
 @database_option()
 @schema_option()
 @click.option("--dry-run", is_flag=True, help="When dry run is true, Snowcap will not make any changes to Snowflake")
+@use_account_usage_option()
 @debug_option()
-def apply(config_path, plan_file, vars, sync_resources, scope, database, schema, dry_run, debug):
+def apply(config_path, plan_file, vars, sync_resources, scope, database, schema, dry_run, use_account_usage, debug):
     """Apply a resource config to a Snowflake account"""
 
     if config_path and plan_file:
@@ -241,6 +255,8 @@ def apply(config_path, plan_file, vars, sync_resources, scope, database, schema,
         cli_config["database"] = database
     if schema:
         cli_config["schema"] = schema
+    if use_account_usage:
+        cli_config["use_account_usage"] = use_account_usage
 
     try:
         env_vars = collect_vars_from_environment()

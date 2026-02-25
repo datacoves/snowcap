@@ -228,9 +228,15 @@ GRANT IMPORTED PRIVILEGES ON DATABASE SNOWFLAKE TO ROLE <your_role>;
 
 Replace `<your_role>` with the role you use for Snowcap (e.g., `SYSADMIN` or a custom deployment role).
 
-**Step 2:** Enable the option in your configuration:
+**Step 2:** Enable the option:
 
-**CLI (via config file):**
+**CLI flag:**
+```sh
+snowcap plan --config snowcap.yml --use-account-usage
+snowcap apply --config snowcap.yml --use-account-usage
+```
+
+**YAML config:**
 ```yaml
 # snowcap.yml
 use_account_usage: true
