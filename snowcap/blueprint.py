@@ -853,7 +853,7 @@ class Blueprint:
             for resource_type in self._config.sync_resources:
                 # Pass include_future_grants=False for grants if manifest has no future grants
                 # Also pass future_grant_roles to only query roles that have future grants
-                list_kwargs = {}
+                list_kwargs: dict[str, Any] = {}
                 if resource_type == ResourceType.GRANT:
                     list_kwargs["include_future_grants"] = has_future_grants
                     list_kwargs["future_grant_roles"] = future_grant_roles
@@ -875,8 +875,6 @@ class Blueprint:
 
         urns = list(set(urns))  # Deduplicate urns
 
-        # Cache which resource types need params (computed once per type)
-        resource_types_needing_params: dict[ResourceType, bool] = {}
         # Pre-compute which databases have param fields (for schema inheritance check)
         db_with_params = databases_with_param_fields(manifest)
 

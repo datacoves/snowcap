@@ -2152,11 +2152,9 @@ def fetch_role_grant(session: SnowflakeConnection, fqn: FQN, use_account_usage: 
 
     # Try to use ACCOUNT_USAGE cache
     session_id = id(session)
-    used_account_usage_cache = False
     if use_account_usage:
         # For role-to-role grants, check GRANTS_TO_ROLES cache
         if str(subject).upper() == "ROLE" and session_id in _ACCOUNT_USAGE_GRANTS_CACHE:
-            used_account_usage_cache = True
             for grant in _ACCOUNT_USAGE_GRANTS_CACHE[session_id]:
                 if (
                     grant["privilege"] == "USAGE"
@@ -2174,7 +2172,6 @@ def fetch_role_grant(session: SnowflakeConnection, fqn: FQN, use_account_usage: 
 
         # For role-to-user grants, check GRANTS_TO_USERS cache
         if str(subject).upper() == "USER" and session_id in _ACCOUNT_USAGE_USER_GRANTS_CACHE:
-            used_account_usage_cache = True
             for grant in _ACCOUNT_USAGE_USER_GRANTS_CACHE[session_id]:
                 if (
                     grant["role"].upper() == role_name
@@ -3247,7 +3244,7 @@ def list_grants(
     session: SnowflakeConnection,
     use_account_usage: bool = False,
     include_future_grants: bool = True,
-    future_grant_roles: set = None,
+    future_grant_roles: Optional[set] = None,
 ) -> list[FQN]:
     grants: list[FQN] = []
 
