@@ -665,7 +665,7 @@ def _show_grants_to_role(
     role: ResourceName,
     role_type: ResourceType = ResourceType.ROLE,
     cacheable: bool = False,
-    use_account_usage: bool = True,
+    use_account_usage: bool = False,
 ) -> list[dict[str, Any]]:
     """
     Get grants to a role, using ACCOUNT_USAGE cache when available.
@@ -864,7 +864,7 @@ def fetch_role_privileges(
     session: SnowflakeConnection,
     roles: list[ResourceName],
     cacheable: bool = True,
-    use_account_usage: bool = True,
+    use_account_usage: bool = False,
 ) -> dict[ResourceName, list[GrantedPrivilege]]:
     role_privileges: dict[ResourceName, list[GrantedPrivilege]] = {}
 
@@ -2251,7 +2251,7 @@ def fetch_role(session: SnowflakeConnection, fqn: FQN):
     }
 
 
-def fetch_role_grant(session: SnowflakeConnection, fqn: FQN, use_account_usage: bool = True):
+def fetch_role_grant(session: SnowflakeConnection, fqn: FQN, use_account_usage: bool = False):
     """
     Fetch a role grant (role granted to another role or user).
 
@@ -3219,7 +3219,7 @@ def list_database_roles(session: SnowflakeConnection, database=None) -> list[FQN
 
 
 def list_database_role_grants(
-    session: SnowflakeConnection, database=None, use_account_usage: bool = True
+    session: SnowflakeConnection, database=None, use_account_usage: bool = False
 ) -> list[FQN]:
     """
     List all database role grants (database role granted to roles or other database roles).
@@ -3359,7 +3359,7 @@ def list_functions(session: SnowflakeConnection) -> list[FQN]:
 
 def list_grants(
     session: SnowflakeConnection,
-    use_account_usage: bool = True,
+    use_account_usage: bool = False,
     include_future_grants: bool = True,
     future_grant_roles: set = None,
 ) -> list[FQN]:
@@ -3567,7 +3567,7 @@ def list_roles(session: SnowflakeConnection) -> list[FQN]:
     ]
 
 
-def list_role_grants(session: SnowflakeConnection, use_account_usage: bool = True) -> list[FQN]:
+def list_role_grants(session: SnowflakeConnection, use_account_usage: bool = False) -> list[FQN]:
     """
     List all role grants (role-to-role and role-to-user) in the account.
 
