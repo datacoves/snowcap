@@ -2,7 +2,6 @@ import datetime
 import inspect
 import json
 import logging
-import re
 import sys
 from functools import cache
 from typing import Any, Optional, TypedDict, Union
@@ -46,9 +45,6 @@ from .resource_name import (
 __this__ = sys.modules[__name__]
 
 logger = logging.getLogger("snowcap")
-
-# Pre-compiled regex for checking uppercase identifiers (used in _normalize_snowflake_metadata_name)
-_UPPERCASE_IDENTIFIER_PATTERN = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 
 # Cache for inspect.signature() results to avoid repeated introspection
 _SIGNATURE_CACHE: dict[str, inspect.Signature] = {}
@@ -177,86 +173,6 @@ def _fail_if_not_granted(result, *args):
         raise Exception(result[0]["status"], *args)
 
 
-def _normalize_snowflake_metadata_name(name: ResourceName) -> ResourceName:
-    """
-    Normalize a ResourceName from Snowflake metadata for proper comparison.
-
-    When Snowflake returns metadata (e.g., from SHOW GRANTS), names are returned without
-    SQL quoting syntax. However, we can infer whether the original identifier was quoted
-    by checking if it contains lowercase letters - unquoted identifiers are always stored
-    as uppercase in Snowflake.
-
-    This function should ONLY be applied to names from Snowflake metadata (like SHOW GRANTS),
-    not to names from user manifests. User manifests already have the correct quoting.
-    """
-    # If already marked as quoted, keep as-is
-    if name._quoted:
-        return name
-
-    # Check if the name looks like it was a quoted identifier in Snowflake
-    # Snowflake stores unquoted identifiers as uppercase, so any lowercase
-    # indicates it must have been quoted
-    if _UPPERCASE_IDENTIFIER_PATTERN.match(name._name):
-        # Valid uppercase identifier - keep as unquoted
-        return name
-    else:
-        # Contains lowercase or special characters - must have been quoted in Snowflake
-        return resource_name_from_snowflake_metadata(name._name)
-
-
-def _fqn_names_match(name1: str, name2: str) -> bool:
-    """
-    Compare two FQN strings for equality, handling case-insensitivity for unquoted identifiers.
-
-    Args:
-        name1: FQN from Snowflake metadata (SHOW GRANTS, etc.) - may need normalization
-        name2: FQN from user manifest - already correctly quoted/unquoted
-
-    This function properly handles:
-    - Unquoted identifiers (case-insensitive): SUSHI_DB.SCHEMA.TABLE == sushi_db.schema.table
-    - Quoted identifiers (case-sensitive): "MyTable" != "mytable"
-    - Mixed FQNs: SUSHI_DB."mySchema".TABLE == sushi_db."mySchema".table
-
-    Uses parse_FQN to properly parse the identifiers and ResourceName for comparison.
-    Falls back to case-insensitive string comparison if parsing fails.
-
-    Important: name1 (from Snowflake metadata) gets normalized to detect quoted identifiers
-    that don't have explicit quotes in the returned data. name2 (from manifest) is used as-is.
-    """
-    try:
-        # Parse both FQN strings
-        fqn1 = parse_FQN(name1)
-        fqn2 = parse_FQN(name2)
-
-        # Normalize name1 components (from Snowflake metadata) to detect quoted identifiers
-        # name2 components (from manifest) are already correctly marked
-        name1_normalized = _normalize_snowflake_metadata_name(fqn1.name)
-        if name1_normalized != fqn2.name:
-            return False
-
-        # Compare database if present
-        if fqn1.database is not None or fqn2.database is not None:
-            if fqn1.database is None or fqn2.database is None:
-                return False
-            db1_normalized = _normalize_snowflake_metadata_name(fqn1.database)
-            if db1_normalized != fqn2.database:
-                return False
-
-        # Compare schema if present
-        if fqn1.schema is not None or fqn2.schema is not None:
-            if fqn1.schema is None or fqn2.schema is None:
-                return False
-            schema1_normalized = _normalize_snowflake_metadata_name(fqn1.schema)
-            if schema1_normalized != fqn2.schema:
-                return False
-
-        return True
-    except Exception:
-        # Fallback: case-insensitive string comparison for unquoted identifiers
-        # This handles cases where parsing fails
-        return name1.upper() == name2.upper()
-
-
 def _fetch_grant_to_role(
     session: SnowflakeConnection,
     grant_type: GrantType,
@@ -266,7 +182,6 @@ def _fetch_grant_to_role(
     privilege: str,
     role_type: ResourceType = ResourceType.ROLE,
 ):
-    # First try with ACCOUNT_USAGE cache (if available)
     grants = (
         _show_future_grants_to_role(session, role, cacheable=True)
         if grant_type == GrantType.FUTURE
@@ -274,39 +189,10 @@ def _fetch_grant_to_role(
     )
     for grant in grants:
         name = "ACCOUNT" if grant["granted_on"] == "ACCOUNT" else grant["name"]
-        # Use _fqn_names_match to handle FQN comparison with proper case-insensitivity
-        name_matches = name == on_name if name == "ACCOUNT" else _fqn_names_match(name, on_name)
+        # Use ResourceName for comparison to handle quoted identifiers correctly
+        name_matches = ResourceName(name) == ResourceName(on_name) if name != "ACCOUNT" else name == on_name
         if grant["granted_on"] == granted_on and grant["privilege"] == privilege and name_matches:
             return grant
-
-    # If not found and we used ACCOUNT_USAGE cache, try again with SHOW GRANTS
-    # This handles cases where grants were recently created (ACCOUNT_USAGE has latency)
-    session_id = id(session)
-    used_account_usage_cache = (
-        grant_type != GrantType.FUTURE
-        and role_type == ResourceType.ROLE
-        and session_id in _ACCOUNT_USAGE_GRANTS_CACHE
-    )
-    if used_account_usage_cache:
-        logger.debug(f"Grant not found in ACCOUNT_USAGE cache, falling back to SHOW GRANTS for role {role}")
-        grants = execute(
-            session,
-            f"SHOW GRANTS TO {role_type} {role}",
-            cacheable=True,
-            empty_response_codes=[DOES_NOT_EXIST_ERR],
-        )
-        for grant in grants:
-            name = "ACCOUNT" if grant["granted_on"] == "ACCOUNT" else grant["name"]
-            name_matches = name == on_name if name == "ACCOUNT" else _fqn_names_match(name, on_name)
-            if grant["granted_on"] == granted_on and grant["privilege"] == privilege and name_matches:
-                return grant
-
-    # Debug: log when grant not found for schema grants
-    if granted_on == "SCHEMA":
-        logger.debug(f"Grant not found: privilege={privilege}, granted_on={granted_on}, on_name={on_name}, role={role}")
-        matching_schema_grants = [g for g in grants if g["granted_on"] == "SCHEMA"]
-        if matching_schema_grants:
-            logger.debug(f"  Available schema grants: {[g['name'] for g in matching_schema_grants]}")
     return None
 
 
@@ -3674,6 +3560,7 @@ def list_role_grants(session: SnowflakeConnection, use_account_usage: bool = Fal
             session,
             [(f"SHOW GRANTS OF ROLE {role_name}", role_name) for role_name in role_names],
             error_handler=error_handler,
+            cacheable=True,
         ):
             for data in result:
                 subject = "user" if data["granted_to"] == "USER" else "role"

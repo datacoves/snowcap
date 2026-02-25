@@ -1174,13 +1174,13 @@ class TestFetchRolePrivilegesAccountUsage:
 class TestBlueprintConfigUseAccountUsage:
     """Tests for use_account_usage config flag in BlueprintConfig."""
 
-    def test_default_is_true(self):
-        """use_account_usage should default to True."""
+    def test_default_is_false(self):
+        """use_account_usage should default to False for performance (small manifests)."""
         from snowcap.blueprint_config import BlueprintConfig
 
         config = BlueprintConfig()
 
-        assert config.use_account_usage is True
+        assert config.use_account_usage is False
 
     def test_can_be_set_to_false(self):
         """use_account_usage can be explicitly set to False."""
