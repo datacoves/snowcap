@@ -1,6 +1,8 @@
 import datetime
+import inspect
 import json
 import logging
+import re
 import sys
 from functools import cache
 from typing import Any, Optional, TypedDict, Union
@@ -44,6 +46,20 @@ from .resource_name import (
 __this__ = sys.modules[__name__]
 
 logger = logging.getLogger("snowcap")
+
+# Pre-compiled regex for checking uppercase identifiers (used in _normalize_snowflake_metadata_name)
+_UPPERCASE_IDENTIFIER_PATTERN = re.compile(r"^[A-Z_][A-Z0-9_]*$")
+
+# Cache for inspect.signature() results to avoid repeated introspection
+_SIGNATURE_CACHE: dict[str, inspect.Signature] = {}
+
+
+def _get_cached_signature(func_name: str) -> inspect.Signature:
+    """Get the signature for a function, caching the result."""
+    if func_name not in _SIGNATURE_CACHE:
+        func = getattr(__this__, func_name)
+        _SIGNATURE_CACHE[func_name] = inspect.signature(func)
+    return _SIGNATURE_CACHE[func_name]
 
 
 class SessionContext(TypedDict):
@@ -173,8 +189,6 @@ def _normalize_snowflake_metadata_name(name: ResourceName) -> ResourceName:
     This function should ONLY be applied to names from Snowflake metadata (like SHOW GRANTS),
     not to names from user manifests. User manifests already have the correct quoting.
     """
-    import re
-
     # If already marked as quoted, keep as-is
     if name._quoted:
         return name
@@ -182,7 +196,7 @@ def _normalize_snowflake_metadata_name(name: ResourceName) -> ResourceName:
     # Check if the name looks like it was a quoted identifier in Snowflake
     # Snowflake stores unquoted identifiers as uppercase, so any lowercase
     # indicates it must have been quoted
-    if re.match(r"^[A-Z_][A-Z0-9_]*$", name._name):
+    if _UPPERCASE_IDENTIFIER_PATTERN.match(name._name):
         # Valid uppercase identifier - keep as unquoted
         return name
     else:
@@ -459,12 +473,13 @@ def _cast_param_value(raw_value: str, param_type: str) -> Any:
     if param_type == "BOOLEAN":
         return raw_value == "true"
     elif param_type == "NUMBER":
-        if raw_value.isdigit():
+        try:
             return int(raw_value)
-        elif raw_value.replace(".", "", 1).isdigit():
-            return float(raw_value)
-        else:
-            raise Exception(f"Unsupported number type: {raw_value}")
+        except ValueError:
+            try:
+                return float(raw_value)
+            except ValueError:
+                raise Exception(f"Unsupported number type: {raw_value}")
     elif param_type == "STRING":
         return str(raw_value) if raw_value else None
     else:
@@ -767,10 +782,10 @@ def fetch_resource(session: SnowflakeConnection, urn: URN, include_params: bool 
                        Use True for reference validation where we just need to verify existence.
     """
     try:
-        fetch_fn = getattr(__this__, f"fetch_{urn.resource_label}")
-        # Check which optional parameters the fetch function accepts
-        import inspect
-        sig = inspect.signature(fetch_fn)
+        func_name = f"fetch_{urn.resource_label}"
+        fetch_fn = getattr(__this__, func_name)
+        # Check which optional parameters the fetch function accepts (cached)
+        sig = _get_cached_signature(func_name)
         kwargs = {}
         if "include_params" in sig.parameters:
             kwargs["include_params"] = include_params
@@ -3084,10 +3099,10 @@ def fetch_warehouse(session: SnowflakeConnection, fqn: FQN, include_params: bool
 
 
 def list_resource(session: SnowflakeConnection, resource_label: str, **kwargs) -> list[FQN]:
-    list_func = getattr(__this__, f"list_{pluralize(resource_label)}")
-    # Pass through kwargs (e.g., use_account_usage) to functions that support them
-    import inspect
-    sig = inspect.signature(list_func)
+    func_name = f"list_{pluralize(resource_label)}"
+    list_func = getattr(__this__, func_name)
+    # Pass through kwargs (e.g., use_account_usage) to functions that support them (cached)
+    sig = _get_cached_signature(func_name)
     supported_kwargs = {k: v for k, v in kwargs.items() if k in sig.parameters}
     return list_func(session, **supported_kwargs)
 
@@ -3668,9 +3683,14 @@ def list_role_grants(session: SnowflakeConnection, use_account_usage: bool = Tru
 
 
 def list_scanner_packages(session: SnowflakeConnection) -> list[FQN]:
-    scanner_packages = execute(
-        session, "select * from snowflake.trust_center.scanner_packages WHERE state = 'TRUE'", cacheable=True
-    )
+    try:
+        scanner_packages = execute(
+            session, "select * from snowflake.trust_center.scanner_packages WHERE state = 'TRUE'", cacheable=True
+        )
+    except ProgrammingError as err:
+        # Trust Center may not be available on all accounts
+        logger.debug(f"Could not query trust_center.scanner_packages: {err}")
+        return []
     user_packages = []
     for pkg in scanner_packages:
         if pkg["ID"] == "SECURITY_ESSENTIALS":
