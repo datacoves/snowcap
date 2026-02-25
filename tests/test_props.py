@@ -115,9 +115,8 @@ class TestProps(unittest.TestCase):
     def test_props_render(self):
         db = Database(name="foo", comment="bar")
         rendered = db.props.render(db.to_dict())
-        self.assertEqual(
-            rendered, "DATA_RETENTION_TIME_IN_DAYS = 1 MAX_DATA_EXTENSION_TIME_IN_DAYS = 14 COMMENT = $$bar$$"
-        )
+        # data_retention and max_data_extension default to None, so only comment is rendered
+        self.assertEqual(rendered, "COMMENT = $$bar$$")
 
 
 # ============================================================================

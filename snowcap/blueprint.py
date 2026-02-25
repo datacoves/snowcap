@@ -75,6 +75,182 @@ ResourceRef = Union[tuple[ResourceType, str], str]
 logger = logging.getLogger("snowcap")
 
 
+def resource_urn_needs_params(urn: URN, manifest: "Manifest") -> bool:
+    """
+    Check if a specific URN needs parameter fields fetched.
+
+    This checks if the resource at this URN has any parameter fields with non-None values.
+    If it doesn't, we can skip the expensive SHOW PARAMETERS query.
+
+    Args:
+        urn: The URN to check
+        manifest: The manifest to check
+
+    Returns:
+        True if this resource needs parameter data, False otherwise
+    """
+    resource_label = resource_label_for_type(urn.resource_type)
+    param_fields = data_provider.PARAMETER_FIELDS.get(resource_label, set())
+    if not param_fields:
+        return True  # No optimization for this resource type
+
+    # Check if this specific URN is in the manifest with param fields
+    if urn not in manifest.urns:
+        return False  # Not in manifest, skip params
+
+    item = manifest[urn]
+    if isinstance(item, ManifestResource):
+        # Skip implicit resources (like PUBLIC schema created by database)
+        if item.implicit:
+            return False
+        # Only need params if this resource has non-None param field values
+        for field in param_fields:
+            if field in item.data and item.data[field] is not None:
+                return True
+    return False
+
+
+def resource_type_needs_params(resource_type: ResourceType, manifest: "Manifest") -> bool:
+    """
+    Check if any resource of this type in the manifest specifies parameter fields
+    with non-None values.
+
+    This is used to optimize fetch_remote_state by skipping expensive SHOW PARAMETERS
+    queries when no resource of that type in the manifest needs the parameter data.
+
+    Args:
+        resource_type: The type of resource to check
+        manifest: The manifest to check
+
+    Returns:
+        True if any resource of this type needs parameter data, False otherwise
+    """
+    resource_label = resource_label_for_type(resource_type)
+    param_fields = data_provider.PARAMETER_FIELDS.get(resource_label, set())
+    if not param_fields:
+        return True  # No optimization for this resource type
+
+    # For schemas, we use per-URN optimization via schema_urn_needs_params() instead
+    # of type-level optimization. Return True here to avoid the type-level cache blocking
+    # individual schema checks.
+    if resource_type == ResourceType.SCHEMA:
+        return True  # Delegate to per-URN check
+
+    # Check all resources of this type in manifest
+    for urn in manifest.urns:
+        if urn.resource_type != resource_type:
+            continue
+        item = manifest[urn]
+        if isinstance(item, ManifestResource):
+            # Skip implicit resources (like PUBLIC schema created by database)
+            if item.implicit:
+                continue
+            # Only consider fields that have non-None values
+            # Fields with None values indicate the user didn't explicitly set them
+            for field in param_fields:
+                if field in item.data and item.data[field] is not None:
+                    return True  # At least one resource specifies a non-None parameter field
+    return False  # No resources of this type specify parameter fields with values
+
+
+def databases_with_param_fields(manifest: "Manifest") -> set:
+    """
+    Return the set of database names that have param fields set in the manifest.
+    Used to determine which PUBLIC schemas need param fetching (they inherit from database).
+    """
+    db_param_fields = data_provider.PARAMETER_FIELDS.get("database", set())
+    databases = set()
+    for urn in manifest.urns:
+        if urn.resource_type != ResourceType.DATABASE:
+            continue
+        item = manifest[urn]
+        if isinstance(item, ManifestResource):
+            for field in db_param_fields:
+                if field in item.data and item.data[field] is not None:
+                    databases.add(str(urn.fqn.name).upper())
+                    break
+    return databases
+
+
+def schema_urn_needs_params(urn: URN, manifest: "Manifest", db_with_params: set) -> bool:
+    """
+    Check if a specific schema URN needs parameter fields fetched.
+
+    A schema needs params if:
+    1. The schema is in the manifest with param fields set, OR
+    2. The schema is PUBLIC and its parent database has param fields (inheritance)
+
+    Args:
+        urn: The schema URN to check
+        manifest: The manifest to check against
+        db_with_params: Set of database names that have param fields set
+
+    Returns:
+        True if this schema needs params fetched, False otherwise
+    """
+    schema_param_fields = data_provider.PARAMETER_FIELDS.get("schema", set())
+
+    # Check if this schema is in manifest with param fields
+    if urn in manifest.urns:
+        item = manifest[urn]
+        if isinstance(item, ManifestResource):
+            for field in schema_param_fields:
+                if field in item.data and item.data[field] is not None:
+                    return True
+
+    # Check if this is a PUBLIC schema whose database has param fields
+    schema_name = str(urn.fqn.name).upper()
+    if schema_name == "PUBLIC":
+        db_name = str(urn.fqn.database).upper() if urn.fqn.database else None
+        if db_name and db_name in db_with_params:
+            return True
+
+    return False
+
+
+def manifest_has_future_grants(manifest: "Manifest") -> bool:
+    """
+    Check if the manifest contains any future grants.
+
+    This is used to optimize list_grants by skipping expensive SHOW FUTURE GRANTS
+    queries when the manifest doesn't define any future grants.
+    """
+    for urn in manifest.urns:
+        if urn.resource_type != ResourceType.GRANT:
+            continue
+        item = manifest[urn]
+        if isinstance(item, ManifestResource):
+            if item.data.get("grant_type") == "FUTURE":
+                return True
+    return False
+
+
+def manifest_future_grant_roles(manifest: "Manifest") -> set:
+    """
+    Return the set of role names that have future grants in the manifest.
+
+    This is used to optimize SHOW FUTURE GRANTS by only querying roles
+    that actually have future grants defined in the manifest.
+    """
+    roles = set()
+    for urn in manifest.urns:
+        if urn.resource_type != ResourceType.GRANT:
+            continue
+        item = manifest[urn]
+        if isinstance(item, ManifestResource):
+            if item.data.get("grant_type") == "FUTURE":
+                # The "to" field contains the role name (FQN string)
+                to = item.data.get("to", "")
+                if to:
+                    # Handle both formats: "role/SOME_ROLE" or just "SOME_ROLE"
+                    if "/" in to:
+                        role_name = to.split("/", 1)[1]
+                    else:
+                        role_name = to
+                    roles.add(role_name.upper())
+    return roles
+
+
 @dataclass
 class ResourceChange(ABC):
     urn: URN
@@ -560,6 +736,7 @@ class Blueprint:
         database: Optional[str] = None,
         schema: Optional[str] = None,
         threads: int = 8,
+        use_account_usage: bool = False,
     ) -> None:
         self._config = BlueprintConfig(
             name=name,
@@ -572,6 +749,7 @@ class Blueprint:
             database=ResourceName(database) if database else None,
             schema=ResourceName(schema) if schema else None,
             threads=max(1, threads),  # Ensure at least 1 thread
+            use_account_usage=use_account_usage,
         )
         self._finalized = False
         self._staged: list[Resource] = []
@@ -662,10 +840,24 @@ class Blueprint:
 
         data_provider.use_secondary_roles(session, all=True)
 
+        # Pre-populate ACCOUNT_USAGE caches if enabled
+        # This avoids many individual SHOW GRANTS commands later
+        if self._config.use_account_usage:
+            data_provider.populate_account_usage_caches(session)
+
         if self._config.sync_resources:
             urns = [item for item in manifest.urns if item.resource_type not in self._config.sync_resources]
+            # Pre-compute whether manifest has future grants (for GRANT sync optimization)
+            has_future_grants = manifest_has_future_grants(manifest)
+            future_grant_roles = manifest_future_grant_roles(manifest) if has_future_grants else set()
             for resource_type in self._config.sync_resources:
-                for fqn in data_provider.list_resource(session, resource_label_for_type(resource_type)):
+                # Pass include_future_grants=False for grants if manifest has no future grants
+                # Also pass future_grant_roles to only query roles that have future grants
+                list_kwargs: dict[str, Any] = {}
+                if resource_type == ResourceType.GRANT:
+                    list_kwargs["include_future_grants"] = has_future_grants
+                    list_kwargs["future_grant_roles"] = future_grant_roles
+                for fqn in data_provider.list_resource(session, resource_label_for_type(resource_type), **list_kwargs):
                     if self._config.scope == BlueprintScope.DATABASE and fqn.database != self._config.database:
                         continue
                     if self._config.scope == BlueprintScope.SCHEMA and fqn.schema != self._config.schema:
@@ -683,8 +875,39 @@ class Blueprint:
 
         urns = list(set(urns))  # Deduplicate urns
 
+        # Pre-compute which databases have param fields (for schema inheritance check)
+        db_with_params = databases_with_param_fields(manifest)
+
+        def _needs_params(urn: URN) -> bool:
+            """Check if this resource needs parameter fields fetched."""
+            resource_type = urn.resource_type
+
+            # For resources not in manifest, skip params entirely
+            # Params are only needed for comparing against manifest values
+            # This applies to both sync_resources types (remote-only, will be deleted)
+            # and non-sync types (shouldn't happen, we only fetch manifest URNs for those)
+            if urn not in manifest.urns:
+                return False
+
+            # For schemas, use per-URN check (only PUBLIC schemas with db params, or schemas with own params)
+            if resource_type == ResourceType.SCHEMA:
+                return schema_urn_needs_params(urn, manifest, db_with_params)
+
+            # For other resource types with param fields, check per-URN
+            # This avoids fetching params for resources that don't specify param values
+            # Works for both sync_resources and non-sync manifest resources
+            return resource_urn_needs_params(urn, manifest)
+
         with ThreadPoolExecutor(max_workers=self._config.threads) as executor:
-            future_to_urn = {executor.submit(data_provider.fetch_resource, session, urn): urn for urn in urns}
+            future_to_urn = {
+                executor.submit(
+                    data_provider.fetch_resource,
+                    session,
+                    urn,
+                    include_params=_needs_params(urn)
+                ): urn
+                for urn in urns
+            }
             for future in as_completed(future_to_urn):
                 urn = future_to_urn[future]
                 try:
@@ -700,14 +923,14 @@ class Blueprint:
                                 else Resource.resolve_resource_cls(urn.resource_type, data)
                             )
                         state[urn] = resource_cls.spec(**data).to_dict(session_ctx["account_edition"])
-                    else:
-                        if self._config.sync_resources and urn.resource_type in self._config.sync_resources:
-                            raise MissingResourceException(f"Resource {urn} not found")
+                    # If data is None, resource doesn't exist in Snowflake
+                    # Don't add to state - reconciliation will create it
                 except Exception as e:
                     logger.error(f"Failed to fetch resource {urn}: {e}")
                     raise  # Stop processing if any fetch fails
 
         # Check for references that are not in the state
+        # Skip params and detailed queries for references - we just need to verify they exist
         checked_refs = []
         for parent, reference in manifest.refs:
             if reference in manifest.urns or reference in state or reference in checked_refs:
@@ -716,7 +939,7 @@ class Blueprint:
                 "PUBLIC"
             )
             try:
-                data = data_provider.fetch_resource(session, reference)
+                data = data_provider.fetch_resource(session, reference, include_params=False, existence_only=True)
                 if data is None and not is_public_schema:
                     raise MissingResourceException(f"Resource {reference} required by {parent} not found")
                 else:
@@ -1020,6 +1243,20 @@ class Blueprint:
         remote_state = self.fetch_remote_state(session, manifest)
         try:
             finished_plan = diff(remote_state, manifest)
+            # Filter plan based on sync_resources:
+            # - For sync_resources types: keep ALL changes (full sync, YML is source of truth)
+            # - For non-sync_resources types: keep CREATE/UPDATE/TRANSFER but NOT DROP
+            #   (only sync resources that are defined in YML, don't delete remote-only resources)
+            if self._config.sync_resources:
+                finished_plan = [
+                    change for change in finished_plan
+                    if (
+                        # Keep all changes for sync_resources types
+                        change.urn.resource_type in self._config.sync_resources
+                        # For non-sync types, keep everything except DROP
+                        or not isinstance(change, DropResource)
+                    )
+                ]
             # Compute dependency levels
             resource_set = set(manifest.urns + list(remote_state.keys()))
             for ref in manifest.refs:
@@ -1470,6 +1707,9 @@ def diff(remote_state: State, manifest: Manifest) -> list:
         for field_name in lhs.keys():
             lhs_value = lhs[field_name]
             rhs_value = rhs[field_name]
+            # Skip fields where manifest value is None - means "use Snowflake default/inherit"
+            if rhs_value is None:
+                continue
             if lhs_value != rhs_value:
                 delta[field_name] = rhs_value
         return delta

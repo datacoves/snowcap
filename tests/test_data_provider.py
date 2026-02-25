@@ -747,3 +747,445 @@ class TestFetchRegion:
         result = fetch_region(mock_session)
 
         assert result == {"CURRENT_REGION()": "AWS_US_WEST_2"}
+
+
+# ================================
+# ACCOUNT_USAGE Unit Tests
+# ================================
+
+
+class TestHasAccountUsageAccess:
+    """Tests for _has_account_usage_access function."""
+
+    def setup_method(self):
+        """Clear caches before each test."""
+        from snowcap.data_provider import (
+            _ACCOUNT_USAGE_ACCESS_CACHE,
+            _ACCOUNT_USAGE_FALLBACK_CACHE,
+        )
+        _ACCOUNT_USAGE_ACCESS_CACHE.clear()
+        _ACCOUNT_USAGE_FALLBACK_CACHE.clear()
+
+    @patch("snowcap.data_provider.execute")
+    def test_returns_true_when_access_granted(self, mock_execute):
+        """When ACCOUNT_USAGE query succeeds, function returns True."""
+        from snowcap.data_provider import _has_account_usage_access
+        mock_execute.return_value = [{"1": 1}]  # Query succeeds
+        mock_session = MagicMock()
+
+        result = _has_account_usage_access(mock_session)
+
+        assert result is True
+        mock_execute.assert_called_once()
+        assert "SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_ROLES" in mock_execute.call_args[0][1]
+
+    @patch("snowcap.data_provider.execute")
+    def test_returns_false_on_access_control_error(self, mock_execute):
+        """When ACCOUNT_USAGE query fails with ACCESS_CONTROL_ERR, returns False."""
+        from snowflake.connector.errors import ProgrammingError
+        from snowcap.data_provider import _has_account_usage_access
+        from snowcap.client import ACCESS_CONTROL_ERR
+
+        mock_execute.side_effect = ProgrammingError(errno=ACCESS_CONTROL_ERR)
+        mock_session = MagicMock()
+
+        result = _has_account_usage_access(mock_session)
+
+        assert result is False
+
+    @patch("snowcap.data_provider.execute")
+    def test_raises_on_other_programming_errors(self, mock_execute):
+        """Other ProgrammingErrors should be re-raised."""
+        from snowflake.connector.errors import ProgrammingError
+        from snowcap.data_provider import _has_account_usage_access
+
+        mock_execute.side_effect = ProgrammingError(errno=1234)
+        mock_session = MagicMock()
+
+        with pytest.raises(ProgrammingError):
+            _has_account_usage_access(mock_session)
+
+    @patch("snowcap.data_provider.execute")
+    def test_caches_result_per_session(self, mock_execute):
+        """Result should be cached per session to avoid repeated queries."""
+        from snowcap.data_provider import _has_account_usage_access
+        mock_execute.return_value = [{"1": 1}]
+        mock_session = MagicMock()
+
+        # First call
+        result1 = _has_account_usage_access(mock_session)
+        # Second call - should use cache
+        result2 = _has_account_usage_access(mock_session)
+
+        assert result1 is True
+        assert result2 is True
+        # Should only be called once due to caching
+        assert mock_execute.call_count == 1
+
+    @patch("snowcap.data_provider.execute")
+    def test_different_sessions_have_independent_cache(self, mock_execute):
+        """Different sessions should have independent cache entries."""
+        from snowcap.data_provider import _has_account_usage_access
+        mock_execute.return_value = [{"1": 1}]
+        session1 = MagicMock()
+        session2 = MagicMock()
+
+        _has_account_usage_access(session1)
+        _has_account_usage_access(session2)
+
+        # Both sessions should trigger their own query
+        assert mock_execute.call_count == 2
+
+
+class TestFetchGrantsFromAccountUsage:
+    """Tests for _fetch_grants_from_account_usage function."""
+
+    def setup_method(self):
+        """Clear caches before each test."""
+        from snowcap.data_provider import (
+            _ACCOUNT_USAGE_ACCESS_CACHE,
+            _ACCOUNT_USAGE_FALLBACK_CACHE,
+        )
+        _ACCOUNT_USAGE_ACCESS_CACHE.clear()
+        _ACCOUNT_USAGE_FALLBACK_CACHE.clear()
+
+    @patch("snowcap.data_provider.execute")
+    def test_returns_normalized_grants(self, mock_execute):
+        """Grants should be normalized to match SHOW GRANTS structure."""
+        from snowcap.data_provider import _fetch_grants_from_account_usage
+        from datetime import datetime
+
+        mock_execute.return_value = [
+            {
+                "CREATED_ON": datetime(2024, 1, 1, 12, 0, 0),
+                "PRIVILEGE": "SELECT",
+                "GRANTED_ON": "TABLE",
+                "NAME": "MY_DB.MY_SCHEMA.MY_TABLE",
+                "GRANTED_TO": "ACCOUNT ROLE",
+                "GRANTEE_NAME": "MY_ROLE",
+                "GRANT_OPTION": True,
+                "GRANTED_BY": "SYSADMIN",
+            }
+        ]
+        mock_session = MagicMock()
+
+        result = _fetch_grants_from_account_usage(mock_session)
+
+        assert result is not None
+        assert len(result) == 1
+        grant = result[0]
+        # Check lowercase keys
+        assert "privilege" in grant
+        assert "granted_on" in grant
+        # Check ACCOUNT ROLE -> ROLE conversion
+        assert grant["granted_to"] == "ROLE"
+        # Check boolean -> string conversion
+        assert grant["grant_option"] == "true"
+
+    @patch("snowcap.data_provider.execute")
+    def test_converts_database_role_granted_to(self, mock_execute):
+        """DATABASE_ROLE should be converted to DATABASE ROLE."""
+        from snowcap.data_provider import _fetch_grants_from_account_usage
+        from datetime import datetime
+
+        mock_execute.return_value = [
+            {
+                "CREATED_ON": datetime(2024, 1, 1, 12, 0, 0),
+                "PRIVILEGE": "USAGE",
+                "GRANTED_ON": "DATABASE",
+                "NAME": "MY_DB",
+                "GRANTED_TO": "DATABASE_ROLE",
+                "GRANTEE_NAME": "MY_DB.MY_DB_ROLE",
+                "GRANT_OPTION": False,
+                "GRANTED_BY": "SYSADMIN",
+            }
+        ]
+        mock_session = MagicMock()
+
+        result = _fetch_grants_from_account_usage(mock_session)
+
+        assert result is not None
+        assert result[0]["granted_to"] == "DATABASE ROLE"
+        assert result[0]["grant_option"] == "false"
+
+    @patch("snowcap.data_provider.execute")
+    def test_returns_none_on_access_control_error(self, mock_execute):
+        """Returns None on permission error (signaling fallback needed)."""
+        from snowflake.connector.errors import ProgrammingError
+        from snowcap.data_provider import _fetch_grants_from_account_usage
+        from snowcap.client import ACCESS_CONTROL_ERR
+
+        mock_execute.side_effect = ProgrammingError(errno=ACCESS_CONTROL_ERR)
+        mock_session = MagicMock()
+
+        result = _fetch_grants_from_account_usage(mock_session)
+
+        assert result is None
+
+    @patch("snowcap.data_provider.execute")
+    def test_returns_none_on_unexpected_error(self, mock_execute):
+        """Returns None on unexpected error (signaling fallback needed)."""
+        from snowcap.data_provider import _fetch_grants_from_account_usage
+
+        mock_execute.side_effect = Exception("Unexpected error")
+        mock_session = MagicMock()
+
+        result = _fetch_grants_from_account_usage(mock_session)
+
+        assert result is None
+
+    @patch("snowcap.data_provider.execute")
+    def test_marks_fallback_on_error(self, mock_execute):
+        """On error, should mark fallback cache for this session."""
+        from snowcap.data_provider import (
+            _fetch_grants_from_account_usage,
+            _ACCOUNT_USAGE_FALLBACK_CACHE,
+        )
+
+        mock_execute.side_effect = Exception("Unexpected error")
+        mock_session = MagicMock()
+
+        _fetch_grants_from_account_usage(mock_session)
+
+        # Fallback should be marked
+        assert _ACCOUNT_USAGE_FALLBACK_CACHE.get(id(mock_session)) is True
+
+
+class TestFetchRoleGrantsToUsersFromAccountUsage:
+    """Tests for _fetch_role_grants_to_users_from_account_usage function."""
+
+    def setup_method(self):
+        """Clear caches before each test."""
+        from snowcap.data_provider import (
+            _ACCOUNT_USAGE_ACCESS_CACHE,
+            _ACCOUNT_USAGE_FALLBACK_CACHE,
+        )
+        _ACCOUNT_USAGE_ACCESS_CACHE.clear()
+        _ACCOUNT_USAGE_FALLBACK_CACHE.clear()
+
+    @patch("snowcap.data_provider.execute")
+    def test_returns_normalized_user_grants(self, mock_execute):
+        """User grants should be normalized to match SHOW GRANTS OF ROLE structure."""
+        from snowcap.data_provider import _fetch_role_grants_to_users_from_account_usage
+        from datetime import datetime
+
+        mock_execute.return_value = [
+            {
+                "CREATED_ON": datetime(2024, 1, 1, 12, 0, 0),
+                "ROLE": "MY_ROLE",
+                "GRANTED_TO": "USER",
+                "GRANTEE_NAME": "MY_USER",
+                "GRANTED_BY": "SECURITYADMIN",
+            }
+        ]
+        mock_session = MagicMock()
+
+        result = _fetch_role_grants_to_users_from_account_usage(mock_session)
+
+        assert result is not None
+        assert len(result) == 1
+        grant = result[0]
+        assert "role" in grant
+        assert grant["role"] == "MY_ROLE"
+        assert grant["granted_to"] == "USER"
+        assert grant["grantee_name"] == "MY_USER"
+
+    @patch("snowcap.data_provider.execute")
+    def test_returns_none_on_error(self, mock_execute):
+        """Returns None on error (signaling fallback needed)."""
+        from snowcap.data_provider import _fetch_role_grants_to_users_from_account_usage
+
+        mock_execute.side_effect = Exception("Unexpected error")
+        mock_session = MagicMock()
+
+        result = _fetch_role_grants_to_users_from_account_usage(mock_session)
+
+        assert result is None
+
+
+class TestShouldUseAccountUsage:
+    """Tests for _should_use_account_usage helper function."""
+
+    def setup_method(self):
+        """Clear caches before each test."""
+        from snowcap.data_provider import (
+            _ACCOUNT_USAGE_ACCESS_CACHE,
+            _ACCOUNT_USAGE_FALLBACK_CACHE,
+        )
+        _ACCOUNT_USAGE_ACCESS_CACHE.clear()
+        _ACCOUNT_USAGE_FALLBACK_CACHE.clear()
+
+    @patch("snowcap.data_provider._has_account_usage_access")
+    def test_returns_false_when_config_disabled(self, mock_has_access):
+        """Returns False when use_account_usage config is False."""
+        from snowcap.data_provider import _should_use_account_usage
+        mock_session = MagicMock()
+
+        result = _should_use_account_usage(mock_session, use_account_usage=False)
+
+        assert result is False
+        # Should not even check access when config is disabled
+        mock_has_access.assert_not_called()
+
+    @patch("snowcap.data_provider._has_account_usage_access")
+    def test_returns_false_when_fallback_cached(self, mock_has_access):
+        """Returns False when session has previous ACCOUNT_USAGE failures."""
+        from snowcap.data_provider import (
+            _should_use_account_usage,
+            _ACCOUNT_USAGE_FALLBACK_CACHE,
+        )
+        mock_session = MagicMock()
+        _ACCOUNT_USAGE_FALLBACK_CACHE[id(mock_session)] = True
+
+        result = _should_use_account_usage(mock_session, use_account_usage=True)
+
+        assert result is False
+        # Should not check access when fallback is cached
+        mock_has_access.assert_not_called()
+
+    @patch("snowcap.data_provider._has_account_usage_access")
+    def test_returns_access_check_result_when_enabled(self, mock_has_access):
+        """Returns result of _has_account_usage_access when config is enabled."""
+        from snowcap.data_provider import _should_use_account_usage
+        mock_session = MagicMock()
+        mock_has_access.return_value = True
+
+        result = _should_use_account_usage(mock_session, use_account_usage=True)
+
+        assert result is True
+        mock_has_access.assert_called_once_with(mock_session)
+
+    @patch("snowcap.data_provider._has_account_usage_access")
+    def test_returns_false_when_no_access(self, mock_has_access):
+        """Returns False when session doesn't have ACCOUNT_USAGE access."""
+        from snowcap.data_provider import _should_use_account_usage
+        mock_session = MagicMock()
+        mock_has_access.return_value = False
+
+        result = _should_use_account_usage(mock_session, use_account_usage=True)
+
+        assert result is False
+
+
+class TestMarkAccountUsageFallback:
+    """Tests for _mark_account_usage_fallback function."""
+
+    def setup_method(self):
+        """Clear caches before each test."""
+        from snowcap.data_provider import _ACCOUNT_USAGE_FALLBACK_CACHE
+        _ACCOUNT_USAGE_FALLBACK_CACHE.clear()
+
+    def test_marks_session_for_fallback(self):
+        """Should mark session ID in fallback cache."""
+        from snowcap.data_provider import (
+            _mark_account_usage_fallback,
+            _ACCOUNT_USAGE_FALLBACK_CACHE,
+        )
+        mock_session = MagicMock()
+
+        _mark_account_usage_fallback(mock_session)
+
+        assert _ACCOUNT_USAGE_FALLBACK_CACHE.get(id(mock_session)) is True
+
+
+class TestFetchRolePrivilegesAccountUsage:
+    """Tests for fetch_role_privileges with ACCOUNT_USAGE integration."""
+
+    def setup_method(self):
+        """Clear caches before each test."""
+        from snowcap.data_provider import (
+            _ACCOUNT_USAGE_ACCESS_CACHE,
+            _ACCOUNT_USAGE_FALLBACK_CACHE,
+        )
+        _ACCOUNT_USAGE_ACCESS_CACHE.clear()
+        _ACCOUNT_USAGE_FALLBACK_CACHE.clear()
+
+    @patch("snowcap.data_provider._should_use_account_usage")
+    @patch("snowcap.data_provider._fetch_grants_from_account_usage")
+    @patch("snowcap.data_provider._show_grants_to_role")
+    def test_uses_account_usage_when_enabled_and_available(
+        self, mock_show_grants, mock_fetch_au, mock_should_use
+    ):
+        """When ACCOUNT_USAGE is enabled and available, uses ACCOUNT_USAGE."""
+        from snowcap.data_provider import fetch_role_privileges
+        from datetime import datetime
+
+        mock_should_use.return_value = True
+        mock_fetch_au.return_value = [
+            {
+                "created_on": datetime(2024, 1, 1, 12, 0, 0),
+                "privilege": "USAGE",
+                "granted_on": "DATABASE",
+                "name": "MY_DB",
+                "granted_to": "ROLE",
+                "grantee_name": "MY_ROLE",
+                "grant_option": "false",
+                "granted_by": "SYSADMIN",
+            }
+        ]
+        mock_session = MagicMock()
+        roles = {"MY_ROLE": MagicMock()}
+
+        result = fetch_role_privileges(mock_session, roles, use_account_usage=True)
+
+        mock_should_use.assert_called_once()
+        mock_fetch_au.assert_called_once()
+        # SHOW GRANTS should not be called when ACCOUNT_USAGE succeeds
+        mock_show_grants.assert_not_called()
+        assert "MY_ROLE" in result
+
+    @patch("snowcap.data_provider._should_use_account_usage")
+    @patch("snowcap.data_provider._show_grants_to_role")
+    def test_falls_back_to_show_when_disabled(self, mock_show_grants, mock_should_use):
+        """When ACCOUNT_USAGE is disabled, uses SHOW GRANTS."""
+        from snowcap.data_provider import fetch_role_privileges
+
+        mock_should_use.return_value = False
+        mock_show_grants.return_value = []
+        mock_session = MagicMock()
+        roles = {"MY_ROLE": MagicMock()}
+
+        fetch_role_privileges(mock_session, roles, use_account_usage=False)
+
+        mock_show_grants.assert_called()
+
+    @patch("snowcap.data_provider._should_use_account_usage")
+    @patch("snowcap.data_provider._fetch_grants_from_account_usage")
+    @patch("snowcap.data_provider._show_grants_to_role")
+    def test_falls_back_when_account_usage_returns_none(
+        self, mock_show_grants, mock_fetch_au, mock_should_use
+    ):
+        """When ACCOUNT_USAGE query fails (returns None), falls back to SHOW."""
+        from snowcap.data_provider import fetch_role_privileges
+
+        mock_should_use.return_value = True
+        mock_fetch_au.return_value = None  # Signals failure
+        mock_show_grants.return_value = []
+        mock_session = MagicMock()
+        roles = {"MY_ROLE": MagicMock()}
+
+        fetch_role_privileges(mock_session, roles, use_account_usage=True)
+
+        # Both should be called - ACCOUNT_USAGE first, then fallback
+        mock_fetch_au.assert_called_once()
+        mock_show_grants.assert_called()
+
+
+class TestBlueprintConfigUseAccountUsage:
+    """Tests for use_account_usage config flag in BlueprintConfig."""
+
+    def test_default_is_false(self):
+        """use_account_usage should default to False for performance (small manifests)."""
+        from snowcap.blueprint_config import BlueprintConfig
+
+        config = BlueprintConfig()
+
+        assert config.use_account_usage is False
+
+    def test_can_be_set_to_false(self):
+        """use_account_usage can be explicitly set to False."""
+        from snowcap.blueprint_config import BlueprintConfig
+
+        config = BlueprintConfig(use_account_usage=False)
+
+        assert config.use_account_usage is False

@@ -100,14 +100,39 @@ def _coerce_resource_field(field_value, field_type):
         else:
             raise TypeError
 
-    # Check for field_value's type in a Union
+    # Check for field_value's type in a Union (e.g., Optional[int] = Union[int, None])
     elif get_origin(field_type) == Union:
         union_types = get_args(field_type)
+        # Handle None values directly
+        if field_value is None:
+            if type(None) in union_types:
+                return None
+            raise TypeError
+        # Try to coerce to each non-None type in the union
         for union_type in union_types:
+            if union_type is type(None):
+                continue
             expected_type = get_origin(union_type) or union_type
+            # If already the right type, coerce it
             if isinstance(field_value, expected_type):
                 return _coerce_resource_field(field_value, field_type=expected_type)
-        raise RuntimeError(f"Unexpected field type {field_type}")
+            # Try to convert strings to int for Optional[int]
+            if expected_type is int and isinstance(field_value, str):
+                try:
+                    return int(field_value)
+                except ValueError:
+                    continue
+            # Try to coerce to Resource subclass for Optional[Resource]
+            if isinstance(expected_type, type) and issubclass(expected_type, Resource):
+                return convert_to_resource(expected_type, field_value)
+            # Try to coerce to enum for Optional[Enum]
+            if isinstance(expected_type, type) and issubclass(expected_type, ParseableEnum):
+                try:
+                    return expected_type(field_value)
+                except ValueError:
+                    continue
+        # Failed to coerce to any type in the union
+        raise TypeError
 
     elif not isclass(field_type):
         raise RuntimeError(f"Unexpected field type {field_type}")
@@ -183,6 +208,8 @@ class ResourceSpec:
 
         def _serialize_field(field, value):
             if field.name == "owner":
+                if value is None:
+                    return None
                 return str(value.fqn)
             elif isinstance(value, ResourcePointer):
                 return str(value.fqn)

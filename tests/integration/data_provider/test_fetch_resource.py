@@ -7,6 +7,7 @@ from tests.helpers import (
     assert_resource_dicts_eq_ignore_nulls,
     assert_resource_dicts_eq_ignore_nulls_and_unfetchable,
     clean_resource_data,
+    compare_fetched_to_fixture,
     safe_fetch,
 )
 from snowcap import data_provider
@@ -510,9 +511,7 @@ def test_fetch_task(cursor, suffix, marked_for_cleanup):
 
     result = safe_fetch(cursor, task.urn)
     assert result is not None
-    result = clean_resource_data(res.Task.spec, result)
-    data = clean_resource_data(res.Task.spec, task.to_dict())
-    assert result == data
+    compare_fetched_to_fixture(res.Task.spec, result, task.to_dict())
 
     task = res.Task(
         name=f"TEST_FETCH_TASK_WAREHOUSE_{suffix}",
@@ -533,9 +532,7 @@ def test_fetch_task(cursor, suffix, marked_for_cleanup):
 
     result = safe_fetch(cursor, task.urn)
     assert result is not None
-    result = clean_resource_data(res.Task.spec, result)
-    data = clean_resource_data(res.Task.spec, task.to_dict())
-    assert result == data
+    compare_fetched_to_fixture(res.Task.spec, result, task.to_dict())
 
 
 def test_fetch_task_trailing_whitespace(cursor, suffix, marked_for_cleanup):
@@ -553,9 +550,7 @@ def test_fetch_task_trailing_whitespace(cursor, suffix, marked_for_cleanup):
 
     result = safe_fetch(cursor, task.urn)
     assert result is not None
-    result = clean_resource_data(res.Task.spec, result)
-    data = clean_resource_data(res.Task.spec, task.to_dict())
-    assert result == data
+    compare_fetched_to_fixture(res.Task.spec, result, task.to_dict())
 
 
 def test_fetch_task_predecessor(cursor, suffix, marked_for_cleanup):
@@ -583,9 +578,7 @@ def test_fetch_task_predecessor(cursor, suffix, marked_for_cleanup):
 
     result = safe_fetch(cursor, child_task.urn)
     assert result is not None
-    result = clean_resource_data(res.Task.spec, result)
-    data = clean_resource_data(res.Task.spec, child_task.to_dict())
-    assert result == data
+    compare_fetched_to_fixture(res.Task.spec, result, child_task.to_dict())
 
 
 def test_fetch_database_role_grant(cursor, suffix, marked_for_cleanup):

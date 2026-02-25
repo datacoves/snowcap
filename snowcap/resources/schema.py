@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Optional
 
 from ..enums import ResourceType
 from ..props import FlagProp, IntProp, Props, StringProp, TagsProp
@@ -15,11 +16,11 @@ class _Schema(ResourceSpec):
     name: ResourceName
     transient: bool = False
     managed_access: bool = False
-    data_retention_time_in_days: int = 1
-    max_data_extension_time_in_days: int = 14
-    default_ddl_collation: str = None
+    data_retention_time_in_days: Optional[int] = None  # Inherit from database if not specified
+    max_data_extension_time_in_days: Optional[int] = None  # Inherit from database if not specified
+    default_ddl_collation: Optional[str] = None  # Inherit from database if not specified
     owner: RoleRef = "SYSADMIN"
-    comment: str = None
+    comment: Optional[str] = None
 
 
 class Schema(NamedResource, TaggableResource, Resource, ResourceContainer):
@@ -34,9 +35,9 @@ class Schema(NamedResource, TaggableResource, Resource, ResourceContainer):
         name (string, required): The name of the schema.
         transient (bool): Specifies if the schema is transient. Defaults to False.
         managed_access (bool): Specifies if the schema has managed access. Defaults to False.
-        data_retention_time_in_days (int): The number of days to retain data. Defaults to 1.
-        max_data_extension_time_in_days (int): The maximum number of days to extend data retention. Defaults to 14.
-        default_ddl_collation (string): The default DDL collation setting.
+        data_retention_time_in_days (int): The number of days to retain data. Inherits from database if not specified.
+        max_data_extension_time_in_days (int): The maximum number of days to extend data retention. Inherits from database if not specified.
+        default_ddl_collation (string): The default DDL collation setting. Inherits from database if not specified.
         tags (dict): Tags associated with the schema.
         owner (string or Role): The owner of the schema. Defaults to "SYSADMIN".
         comment (string): A comment about the schema.
@@ -48,9 +49,6 @@ class Schema(NamedResource, TaggableResource, Resource, ResourceContainer):
             name="some_schema",
             transient=True,
             managed_access=True,
-            data_retention_time_in_days=7,
-            max_data_extension_time_in_days=28,
-            default_ddl_collation="utf8",
             tags={"project": "analytics"},
             owner="SYSADMIN",
             comment="Schema for analytics project."
@@ -64,9 +62,6 @@ class Schema(NamedResource, TaggableResource, Resource, ResourceContainer):
           - name: some_schema
             transient: true
             managed_access: true
-            data_retention_time_in_days: 7
-            max_data_extension_time_in_days: 28
-            default_ddl_collation: utf8
             tags:
               project: analytics
             owner: SYSADMIN
@@ -92,8 +87,8 @@ class Schema(NamedResource, TaggableResource, Resource, ResourceContainer):
         name: str,
         transient: bool = False,
         managed_access: bool = False,
-        data_retention_time_in_days: int = 1,
-        max_data_extension_time_in_days: int = 14,
+        data_retention_time_in_days: int = None,
+        max_data_extension_time_in_days: int = None,
         default_ddl_collation: str = None,
         tags: dict[str, str] = None,
         owner: str = "SYSADMIN",

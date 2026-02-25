@@ -1,4 +1,5 @@
 import datetime
+import inspect
 import json
 import logging
 import sys
@@ -17,6 +18,7 @@ from .builtins import (
     SYSTEM_USERS,
 )
 from .client import (
+    ACCESS_CONTROL_ERR,
     DOES_NOT_EXIST_ERR,
     INVALID_IDENTIFIER,
     OBJECT_DOES_NOT_EXIST_ERR,
@@ -43,6 +45,17 @@ from .resource_name import (
 __this__ = sys.modules[__name__]
 
 logger = logging.getLogger("snowcap")
+
+# Cache for inspect.signature() results to avoid repeated introspection
+_SIGNATURE_CACHE: dict[str, inspect.Signature] = {}
+
+
+def _get_cached_signature(func_name: str) -> inspect.Signature:
+    """Get the signature for a function, caching the result."""
+    if func_name not in _SIGNATURE_CACHE:
+        func = getattr(__this__, func_name)
+        _SIGNATURE_CACHE[func_name] = inspect.signature(func)
+    return _SIGNATURE_CACHE[func_name]
 
 
 class SessionContext(TypedDict):
@@ -346,12 +359,13 @@ def _cast_param_value(raw_value: str, param_type: str) -> Any:
     if param_type == "BOOLEAN":
         return raw_value == "true"
     elif param_type == "NUMBER":
-        if raw_value.isdigit():
+        try:
             return int(raw_value)
-        elif raw_value.replace(".", "", 1).isdigit():
-            return float(raw_value)
-        else:
-            raise Exception(f"Unsupported number type: {raw_value}")
+        except ValueError:
+            try:
+                return float(raw_value)
+            except ValueError:
+                raise Exception(f"Unsupported number type: {raw_value}")
     elif param_type == "STRING":
         return str(raw_value) if raw_value else None
     else:
@@ -537,8 +551,16 @@ def _show_grants_to_role(
     role: ResourceName,
     role_type: ResourceType = ResourceType.ROLE,
     cacheable: bool = False,
+    use_account_usage: bool = False,
 ) -> list[dict[str, Any]]:
     """
+    Get grants to a role, using ACCOUNT_USAGE cache when available.
+
+    When use_account_usage is True and ACCOUNT_USAGE data is cached, filters the
+    cached data instead of issuing a SHOW GRANTS command. Falls back to SHOW GRANTS
+    when ACCOUNT_USAGE is unavailable or for database roles.
+
+    Returns:
     {
         'created_on': datetime.datetime(2024, 2, 28, 20, 5, 32, 166000, tzinfo=<DstTzInfo 'America/Los_Angeles' PST-1 day, 16:00:00 STD>),
         'privilege': 'USAGE',
@@ -550,6 +572,20 @@ def _show_grants_to_role(
         'granted_by': 'ACCOUNTADMIN'
     }
     """
+    # Try to use ACCOUNT_USAGE cache for regular roles
+    if use_account_usage and role_type == ResourceType.ROLE:
+        session_id = id(session)
+        if session_id in _ACCOUNT_USAGE_GRANTS_CACHE:
+            # Filter cached grants by role name (case-insensitive)
+            role_upper = str(role).upper()
+            filtered_grants = [
+                grant for grant in _ACCOUNT_USAGE_GRANTS_CACHE[session_id]
+                if grant["grantee_name"].upper() == role_upper and grant["granted_to"] == "ROLE"
+            ]
+            logger.debug(f"Using ACCOUNT_USAGE cache for grants to role {role} ({len(filtered_grants)} grants)")
+            return filtered_grants
+
+    # Fall back to SHOW GRANTS
     grants = execute(
         session,
         f"SHOW GRANTS TO {role_type} {role}",
@@ -599,9 +635,52 @@ def use_role(session: SnowflakeConnection, role_name: ResourceName):
     execute(session, f"USE ROLE {role_name}")
 
 
-def fetch_resource(session: SnowflakeConnection, urn: URN) -> Optional[dict]:
+# Fields that come from SHOW PARAMETERS queries (expensive to fetch)
+# If manifest doesn't specify these fields, we can skip the SHOW PARAMETERS query
+# Only includes fields that are actually returned by the fetch functions
+PARAMETER_FIELDS = {
+    "database": {"max_data_extension_time_in_days", "external_volume", "catalog", "default_ddl_collation"},
+    "schema": {"max_data_extension_time_in_days", "default_ddl_collation"},
+    "user": {"network_policy"},
+    "warehouse": {"max_concurrency_level", "statement_queued_timeout_in_seconds", "statement_timeout_in_seconds"},
+    "table": {"default_ddl_collation"},
+    "task": {"suspend_task_after_num_failures", "user_task_managed_initial_warehouse_size", "user_task_timeout_ms"},
+    "iceberg_table": {
+        "catalog_sync",
+        "storage_serialization_policy",
+        "data_retention_time_in_days",
+        "max_data_extension_time_in_days",
+        "default_ddl_collation",
+    },
+}
+
+
+def fetch_resource(session: SnowflakeConnection, urn: URN, include_params: bool = True, existence_only: bool = False) -> Optional[dict]:
+    """
+    Fetch a resource from Snowflake.
+
+    Args:
+        session: Snowflake connection
+        urn: Resource URN
+        include_params: If False, skip expensive SHOW PARAMETERS queries.
+                       Use False when manifest doesn't specify parameter fields.
+        existence_only: If True, only check if resource exists (skip detailed queries like DESC USER).
+                       Use True for reference validation where we just need to verify existence.
+    """
     try:
-        return getattr(__this__, f"fetch_{urn.resource_label}")(session, urn.fqn)
+        func_name = f"fetch_{urn.resource_label}"
+        fetch_fn = getattr(__this__, func_name)
+        # Check which optional parameters the fetch function accepts (cached)
+        sig = _get_cached_signature(func_name)
+        kwargs = {}
+        if "include_params" in sig.parameters:
+            kwargs["include_params"] = include_params
+        if "existence_only" in sig.parameters:
+            kwargs["existence_only"] = existence_only
+        if kwargs:
+            return fetch_fn(session, urn.fqn, **kwargs)
+        else:
+            return fetch_fn(session, urn.fqn)
     except ProgrammingError as err:
         # This try/catch block fixes a cache-inconsistency issue where _show_resources returns the object as it existed at the start of the cache window,
         # but _show_resource_parameters returns the object as it exists right now. If the object was dropped in between the cache window and the query execution,
@@ -668,17 +747,63 @@ def fetch_session(session: SnowflakeConnection) -> SessionContext:
 
 
 def fetch_role_privileges(
-    session: SnowflakeConnection, roles: list[ResourceName], cacheable: bool = True
+    session: SnowflakeConnection,
+    roles: list[ResourceName],
+    cacheable: bool = True,
+    use_account_usage: bool = False,
 ) -> dict[ResourceName, list[GrantedPrivilege]]:
     role_privileges: dict[ResourceName, list[GrantedPrivilege]] = {}
-    for role in roles:
 
-        # Adds 30+s of latency and we can infer what privs are available
-        if role == "ACCOUNTADMIN" or role.startswith("SNOWFLAKE."):
-            continue
+    # Filter out roles we skip (ACCOUNTADMIN and SNOWFLAKE.* roles)
+    processable_roles = [
+        role for role in roles if role != "ACCOUNTADMIN" and not role.startswith("SNOWFLAKE.")
+    ]
 
+    # Initialize empty lists for all processable roles
+    for role in processable_roles:
         role_privileges[role] = []
 
+    if not processable_roles:
+        return role_privileges
+
+    # Try ACCOUNT_USAGE if enabled and accessible
+    if _should_use_account_usage(session, use_account_usage):
+        logger.debug("fetch_role_privileges: Using ACCOUNT_USAGE for role privileges")
+        role_name_set = {role.upper() for role in processable_roles}
+        all_grants = _fetch_grants_from_account_usage(session)
+
+        # If ACCOUNT_USAGE query failed, fall back to SHOW queries
+        if all_grants is not None:
+            for grant in all_grants:
+                grantee_name = grant["grantee_name"]
+                # Only process grants for roles we care about (case-insensitive)
+                if grantee_name.upper() not in role_name_set:
+                    continue
+
+                # Find the original role name (preserve case)
+                role_match = next(
+                    (role for role in processable_roles if role.upper() == grantee_name.upper()), None
+                )
+                if role_match is None:
+                    continue
+
+                try:
+                    granted_priv = GrantedPrivilege.from_grant(
+                        privilege=grant["privilege"],
+                        granted_on=grant["granted_on"].replace("_", " "),
+                        name=grant["name"],
+                    )
+                    role_privileges[role_match].append(granted_priv)
+                # If snowcap isnt aware of the privilege, ignore it
+                except ValueError:
+                    continue
+
+            return role_privileges
+        # Fall through to SHOW queries if ACCOUNT_USAGE failed
+
+    # Fallback: Use SHOW GRANTS for each role
+    logger.debug("fetch_role_privileges: Using SHOW GRANTS for role privileges")
+    for role in processable_roles:
         grants = _show_grants_to_role(session, role, cacheable=cacheable)
         for grant in grants:
             try:
@@ -692,6 +817,376 @@ def fetch_role_privileges(
             except ValueError:
                 continue
     return role_privileges
+
+
+# ------------------------------
+# ACCOUNT_USAGE Access Check
+# ------------------------------
+
+# Cache for ACCOUNT_USAGE access check results (keyed by session id)
+_ACCOUNT_USAGE_ACCESS_CACHE: dict[int, bool] = {}
+
+# Cache for tracking sessions where ACCOUNT_USAGE queries failed at runtime
+# (distinct from permission errors - these are unexpected query failures)
+# When True, that session should fall back to SHOW queries
+_ACCOUNT_USAGE_FALLBACK_CACHE: dict[int, bool] = {}
+
+# Cache for ACCOUNT_USAGE grants data (keyed by session id)
+# Stores the normalized grant list from GRANTS_TO_ROLES
+_ACCOUNT_USAGE_GRANTS_CACHE: dict[int, list[dict[str, Any]]] = {}
+
+# Cache for ACCOUNT_USAGE role-to-user grants (keyed by session id)
+# Stores the normalized grant list from GRANTS_TO_USERS
+_ACCOUNT_USAGE_USER_GRANTS_CACHE: dict[int, list[dict[str, Any]]] = {}
+
+
+def reset_account_usage_caches() -> None:
+    """
+    Clear all ACCOUNT_USAGE caches.
+
+    This should be called when you need to force a fresh query of grant data,
+    such as after applying changes that create new grants.
+    """
+    global _ACCOUNT_USAGE_ACCESS_CACHE, _ACCOUNT_USAGE_FALLBACK_CACHE
+    global _ACCOUNT_USAGE_GRANTS_CACHE, _ACCOUNT_USAGE_USER_GRANTS_CACHE
+
+    _ACCOUNT_USAGE_ACCESS_CACHE.clear()
+    _ACCOUNT_USAGE_FALLBACK_CACHE.clear()
+    _ACCOUNT_USAGE_GRANTS_CACHE.clear()
+    _ACCOUNT_USAGE_USER_GRANTS_CACHE.clear()
+
+
+def _mark_account_usage_fallback(session: SnowflakeConnection) -> None:
+    """
+    Mark that ACCOUNT_USAGE queries failed for this session and we should fall back to SHOW queries.
+    This is used when a query unexpectedly fails (not permission error).
+    """
+    session_id = id(session)
+    _ACCOUNT_USAGE_FALLBACK_CACHE[session_id] = True
+    logger.warning("ACCOUNT_USAGE query failed - falling back to SHOW queries for this session")
+
+
+def _should_use_account_usage(session: SnowflakeConnection, use_account_usage: bool) -> bool:
+    """
+    Determine whether to use ACCOUNT_USAGE queries for grants.
+
+    Checks:
+    1. use_account_usage config flag is True
+    2. Session has ACCOUNT_USAGE access (IMPORTED PRIVILEGES)
+    3. Session hasn't had previous ACCOUNT_USAGE query failures
+
+    Returns:
+        True if ACCOUNT_USAGE should be used, False otherwise.
+    """
+    if not use_account_usage:
+        return False
+
+    session_id = id(session)
+    if _ACCOUNT_USAGE_FALLBACK_CACHE.get(session_id, False):
+        logger.debug("Skipping ACCOUNT_USAGE: previous query failure for this session")
+        return False
+
+    return _has_account_usage_access(session)
+
+
+def populate_account_usage_caches(session: SnowflakeConnection) -> bool:
+    """
+    Pre-populate ACCOUNT_USAGE caches for grants data.
+
+    This should be called early in the process when use_account_usage is True
+    to ensure the caches are populated before individual fetch functions are called.
+
+    Returns:
+        True if caches were populated successfully, False otherwise.
+    """
+    session_id = id(session)
+
+    # Skip if already populated
+    if session_id in _ACCOUNT_USAGE_GRANTS_CACHE and session_id in _ACCOUNT_USAGE_USER_GRANTS_CACHE:
+        return True
+
+    # Populate GRANTS_TO_ROLES cache
+    grants = _fetch_grants_from_account_usage(session)
+    if grants is None:
+        return False
+
+    # Populate GRANTS_TO_USERS cache
+    user_grants = _fetch_role_grants_to_users_from_account_usage(session)
+    if user_grants is None:
+        return False
+
+    logger.debug(f"Pre-populated ACCOUNT_USAGE caches: {len(grants)} role grants, {len(user_grants)} user grants")
+    return True
+
+
+def _has_account_usage_access(session: SnowflakeConnection) -> bool:
+    """
+    Check if the current session has IMPORTED PRIVILEGES on the SNOWFLAKE database.
+    This is required to query ACCOUNT_USAGE views.
+
+    Result is cached for the session to avoid repeated permission checks.
+
+    Returns:
+        True if query against ACCOUNT_USAGE succeeds, False if permission error.
+    """
+    session_id = id(session)
+    if session_id in _ACCOUNT_USAGE_ACCESS_CACHE:
+        return _ACCOUNT_USAGE_ACCESS_CACHE[session_id]
+
+    try:
+        execute(
+            session,
+            "SELECT 1 FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_ROLES LIMIT 1",
+            cacheable=True,
+        )
+        _ACCOUNT_USAGE_ACCESS_CACHE[session_id] = True
+        logger.debug("ACCOUNT_USAGE access check: access granted")
+        return True
+    except ProgrammingError as err:
+        if err.errno == ACCESS_CONTROL_ERR:
+            logger.debug("ACCOUNT_USAGE access check: access denied (missing IMPORTED PRIVILEGES)")
+            _ACCOUNT_USAGE_ACCESS_CACHE[session_id] = False
+            return False
+        # Re-raise unexpected errors
+        raise
+
+
+# ------------------------------
+# ACCOUNT_USAGE Grant Fetching
+# ------------------------------
+
+
+def _fetch_grants_from_account_usage(session: SnowflakeConnection) -> list[dict[str, Any]] | None:
+    """
+    Fetch all role grants from SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_ROLES in a single query.
+
+    Returns a list of grant dictionaries with keys matching SHOW GRANTS output:
+        - created_on: datetime when grant was created
+        - privilege: name of the privilege
+        - granted_on: object type (e.g., 'DATABASE', 'TABLE')
+        - name: object name
+        - granted_to: grantee type ('ROLE' or 'DATABASE_ROLE')
+        - grantee_name: name of the role receiving the grant
+        - grant_option: whether grant can be passed to others ('true' or 'false')
+        - granted_by: role that granted the privilege
+
+    Note: ACCOUNT_USAGE returns uppercase column names and slightly different values
+    (e.g., 'ACCOUNT ROLE' instead of 'ROLE'). This function normalizes the output
+    to match the SHOW GRANTS structure.
+
+    Results are cached per session to avoid repeated queries.
+
+    Returns:
+        List of grant dictionaries, or None if the query fails (signaling fallback needed).
+    """
+    # Check cache first
+    session_id = id(session)
+    if session_id in _ACCOUNT_USAGE_GRANTS_CACHE:
+        return _ACCOUNT_USAGE_GRANTS_CACHE[session_id]
+
+    query = """
+        SELECT
+            CREATED_ON,
+            PRIVILEGE,
+            GRANTED_ON,
+            NAME,
+            TABLE_CATALOG,
+            TABLE_SCHEMA,
+            GRANTED_TO,
+            GRANTEE_NAME,
+            GRANT_OPTION,
+            GRANTED_BY
+        FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_ROLES
+        WHERE DELETED_ON IS NULL
+    """
+    try:
+        results = execute(session, query, cacheable=True)
+    except ProgrammingError as err:
+        if err.errno == ACCESS_CONTROL_ERR:
+            logger.warning("ACCOUNT_USAGE query failed: access denied - falling back to SHOW queries")
+        else:
+            logger.warning(f"ACCOUNT_USAGE query failed with error {err.errno}: {err.msg} - falling back to SHOW queries")
+        _mark_account_usage_fallback(session)
+        return None
+    except Exception as err:
+        logger.warning(f"ACCOUNT_USAGE query failed unexpectedly: {err} - falling back to SHOW queries")
+        _mark_account_usage_fallback(session)
+        return None
+
+    # Normalize results to match SHOW GRANTS structure
+    normalized_grants = []
+    for row in results:
+        # ACCOUNT_USAGE returns 'ACCOUNT ROLE' but SHOW returns 'ROLE'
+        # Similarly 'DATABASE_ROLE' -> 'DATABASE ROLE' for consistency
+        granted_to = row["GRANTED_TO"]
+        if granted_to == "ACCOUNT ROLE":
+            granted_to = "ROLE"
+        elif granted_to == "DATABASE_ROLE":
+            granted_to = "DATABASE ROLE"
+
+        # GRANT_OPTION is boolean in ACCOUNT_USAGE but string in SHOW
+        grant_option = "true" if row["GRANT_OPTION"] else "false"
+
+        # Construct fully qualified name to match SHOW GRANTS output
+        # ACCOUNT_USAGE NAME column only has object name, not full path
+        granted_on = row["GRANTED_ON"]
+        name = row["NAME"]
+        table_catalog = row.get("TABLE_CATALOG")
+        table_schema = row.get("TABLE_SCHEMA")
+
+        if granted_on == "ACCOUNT":
+            # Account grants don't need qualification
+            pass
+        elif granted_on == "DATABASE":
+            # Database grants: NAME is already the database name
+            pass
+        elif granted_on == "SCHEMA":
+            # Schema grants: need DATABASE.SCHEMA
+            if table_catalog:
+                name = f"{table_catalog}.{name}"
+        elif granted_on in ("DATABASE ROLE",):
+            # Database role grants: need DATABASE.ROLE
+            if table_catalog:
+                name = f"{table_catalog}.{name}"
+        else:
+            # Schema-scoped objects (TABLE, VIEW, FUNCTION, etc.): need DATABASE.SCHEMA.OBJECT
+            if table_catalog and table_schema:
+                name = f"{table_catalog}.{table_schema}.{name}"
+
+        normalized_grants.append(
+            {
+                "created_on": row["CREATED_ON"],
+                "privilege": row["PRIVILEGE"],
+                "granted_on": granted_on,
+                "name": name,
+                "granted_to": granted_to,
+                "grantee_name": row["GRANTEE_NAME"],
+                "grant_option": grant_option,
+                "granted_by": row["GRANTED_BY"],
+            }
+        )
+
+    logger.debug(f"Fetched {len(normalized_grants)} grants from ACCOUNT_USAGE.GRANTS_TO_ROLES")
+
+    # Cache the results
+    _ACCOUNT_USAGE_GRANTS_CACHE[session_id] = normalized_grants
+
+    # Also mark that we have ACCOUNT_USAGE access (query succeeded)
+    _ACCOUNT_USAGE_ACCESS_CACHE[session_id] = True
+
+    return normalized_grants
+
+
+def _fetch_role_grants_to_users_from_account_usage(session: SnowflakeConnection) -> list[dict[str, Any]] | None:
+    """
+    Fetch all role-to-user grants from SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_USERS in a single query.
+
+    Returns a list of grant dictionaries with keys matching SHOW GRANTS OF ROLE output:
+        - created_on: datetime when grant was created
+        - role: name of the role being granted
+        - granted_to: always 'USER'
+        - grantee_name: name of the user receiving the grant
+        - granted_by: role that granted the privilege
+
+    Results are cached per session to avoid repeated queries.
+
+    Returns:
+        List of grant dictionaries, or None if the query fails (signaling fallback needed).
+    """
+    # Check cache first
+    session_id = id(session)
+    if session_id in _ACCOUNT_USAGE_USER_GRANTS_CACHE:
+        return _ACCOUNT_USAGE_USER_GRANTS_CACHE[session_id]
+
+    query = """
+        SELECT
+            CREATED_ON,
+            ROLE,
+            GRANTED_TO,
+            GRANTEE_NAME,
+            GRANTED_BY
+        FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_USERS
+        WHERE DELETED_ON IS NULL
+    """
+    try:
+        results = execute(session, query, cacheable=True)
+    except ProgrammingError as err:
+        if err.errno == ACCESS_CONTROL_ERR:
+            logger.warning("ACCOUNT_USAGE GRANTS_TO_USERS query failed: access denied - falling back to SHOW queries")
+        else:
+            logger.warning(f"ACCOUNT_USAGE GRANTS_TO_USERS query failed with error {err.errno}: {err.msg} - falling back to SHOW queries")
+        _mark_account_usage_fallback(session)
+        return None
+    except Exception as err:
+        logger.warning(f"ACCOUNT_USAGE GRANTS_TO_USERS query failed unexpectedly: {err} - falling back to SHOW queries")
+        _mark_account_usage_fallback(session)
+        return None
+
+    # Normalize results to match SHOW GRANTS OF ROLE structure
+    normalized_grants = []
+    for row in results:
+        normalized_grants.append(
+            {
+                "created_on": row["CREATED_ON"],
+                "role": row["ROLE"],
+                "granted_to": row["GRANTED_TO"],
+                "grantee_name": row["GRANTEE_NAME"],
+                "granted_by": row["GRANTED_BY"],
+            }
+        )
+
+    logger.debug(f"Fetched {len(normalized_grants)} role grants to users from ACCOUNT_USAGE.GRANTS_TO_USERS")
+
+    # Cache the results
+    _ACCOUNT_USAGE_USER_GRANTS_CACHE[session_id] = normalized_grants
+
+    return normalized_grants
+
+
+def _fetch_future_grants_for_all_roles(
+    session: SnowflakeConnection, role_names: list[ResourceName]
+) -> dict[str, list[dict[str, Any]]]:
+    """
+    Fetch future grants for all specified roles using SHOW FUTURE GRANTS commands.
+
+    Note: Future grants are NOT available in SNOWFLAKE.ACCOUNT_USAGE views.
+    They represent templates for privileges that will be applied when new objects
+    are created, not actual granted privileges. Therefore, SHOW FUTURE GRANTS
+    commands must be used.
+
+    Args:
+        session: Snowflake connection
+        role_names: List of role names to fetch future grants for
+
+    Returns:
+        Dictionary mapping role names (as strings) to their list of future grant dicts.
+        Each future grant dict has keys matching _show_future_grants_to_role() output:
+            - created_on: datetime when future grant was created
+            - privilege: name of the privilege
+            - grant_on: 'SCHEMA' (from SHOW output)
+            - granted_on: 'DATABASE' or 'SCHEMA' (inferred from name pattern)
+            - name: object pattern (e.g., 'DB_NAME.<SCHEMA>' or 'DB_NAME.SCHEMA_NAME.<TABLE>')
+            - grant_to: 'ROLE'
+            - grantee_name: name of the role receiving the future grant
+            - grant_option: 'true' or 'false'
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    future_grants_by_role: dict[str, list[dict[str, Any]]] = {}
+
+    def fetch_for_role(role_name: ResourceName) -> tuple[str, list[dict[str, Any]]]:
+        grants = _show_future_grants_to_role(session, role_name, cacheable=True)
+        return str(role_name), grants
+
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(fetch_for_role, role_name): role_name for role_name in role_names}
+        for future in as_completed(futures):
+            role_name_str, grants = future.result()
+            future_grants_by_role[role_name_str] = grants
+
+    total_grants = sum(len(g) for g in future_grants_by_role.values())
+    logger.debug(f"Fetched {total_grants} future grants for {len(role_names)} roles using SHOW FUTURE GRANTS")
+    return future_grants_by_role
 
 
 # ------------------------------
@@ -886,7 +1381,7 @@ def fetch_compute_pool(session: SnowflakeConnection, fqn: FQN):
     }
 
 
-def fetch_database(session: SnowflakeConnection, fqn: FQN):
+def fetch_database(session: SnowflakeConnection, fqn: FQN, include_params: bool = True):
     show_result = _show_resources(session, "DATABASES", fqn)
 
     if len(show_result) == 0:
@@ -903,7 +1398,19 @@ def fetch_database(session: SnowflakeConnection, fqn: FQN):
         return None
 
     options = options_result_to_list(data["options"])
-    params = _show_resource_parameters(session, "DATABASE", fqn)
+
+    # Only fetch parameters if needed (expensive SHOW PARAMETERS query)
+    if include_params:
+        params = _show_resource_parameters(session, "DATABASE", fqn)
+        max_data_extension = params.get("max_data_extension_time_in_days")
+        external_volume = params.get("external_volume")
+        catalog = params.get("catalog")
+        default_ddl_collation = params["default_ddl_collation"]
+    else:
+        max_data_extension = None
+        external_volume = None
+        catalog = None
+        default_ddl_collation = None
 
     return {
         "name": _quote_snowflake_identifier(data["name"]),
@@ -911,10 +1418,10 @@ def fetch_database(session: SnowflakeConnection, fqn: FQN):
         "comment": data["comment"] or None,
         "transient": "TRANSIENT" in options,
         "owner": _get_owner_identifier(data),
-        "max_data_extension_time_in_days": params.get("max_data_extension_time_in_days"),
-        "external_volume": params.get("external_volume"),
-        "catalog": params.get("catalog"),
-        "default_ddl_collation": params["default_ddl_collation"],
+        "max_data_extension_time_in_days": max_data_extension,
+        "external_volume": external_volume,
+        "catalog": catalog,
+        "default_ddl_collation": default_ddl_collation,
     }
 
 
@@ -1267,7 +1774,7 @@ def fetch_grant_on_all(session: SnowflakeConnection, fqn: FQN):
     return None
 
 
-def fetch_iceberg_table(session: SnowflakeConnection, fqn: FQN):
+def fetch_iceberg_table(session: SnowflakeConnection, fqn: FQN, include_params: bool = True):
     tables = _show_resources(session, "ICEBERG TABLES", fqn)
     if len(tables) == 0:
         return None
@@ -1276,8 +1783,14 @@ def fetch_iceberg_table(session: SnowflakeConnection, fqn: FQN):
 
     data = tables[0]
     columns = fetch_columns(session, "ICEBERG TABLE", fqn)
-    show_params_result = execute(session, f"SHOW PARAMETERS FOR TABLE {fqn}")
-    params = params_result_to_dict(show_params_result)
+
+    # Only fetch parameters if needed (expensive query)
+    if include_params:
+        show_params_result = execute(session, f"SHOW PARAMETERS FOR TABLE {fqn}")
+        params = params_result_to_dict(show_params_result)
+    else:
+        params = {}
+
     return {
         "name": fqn.name,
         "owner": data["owner"],
@@ -1285,12 +1798,12 @@ def fetch_iceberg_table(session: SnowflakeConnection, fqn: FQN):
         "external_volume": data["external_volume_name"],
         "catalog": data["catalog_name"],
         "base_location": data["base_location"].rstrip("/"),
-        "catalog_sync": params["catalog_sync"] or None,
-        "storage_serialization_policy": params["storage_serialization_policy"],
-        "data_retention_time_in_days": params["data_retention_time_in_days"],
-        "max_data_extension_time_in_days": params["max_data_extension_time_in_days"],
+        "catalog_sync": params.get("catalog_sync") or None,
+        "storage_serialization_policy": params.get("storage_serialization_policy"),
+        "data_retention_time_in_days": params.get("data_retention_time_in_days"),
+        "max_data_extension_time_in_days": params.get("max_data_extension_time_in_days"),
         # "change_tracking": data["change_tracking"],
-        "default_ddl_collation": params["default_ddl_collation"] or None,
+        "default_ddl_collation": params.get("default_ddl_collation") or None,
         "comment": data["comment"] or None,
     }
 
@@ -1624,10 +2137,54 @@ def fetch_role(session: SnowflakeConnection, fqn: FQN):
     }
 
 
-def fetch_role_grant(session: SnowflakeConnection, fqn: FQN):
-    subject, name = fqn.params.copy().popitem()
+def fetch_role_grant(session: SnowflakeConnection, fqn: FQN, use_account_usage: bool = False):
+    """
+    Fetch a role grant (role granted to another role or user).
+
+    Uses ACCOUNT_USAGE cache when available to avoid SHOW GRANTS OF ROLE commands.
+    Falls back to SHOW GRANTS OF ROLE if grant not found in cache (to handle latency).
+    """
+    subject, grantee = fqn.params.copy().popitem()
     subject = ResourceName(subject)
-    name = ResourceName(name)
+    grantee = ResourceName(grantee)
+    role_name = str(fqn.name).upper()
+    grantee_upper = str(grantee).upper()
+
+    # Try to use ACCOUNT_USAGE cache
+    session_id = id(session)
+    if use_account_usage:
+        # For role-to-role grants, check GRANTS_TO_ROLES cache
+        if str(subject).upper() == "ROLE" and session_id in _ACCOUNT_USAGE_GRANTS_CACHE:
+            for grant in _ACCOUNT_USAGE_GRANTS_CACHE[session_id]:
+                if (
+                    grant["privilege"] == "USAGE"
+                    and grant["granted_on"] == "ROLE"
+                    and grant["name"].upper() == role_name
+                    and grant["grantee_name"].upper() == grantee_upper
+                    and grant["granted_to"] == "ROLE"
+                ):
+                    return {
+                        "role": fqn.name,
+                        "to_role": _quote_snowflake_identifier(grant["grantee_name"]),
+                    }
+            # Not found in cache - will fall through to SHOW GRANTS fallback
+            logger.debug(f"Role grant {fqn.name} to role {grantee} not found in ACCOUNT_USAGE cache, trying SHOW GRANTS")
+
+        # For role-to-user grants, check GRANTS_TO_USERS cache
+        if str(subject).upper() == "USER" and session_id in _ACCOUNT_USAGE_USER_GRANTS_CACHE:
+            for grant in _ACCOUNT_USAGE_USER_GRANTS_CACHE[session_id]:
+                if (
+                    grant["role"].upper() == role_name
+                    and grant["grantee_name"].upper() == grantee_upper
+                ):
+                    return {
+                        "role": fqn.name,
+                        "to_user": _quote_snowflake_identifier(grant["grantee_name"]),
+                    }
+            # Not found in cache - will fall through to SHOW GRANTS fallback
+            logger.debug(f"Role grant {fqn.name} to user {grantee} not found in ACCOUNT_USAGE cache, trying SHOW GRANTS")
+
+    # Fall back to SHOW GRANTS OF ROLE (either cache not available or grant not found in cache)
     try:
         show_result = execute(session, f"SHOW GRANTS OF ROLE {fqn.name}", cacheable=True)
     except ProgrammingError as err:
@@ -1641,7 +2198,7 @@ def fetch_role_grant(session: SnowflakeConnection, fqn: FQN):
     for data in show_result:
         if (
             resource_name_from_snowflake_metadata(data["granted_to"]) == subject
-            and resource_name_from_snowflake_metadata(data["grantee_name"]) == name
+            and resource_name_from_snowflake_metadata(data["grantee_name"]) == grantee
         ):
             if data["granted_to"] == "ROLE":
                 return {
@@ -1681,7 +2238,7 @@ def fetch_scanner_package(session: SnowflakeConnection, fqn: FQN):
     }
 
 
-def fetch_schema(session: SnowflakeConnection, fqn: FQN):
+def fetch_schema(session: SnowflakeConnection, fqn: FQN, include_params: bool = True):
     if fqn.database is None:
         raise Exception(f"Schema {fqn} is missing a database name")
     try:
@@ -1697,7 +2254,15 @@ def fetch_schema(session: SnowflakeConnection, fqn: FQN):
     data = show_result[0]
 
     options = options_result_to_list(data["options"])
-    params = _show_resource_parameters(session, "SCHEMA", fqn)
+
+    # Only fetch parameters if needed (expensive SHOW PARAMETERS query)
+    if include_params:
+        params = _show_resource_parameters(session, "SCHEMA", fqn)
+        max_data_extension = params.get("max_data_extension_time_in_days")
+        default_ddl_collation = params["default_ddl_collation"]
+    else:
+        max_data_extension = None
+        default_ddl_collation = None
 
     return {
         "name": _quote_snowflake_identifier(data["name"]),
@@ -1705,8 +2270,8 @@ def fetch_schema(session: SnowflakeConnection, fqn: FQN):
         "owner": _get_owner_identifier(data),
         "managed_access": "MANAGED ACCESS" in options,
         "data_retention_time_in_days": int(data["retention_time"]),
-        "max_data_extension_time_in_days": params.get("max_data_extension_time_in_days"),
-        "default_ddl_collation": params["default_ddl_collation"],
+        "max_data_extension_time_in_days": max_data_extension,
+        "default_ddl_collation": default_ddl_collation,
         "comment": data["comment"] or None,
     }
 
@@ -2039,7 +2604,7 @@ def fetch_tag(session: SnowflakeConnection, fqn: FQN):
     }
 
 
-def fetch_task(session: SnowflakeConnection, fqn: FQN):
+def fetch_task(session: SnowflakeConnection, fqn: FQN, include_params: bool = True):
     show_result = _show_resources(session, "TASKS", fqn)
 
     if len(show_result) == 0:
@@ -2053,8 +2618,12 @@ def fetch_task(session: SnowflakeConnection, fqn: FQN):
         raise Exception(f"Failed to fetch task details for {fqn}")
     task_details = task_details_result[0]
 
-    show_params_result = execute(session, f"SHOW PARAMETERS FOR TASK {fqn}")
-    params = params_result_to_dict(show_params_result)
+    # Only fetch parameters if needed (expensive query)
+    if include_params:
+        show_params_result = execute(session, f"SHOW PARAMETERS FOR TASK {fqn}")
+        params = params_result_to_dict(show_params_result)
+    else:
+        params = {}
 
     error_integration = None
     if data["error_integration"] != "null":
@@ -2176,7 +2745,7 @@ def fetch_resource_tags(session: SnowflakeConnection, resource_type: ResourceTyp
     return tag_map
 
 
-def fetch_table(session: SnowflakeConnection, fqn: FQN):
+def fetch_table(session: SnowflakeConnection, fqn: FQN, include_params: bool = True):
     show_result = execute(session, "SHOW TABLES IN ACCOUNT", cacheable=True)
 
     tables = _filter_result(
@@ -2194,8 +2763,13 @@ def fetch_table(session: SnowflakeConnection, fqn: FQN):
     columns = fetch_columns(session, "TABLE", fqn)
 
     data = tables[0]
-    show_params_result = execute(session, f"SHOW PARAMETERS FOR TABLE {fqn}")
-    params = params_result_to_dict(show_params_result)
+
+    # Only fetch parameters if needed (expensive query)
+    if include_params:
+        show_params_result = execute(session, f"SHOW PARAMETERS FOR TABLE {fqn}")
+        params = params_result_to_dict(show_params_result)
+    else:
+        params = {}
 
     return {
         "name": _quote_snowflake_identifier(data["name"]),
@@ -2252,7 +2826,7 @@ def fetch_tag_reference(session: SnowflakeConnection, fqn: FQN):
     }
 
 
-def fetch_user(session: SnowflakeConnection, fqn: FQN) -> Optional[dict]:
+def fetch_user(session: SnowflakeConnection, fqn: FQN, include_params: bool = True, existence_only: bool = False) -> Optional[dict]:
     show_result = _show_users(session)
     users = _filter_result(show_result, name=fqn.name)
 
@@ -2262,11 +2836,21 @@ def fetch_user(session: SnowflakeConnection, fqn: FQN) -> Optional[dict]:
         raise Exception(f"Found multiple users matching {fqn}")
 
     data = users[0]
+
+    # For existence checks (reference validation), skip expensive DESC USER
+    if existence_only:
+        return {"name": _quote_snowflake_identifier(data["name"]), "owner": ""}
+
     desc_result = execute(session, f"DESC USER {fqn}")
     properties = _desc_result_to_dict(desc_result, lower_properties=True)
 
-    show_params_result = execute(session, f"SHOW PARAMETERS FOR USER {fqn}")
-    params = params_result_to_dict(show_params_result)
+    # Only fetch parameters if needed (expensive SHOW PARAMETERS query)
+    if include_params:
+        show_params_result = execute(session, f"SHOW PARAMETERS FOR USER {fqn}")
+        params = params_result_to_dict(show_params_result)
+        network_policy = params["network_policy"]
+    else:
+        network_policy = None
 
     user_type = properties["type"].upper()
 
@@ -2300,7 +2884,7 @@ def fetch_user(session: SnowflakeConnection, fqn: FQN) -> Optional[dict]:
         "default_secondary_roles": default_secondary_roles,
         "type": user_type,
         "rsa_public_key": rsa_public_key,
-        "network_policy": params["network_policy"],
+        "network_policy": network_policy,
         "owner": _get_owner_identifier(data),
     }
 
@@ -2336,7 +2920,7 @@ def fetch_view(session: SnowflakeConnection, fqn: FQN):
     }
 
 
-def fetch_warehouse(session: SnowflakeConnection, fqn: FQN):
+def fetch_warehouse(session: SnowflakeConnection, fqn: FQN, include_params: bool = True):
     try:
         show_result = _show_resources(session, "WAREHOUSES", fqn)
     except ProgrammingError:
@@ -2349,8 +2933,17 @@ def fetch_warehouse(session: SnowflakeConnection, fqn: FQN):
 
     data = show_result[0]
 
-    show_params_result = execute(session, f"SHOW PARAMETERS FOR WAREHOUSE {fqn}")
-    params = params_result_to_dict(show_params_result)
+    # Only fetch parameters if needed (expensive SHOW PARAMETERS query)
+    if include_params:
+        show_params_result = execute(session, f"SHOW PARAMETERS FOR WAREHOUSE {fqn}")
+        params = params_result_to_dict(show_params_result)
+        max_concurrency_level = params["max_concurrency_level"]
+        statement_queued_timeout = params["statement_queued_timeout_in_seconds"]
+        statement_timeout = params["statement_timeout_in_seconds"]
+    else:
+        max_concurrency_level = None
+        statement_queued_timeout = None
+        statement_timeout = None
 
     resource_monitor = None if data["resource_monitor"] == "null" else data["resource_monitor"]
 
@@ -2375,9 +2968,9 @@ def fetch_warehouse(session: SnowflakeConnection, fqn: FQN):
         "max_cluster_count": data.get("max_cluster_count", None),
         "min_cluster_count": data.get("min_cluster_count", None),
         "scaling_policy": data.get("scaling_policy", None),
-        "max_concurrency_level": params["max_concurrency_level"],
-        "statement_queued_timeout_in_seconds": params["statement_queued_timeout_in_seconds"],
-        "statement_timeout_in_seconds": params["statement_timeout_in_seconds"],
+        "max_concurrency_level": max_concurrency_level,
+        "statement_queued_timeout_in_seconds": statement_queued_timeout,
+        "statement_timeout_in_seconds": statement_timeout,
     }
 
     return warehouse_dict
@@ -2388,8 +2981,13 @@ def fetch_warehouse(session: SnowflakeConnection, fqn: FQN):
 ######## List helpers
 
 
-def list_resource(session: SnowflakeConnection, resource_label: str) -> list[FQN]:
-    return getattr(__this__, f"list_{pluralize(resource_label)}")(session)
+def list_resource(session: SnowflakeConnection, resource_label: str, **kwargs) -> list[FQN]:
+    func_name = f"list_{pluralize(resource_label)}"
+    list_func = getattr(__this__, func_name)
+    # Pass through kwargs (e.g., use_account_usage) to functions that support them (cached)
+    sig = _get_cached_signature(func_name)
+    supported_kwargs = {k: v for k, v in kwargs.items() if k in sig.parameters}
+    return list_func(session, **supported_kwargs)
 
 
 def list_account_scoped_resource(session: SnowflakeConnection, resource) -> list[FQN]:
@@ -2503,14 +3101,85 @@ def list_database_roles(session: SnowflakeConnection, database=None) -> list[FQN
     return roles
 
 
-def list_database_role_grants(session: SnowflakeConnection, database=None) -> list[FQN]:
+def list_database_role_grants(
+    session: SnowflakeConnection, database=None, use_account_usage: bool = False
+) -> list[FQN]:
+    """
+    List all database role grants (database role granted to roles or other database roles).
+
+    When use_account_usage is True and ACCOUNT_USAGE access is available, uses:
+    - GRANTS_TO_ROLES view for database role grants (privilege=USAGE, granted_on=DATABASE ROLE)
+
+    Falls back to SHOW GRANTS OF DATABASE ROLE commands when ACCOUNT_USAGE is unavailable.
+
+    Args:
+        session: Snowflake connection
+        database: Optional database name to filter grants for. If None, returns grants for all databases.
+        use_account_usage: Whether to attempt using ACCOUNT_USAGE (default True)
+
+    Returns:
+        List of FQN objects representing database role grants, with params indicating
+        whether the grantee is a 'role' or 'database_role'.
+    """
     databases: list[ResourceName]
     if database:
         databases = [ResourceName(database)]
     else:
         databases = _list_databases(session)
 
-    role_grants = []
+    # Build a set of database names for filtering (uppercase for case-insensitive matching)
+    database_name_set = {str(db).upper() for db in databases}
+
+    role_grants: list[FQN] = []
+
+    # Try ACCOUNT_USAGE if enabled and accessible
+    use_au = _should_use_account_usage(session, use_account_usage)
+    if use_au:
+        logger.debug("Using ACCOUNT_USAGE for list_database_role_grants()")
+
+        # Fetch all grants and filter for database role grants
+        # Database role grants have privilege=USAGE and granted_on=DATABASE ROLE
+        all_grants = _fetch_grants_from_account_usage(session)
+
+        # If ACCOUNT_USAGE query succeeded, process results
+        if all_grants is not None:
+            for grant in all_grants:
+                # Filter for database role grants (USAGE on DATABASE ROLE)
+                if grant["privilege"] != "USAGE" or grant["granted_on"] != "DATABASE ROLE":
+                    continue
+
+                # The name field contains the fully qualified database role (e.g., "DB.ROLE_NAME")
+                db_role_name = grant["name"]
+                if "." not in db_role_name:
+                    continue
+
+                db_name, role_name = db_role_name.split(".", 1)
+
+                # Filter by database if specified
+                if db_name.upper() not in database_name_set:
+                    continue
+
+                # Determine subject based on grantee type
+                subject = "role" if grant["granted_to"] == "ROLE" else "database_role"
+
+                role_grants.append(
+                    FQN(
+                        name=resource_name_from_snowflake_metadata(role_name),
+                        database=resource_name_from_snowflake_metadata(db_name),
+                        params={subject: grant["grantee_name"]},
+                    )
+                )
+            # If we got results or no specific database was filtered, return
+            # If specific database was filtered and we got 0 results, fall back to SHOW
+            # (handles ACCOUNT_USAGE latency for newly created grants)
+            if role_grants or database is None:
+                return role_grants
+            logger.debug("ACCOUNT_USAGE returned 0 results for specific database, falling back to SHOW")
+        # Fall through to SHOW queries if ACCOUNT_USAGE failed or returned empty for filtered query
+
+    # Fallback to SHOW GRANTS OF DATABASE ROLE commands
+    logger.debug("Using SHOW GRANTS OF DATABASE ROLE for list_database_role_grants() (ACCOUNT_USAGE unavailable or disabled)")
+
     for database_name in databases:
         try:
             # A rare case where we need to always quote the identifier. Snowflake chokes if the database name
@@ -2528,11 +3197,11 @@ def list_database_role_grants(session: SnowflakeConnection, database=None) -> li
             )
             for data in show_result:
                 subject = "role" if data["granted_to"] == "ROLE" else "database_role"
-                database, name = data["role"].split(".")
+                db, name = data["role"].split(".")
                 role_grants.append(
                     FQN(
                         name=resource_name_from_snowflake_metadata(name),
-                        database=resource_name_from_snowflake_metadata(database),
+                        database=resource_name_from_snowflake_metadata(db),
                         params={subject: data["grantee_name"]},
                     )
                 )
@@ -2571,58 +3240,147 @@ def list_functions(session: SnowflakeConnection) -> list[FQN]:
     return functions
 
 
-def list_grants(session: SnowflakeConnection) -> list[FQN]:
-    roles = execute(session, "SHOW ROLES", cacheable=True)
-    grants = []
-    for role in roles:
-        role_name = resource_name_from_snowflake_metadata(role["name"])
-        if role_name in SYSTEM_ROLES:
-            continue
-        grant_data = _show_grants_to_role(session, role_name, role_type=ResourceType.ROLE, cacheable=True)
-        for data in grant_data:
-            if data["granted_on"] == "ROLE":
-                continue
+def list_grants(
+    session: SnowflakeConnection,
+    use_account_usage: bool = False,
+    include_future_grants: bool = True,
+    future_grant_roles: Optional[set] = None,
+) -> list[FQN]:
+    grants: list[FQN] = []
 
-            # Snowcap Grants don't support OWNERSHIP privilege
-            if data["privilege"] == "OWNERSHIP":
-                continue
+    # Get all non-system role names for processing
+    # Use "SHOW ROLES IN ACCOUNT" to match _show_resources for cache consistency
+    roles_result = execute(session, "SHOW ROLES IN ACCOUNT", cacheable=True)
+    role_names = [
+        resource_name_from_snowflake_metadata(role["name"])
+        for role in roles_result
+        if resource_name_from_snowflake_metadata(role["name"]) not in SYSTEM_ROLES
+    ]
 
-            # Skip undocumented privs
-            if data["privilege"] in ["CREATE CORTEX SEARCH SERVICE", "CANCEL QUERY"]:
-                continue
+    # Determine whether to use ACCOUNT_USAGE or SHOW queries
+    use_au = _should_use_account_usage(session, use_account_usage)
+    au_succeeded = False
 
-            name = data["name"]
-            if data["granted_on"] == "ACCOUNT":
-                name = "ACCOUNT"
-            on = f"{data['granted_on'].lower()}/{name}"
-            to = f"role/{role_name}"
-            grants.append(
-                FQN(
-                    name=ResourceName("GRANT"),
-                    params={
-                        "grant_type": "OBJECT",
-                        "priv": data["privilege"],
-                        "on": on,
-                        "to": to,
-                    },
+    if use_au:
+        logger.debug("list_grants: using ACCOUNT_USAGE for regular grants")
+        # Fetch all grants in a single ACCOUNT_USAGE query
+        all_grants = _fetch_grants_from_account_usage(session)
+
+        # If ACCOUNT_USAGE query succeeded, process results
+        if all_grants is not None:
+            au_succeeded = True
+            # Build a set of non-system role names for filtering
+            role_name_set = {str(rn) for rn in role_names}
+
+            for data in all_grants:
+                # Only process grants to non-system roles (ROLE type, not DATABASE ROLE)
+                if data["granted_to"] != "ROLE":
+                    continue
+                grantee = data["grantee_name"]
+                if grantee not in role_name_set:
+                    continue
+
+                # Skip role grants (hierarchy handled by list_role_grants)
+                if data["granted_on"] == "ROLE":
+                    continue
+
+                # Snowcap Grants don't support OWNERSHIP privilege
+                if data["privilege"] == "OWNERSHIP":
+                    continue
+
+                # Skip undocumented privs
+                if data["privilege"] in ["CREATE CORTEX SEARCH SERVICE", "CANCEL QUERY"]:
+                    continue
+
+                name = data["name"]
+                if data["granted_on"] == "ACCOUNT":
+                    name = "ACCOUNT"
+                on = f"{data['granted_on'].lower()}/{name}"
+                to = f"role/{grantee}"
+                grants.append(
+                    FQN(
+                        name=ResourceName("GRANT"),
+                        params={
+                            "grant_type": "OBJECT",
+                            "priv": data["privilege"],
+                            "on": on,
+                            "to": to,
+                        },
+                    )
                 )
-            )
-        grant_data = _show_future_grants_to_role(session, role_name, cacheable=True)
-        for data in grant_data:
-            on_type = data["granted_on"].lower()
-            collection = data["name"]
-            to = f"role/{role_name}"
-            grants.append(
-                FQN(
-                    name=ResourceName("GRANT"),
-                    params={
-                        "grant_type": "FUTURE",
-                        "priv": data["privilege"],
-                        "on": f"{on_type}/{collection}",
-                        "to": to,
-                    },
+        # Fall through to SHOW queries if ACCOUNT_USAGE failed
+
+    if not au_succeeded:
+        logger.debug("list_grants: using SHOW GRANTS per role (ACCOUNT_USAGE disabled or unavailable)")
+        # Fall back to per-role SHOW queries
+        for role_name in role_names:
+            grant_data = _show_grants_to_role(session, role_name, role_type=ResourceType.ROLE, cacheable=True, use_account_usage=False)
+            for data in grant_data:
+                if data["granted_on"] == "ROLE":
+                    continue
+
+                # Snowcap Grants don't support OWNERSHIP privilege
+                if data["privilege"] == "OWNERSHIP":
+                    continue
+
+                # Skip undocumented privs
+                if data["privilege"] in ["CREATE CORTEX SEARCH SERVICE", "CANCEL QUERY"]:
+                    continue
+
+                name = data["name"]
+                if data["granted_on"] == "ACCOUNT":
+                    name = "ACCOUNT"
+                on = f"{data['granted_on'].lower()}/{name}"
+                to = f"role/{role_name}"
+                grants.append(
+                    FQN(
+                        name=ResourceName("GRANT"),
+                        params={
+                            "grant_type": "OBJECT",
+                            "priv": data["privilege"],
+                            "on": on,
+                            "to": to,
+                        },
+                    )
                 )
-            )
+
+    # Future grants always use SHOW commands (not available in ACCOUNT_USAGE)
+    # Only fetch if include_future_grants is True (manifest has future grants)
+    if include_future_grants:
+        # If future_grant_roles is provided, only fetch for those specific roles
+        # This optimization avoids querying all roles when only a few have future grants
+        if future_grant_roles:
+            roles_to_query = [
+                rn for rn in role_names
+                if str(rn).upper() in future_grant_roles
+            ]
+            logger.debug(f"list_grants: fetching future grants for {len(roles_to_query)} roles (filtered by manifest)")
+        else:
+            roles_to_query = role_names
+            logger.debug("list_grants: fetching future grants using SHOW FUTURE GRANTS")
+
+        future_grants_by_role = _fetch_future_grants_for_all_roles(session, roles_to_query)
+        for role_name in roles_to_query:
+            role_name_str = str(role_name)
+            grant_data = future_grants_by_role.get(role_name_str, [])
+            for data in grant_data:
+                on_type = data["granted_on"].lower()
+                collection = data["name"]
+                to = f"role/{role_name}"
+                grants.append(
+                    FQN(
+                        name=ResourceName("GRANT"),
+                        params={
+                            "grant_type": "FUTURE",
+                            "priv": data["privilege"],
+                            "on": f"{on_type}/{collection}",
+                            "to": to,
+                        },
+                    )
+                )
+    else:
+        logger.debug("list_grants: skipping future grants (none in manifest)")
+
     return grants
 
 
@@ -2683,7 +3441,8 @@ def list_resource_monitors(session: SnowflakeConnection) -> list[FQN]:
 
 
 def list_roles(session: SnowflakeConnection) -> list[FQN]:
-    show_result = execute(session, "SHOW ROLES", cacheable=True)
+    # Use "SHOW ROLES IN ACCOUNT" to match _show_resources for cache consistency
+    show_result = execute(session, "SHOW ROLES IN ACCOUNT", cacheable=True)
     return [
         FQN(name=resource_name_from_snowflake_metadata(row["name"]))
         for row in show_result
@@ -2691,37 +3450,131 @@ def list_roles(session: SnowflakeConnection) -> list[FQN]:
     ]
 
 
-def list_role_grants(session: SnowflakeConnection) -> list[FQN]:
-    def error_handler(err: Exception, sql: str):
-        if isinstance(err, ProgrammingError) and err.errno == DOES_NOT_EXIST_ERR:
-            return
-        raise err
+def list_role_grants(session: SnowflakeConnection, use_account_usage: bool = False) -> list[FQN]:
+    """
+    List all role grants (role-to-role and role-to-user) in the account.
 
-    roles = execute(session, "SHOW ROLES", cacheable=True)
-    grants = []
+    When use_account_usage is True and ACCOUNT_USAGE access is available, uses:
+    - GRANTS_TO_ROLES view for role-to-role grants (privilege=USAGE, granted_on=ROLE)
+    - GRANTS_TO_USERS view for role-to-user grants
 
-    role_names = []
+    Falls back to SHOW GRANTS OF ROLE commands when ACCOUNT_USAGE is unavailable.
+
+    Returns:
+        List of FQN objects representing role grants, with params indicating
+        whether the grantee is a 'user' or 'role'.
+    """
+    # Use "SHOW ROLES IN ACCOUNT" to match _show_resources for cache consistency
+    roles = execute(session, "SHOW ROLES IN ACCOUNT", cacheable=True)
+
+    # Build set of non-system role names for filtering
+    role_name_set: set[str] = set()
+    role_names: list[ResourceName] = []
     for role in roles:
         role_name = resource_name_from_snowflake_metadata(role["name"])
         if role_name in SYSTEM_ROLES:
             continue
         role_names.append(role_name)
+        role_name_set.add(str(role_name).upper())
 
-    for name, result in execute_in_parallel(
-        session,
-        [(f"SHOW GRANTS OF ROLE {role_name}", role_name) for role_name in role_names],
-        error_handler=error_handler,
-    ):
-        for data in result:
-            subject = "user" if data["granted_to"] == "USER" else "role"
-            grants.append(FQN(name=name, params={subject: data["grantee_name"]}))
+    grants: list[FQN] = []
+
+    # Try ACCOUNT_USAGE if enabled and accessible
+    use_au = _should_use_account_usage(session, use_account_usage)
+    au_succeeded = False
+
+    if use_au:
+        logger.debug("Using ACCOUNT_USAGE views for list_role_grants()")
+
+        # Get role-to-role grants from GRANTS_TO_ROLES
+        # These are grants where privilege=USAGE and granted_on=ROLE
+        all_grants = _fetch_grants_from_account_usage(session)
+
+        # If ACCOUNT_USAGE query succeeded, process results
+        if all_grants is not None:
+            for grant in all_grants:
+                # Filter for role grants (USAGE on ROLE)
+                if grant["privilege"] != "USAGE" or grant["granted_on"] != "ROLE":
+                    continue
+
+                role_being_granted = grant["name"]  # The role being granted
+                grantee_name = grant["grantee_name"]  # Who receives the grant
+
+                # Skip system roles (the role being granted)
+                if role_being_granted.upper() in SYSTEM_ROLES:
+                    continue
+
+                # Only include roles we're tracking
+                if role_being_granted.upper() not in role_name_set:
+                    continue
+
+                # The granted_to field indicates if grantee is ROLE or DATABASE ROLE
+                if grant["granted_to"] == "ROLE":
+                    grants.append(
+                        FQN(
+                            name=resource_name_from_snowflake_metadata(role_being_granted),
+                            params={"role": grantee_name},
+                        )
+                    )
+
+            # Get role-to-user grants from GRANTS_TO_USERS
+            user_grants = _fetch_role_grants_to_users_from_account_usage(session)
+
+            # If user grants query also succeeded, mark as successful
+            if user_grants is not None:
+                au_succeeded = True
+                for grant in user_grants:
+                    role_being_granted = grant["role"]
+
+                    # Skip system roles
+                    if role_being_granted.upper() in SYSTEM_ROLES:
+                        continue
+
+                    # Only include roles we're tracking
+                    if role_being_granted.upper() not in role_name_set:
+                        continue
+
+                    grants.append(
+                        FQN(
+                            name=resource_name_from_snowflake_metadata(role_being_granted),
+                            params={"user": grant["grantee_name"]},
+                        )
+                    )
+        # Fall through to SHOW queries if ACCOUNT_USAGE failed
+
+    if not au_succeeded:
+        # Fallback to SHOW GRANTS OF ROLE commands
+        # Clear any partial results from failed ACCOUNT_USAGE attempt
+        grants = []
+        logger.debug("Using SHOW GRANTS OF ROLE for list_role_grants() (ACCOUNT_USAGE unavailable or disabled)")
+
+        def error_handler(err: Exception, sql: str):
+            if isinstance(err, ProgrammingError) and err.errno == DOES_NOT_EXIST_ERR:
+                return
+            raise err
+
+        for name, result in execute_in_parallel(
+            session,
+            [(f"SHOW GRANTS OF ROLE {role_name}", role_name) for role_name in role_names],
+            error_handler=error_handler,
+            cacheable=True,
+        ):
+            for data in result:
+                subject = "user" if data["granted_to"] == "USER" else "role"
+                grants.append(FQN(name=name, params={subject: data["grantee_name"]}))
+
     return grants
 
 
 def list_scanner_packages(session: SnowflakeConnection) -> list[FQN]:
-    scanner_packages = execute(
-        session, "select * from snowflake.trust_center.scanner_packages WHERE state = 'TRUE'", cacheable=True
-    )
+    try:
+        scanner_packages = execute(
+            session, "select * from snowflake.trust_center.scanner_packages WHERE state = 'TRUE'", cacheable=True
+        )
+    except ProgrammingError as err:
+        # Trust Center may not be available on all accounts
+        logger.debug(f"Could not query trust_center.scanner_packages: {err}")
+        return []
     user_packages = []
     for pkg in scanner_packages:
         if pkg["ID"] == "SECURITY_ESSENTIALS":

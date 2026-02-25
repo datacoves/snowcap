@@ -54,6 +54,8 @@ class _Grant(ResourceSpec):
             else:
                 self._privs = [self.priv]
 
+        if self.to is None:
+            raise ValueError(f"Grant 'to' field is None after coercion - priv={self.priv}, on={self.on}, on_type={self.on_type}")
         self.to_type = self.to.resource_type
 
 
@@ -246,9 +248,24 @@ class Grant(Resource):
                 or isinstance(on, str)
                 and (" IN " in on.upper() or any([e.value + " " in on.upper() for e in ResourceType]))
             ):
-                on_items = (
-                    on if isinstance(on, list) else list(filter(lambda x: x and x != "IN", on.upper().split(" ")))
-                )
+                if isinstance(on, list):
+                    on_items = on
+                else:
+                    # Split the string while preserving case for the FQN part
+                    # "SCHEMA db.schema" -> ["SCHEMA", "db.schema"]
+                    # "FUTURE TABLES IN SCHEMA db.schema" -> ["FUTURE", "TABLES", "SCHEMA", "db.schema"]
+                    parts = on.split(" ")
+                    on_items = []
+                    for i, part in enumerate(parts):
+                        if part.upper() == "IN":
+                            continue
+                        # Uppercase only keyword parts (SCHEMA, TABLE, FUTURE, ALL, etc.)
+                        # but preserve case for the last item which is the FQN
+                        if part.upper() in [e.value for e in ResourceType] or part.upper() in [GrantType.FUTURE, GrantType.ALL]:
+                            on_items.append(part.upper())
+                        elif part:
+                            # This is likely the FQN - preserve case
+                            on_items.append(part)
                 if len(on_items) < 2:
                     raise ValueError("You must specify at least three parameters: [grant_type, items_type, object]")
                 elif on_items[0].upper() in [e.value for e in ResourceType]:
@@ -372,6 +389,8 @@ def grant_fqn(grant: _Grant):
         on = f"{resource_label_for_type(grant.on_type)}/{collection}"
     else:
         on = f"{resource_label_for_type(grant.on_type)}/{grant.on}"
+    if grant.to is None:
+        raise ValueError(f"Grant 'to' field is None - grant details: priv={grant.priv}, on={grant.on}, on_type={grant.on_type}, to_type={grant.to_type}")
     to = f"{resource_label_for_type(grant.to_type)}/{grant.to.fqn}"
     return FQN(
         name=ResourceName("GRANT"),

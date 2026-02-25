@@ -45,11 +45,11 @@ def _field_type_is_serialized_as_resource_name(field):
         return True
     elif isinstance(field.type, str) and field.name == "owner" and field.type == "Role":
         return True
-    elif issubclass(field.type, Resource):
+    elif isinstance(field.type, type) and issubclass(field.type, Resource):
         return field.type.serialize_inline is False
     elif get_origin(field.type) is list:
         field_item_type = get_args(field.type)[0]
-        if issubclass(field_item_type, Resource):
+        if isinstance(field_item_type, type) and issubclass(field_item_type, Resource):
             return field_item_type.serialize_inline is False
 
     return False

@@ -1,5 +1,6 @@
 import logging
 import os
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Callable, Generator, Iterable, Optional, Union
@@ -29,9 +30,20 @@ connection_params = {
 }
 
 _EXECUTION_CACHE = {}
+_EXECUTION_CACHE_LOCK = threading.Lock()
+# Track queries currently being executed to prevent duplicate execution
+_PENDING_QUERIES: dict[tuple[str, str], threading.Event] = {}
 
 
 def reset_cache():
+    """
+    Reset the SQL execution cache.
+
+    This clears cached query results so subsequent queries will re-execute.
+    Note: This does NOT clear ACCOUNT_USAGE caches, which are designed to persist
+    across queries for performance. The fallback to SHOW GRANTS handles cases
+    where newly created grants aren't in the ACCOUNT_USAGE cache.
+    """
     global _EXECUTION_CACHE
     _EXECUTION_CACHE = {}
 
@@ -77,31 +89,83 @@ def execute(
 
     session_header = f"[{session.user}:{session.role}] > {sql_text}"
 
-    if cacheable and session.role in _EXECUTION_CACHE and sql_text in _EXECUTION_CACHE[session.role]:
-        result = _EXECUTION_CACHE[session.role][sql_text]
-        # logger.warning(f"{session_header}    \033[94m({len(result)} rows, cached)\033[0m")
-        return result
+    # Thread-safe cache check with pending query deduplication
+    if cacheable:
+        cache_key = (session.role, sql_text)
+        with _EXECUTION_CACHE_LOCK:
+            # Check if result is already cached
+            if session.role in _EXECUTION_CACHE and sql_text in _EXECUTION_CACHE[session.role]:
+                result = _EXECUTION_CACHE[session.role][sql_text]
+                # logger.warning(f"{session_header}    \033[94m({len(result)} rows, cached)\033[0m")
+                return result
+
+            # Check if another thread is already executing this query
+            if cache_key in _PENDING_QUERIES:
+                # Wait for the other thread to complete
+                pending_event = _PENDING_QUERIES[cache_key]
+                # Release lock while waiting
+                _EXECUTION_CACHE_LOCK.release()
+                try:
+                    pending_event.wait(timeout=600)  # Wait up to 10 minutes
+                finally:
+                    _EXECUTION_CACHE_LOCK.acquire()
+                # After waiting, check cache again
+                if session.role in _EXECUTION_CACHE and sql_text in _EXECUTION_CACHE[session.role]:
+                    result = _EXECUTION_CACHE[session.role][sql_text]
+                    return result
+                # If still not cached, fall through to execute
+
+            # Mark this query as pending
+            _PENDING_QUERIES[cache_key] = threading.Event()
+
+    # Log start message for potentially slow queries (ACCOUNT_USAGE, large SHOW commands)
+    is_slow_query = "ACCOUNT_USAGE" in sql_text or "GRANTS_TO_ROLES" in sql_text
+    if is_slow_query:
+        logger.warning(f"{session_header}    \033[93m(running...)\033[0m")
 
     start = time.time()
     try:
         cur.execute(sql_text)
         result = cur.fetchall()
         runtime = time.time() - start
-        logger.warning(f"{session_header}    \033[94m({len(result)} rows, {runtime:.2f}s)\033[0m")
+        # Clear the "running" line for slow queries by using carriage return
+        if is_slow_query:
+            logger.warning(f"{session_header}    \033[94m({len(result)} rows, {runtime:.2f}s)\033[0m")
+        else:
+            logger.warning(f"{session_header}    \033[94m({len(result)} rows, {runtime:.2f}s)\033[0m")
         if cacheable:
-            if session.role not in _EXECUTION_CACHE:
-                _EXECUTION_CACHE[session.role] = {}
-            _EXECUTION_CACHE[session.role][sql_text] = result
+            cache_key = (session.role, sql_text)
+            with _EXECUTION_CACHE_LOCK:
+                if session.role not in _EXECUTION_CACHE:
+                    _EXECUTION_CACHE[session.role] = {}
+                _EXECUTION_CACHE[session.role][sql_text] = result
+                # Signal waiting threads and cleanup
+                if cache_key in _PENDING_QUERIES:
+                    _PENDING_QUERIES[cache_key].set()
+                    del _PENDING_QUERIES[cache_key]
         return result
     except ProgrammingError as err:
         if empty_response_codes and err.errno in empty_response_codes:
             runtime = time.time() - start
             logger.warning(f"{session_header}    \033[94m(empty, {runtime:.2f}s)\033[0m")
             if cacheable:
-                if session.role not in _EXECUTION_CACHE:
-                    _EXECUTION_CACHE[session.role] = {}
-                _EXECUTION_CACHE[session.role][sql_text] = []
+                cache_key = (session.role, sql_text)
+                with _EXECUTION_CACHE_LOCK:
+                    if session.role not in _EXECUTION_CACHE:
+                        _EXECUTION_CACHE[session.role] = {}
+                    _EXECUTION_CACHE[session.role][sql_text] = []
+                    # Signal waiting threads and cleanup
+                    if cache_key in _PENDING_QUERIES:
+                        _PENDING_QUERIES[cache_key].set()
+                        del _PENDING_QUERIES[cache_key]
             return []
+        # On error, also cleanup pending query marker
+        if cacheable:
+            cache_key = (session.role, sql_text)
+            with _EXECUTION_CACHE_LOCK:
+                if cache_key in _PENDING_QUERIES:
+                    _PENDING_QUERIES[cache_key].set()
+                    del _PENDING_QUERIES[cache_key]
         logger.error(f"{session_header}    \033[31m(err {err.errno}, {time.time() - start:.2f}s)\033[0m")
         raise ProgrammingError(f"{err} on {sql_text}", errno=err.errno) from err
 

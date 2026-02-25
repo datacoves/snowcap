@@ -341,7 +341,15 @@ def test_fetch(
     assert fetched is not None
     fetched = resource_fixture.spec(**fetched).to_dict(account_edition)
     fetched = strip_unfetchable_fields(resource_fixture.spec, fetched)
-    fixture = strip_unfetchable_fields(resource_fixture.spec, resource_fixture.to_dict(account_edition))
+    fixture_original = resource_fixture.to_dict(account_edition)
+    fixture = strip_unfetchable_fields(resource_fixture.spec, fixture_original.copy())
+
+    # Remember fields that were None in the original fixture - these should be ignored
+    # because None means "use Snowflake default" and we shouldn't compare them
+    none_fields = {k for k, v in fixture_original.items() if v is None}
+    for field in none_fields:
+        fetched.pop(field, None)
+        fixture.pop(field, None)
 
     if "columns" in fetched:
         fetched_columns = fetched["columns"]

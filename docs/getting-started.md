@@ -204,6 +204,61 @@ snowcap --help
 #   plan     Compare a resource config to the current state of Snowflake
 ```
 
+## Optimizing Grant Fetching with ACCOUNT_USAGE
+
+For large manifests with many roles, Snowcap can use Snowflake's `ACCOUNT_USAGE` views to fetch all grant information in a single bulk query instead of running individual `SHOW GRANTS` commands per role.
+
+### When to Enable ACCOUNT_USAGE
+
+This optimization is **disabled by default** and is most beneficial when:
+
+- Your manifest manages **50+ roles** with grants
+- You're seeing many `SHOW GRANTS TO ROLE` queries in the logs
+- The bulk query time (typically 30-60 seconds) is less than the cumulative time of individual queries
+
+For smaller manifests, the default behavior (per-role `SHOW GRANTS`) is typically faster.
+
+### Enabling ACCOUNT_USAGE
+
+**Step 1:** Grant access to ACCOUNT_USAGE views:
+
+```sql
+GRANT IMPORTED PRIVILEGES ON DATABASE SNOWFLAKE TO ROLE <your_role>;
+```
+
+Replace `<your_role>` with the role you use for Snowcap (e.g., `SYSADMIN` or a custom deployment role).
+
+**Step 2:** Enable the option:
+
+**CLI flag:**
+```sh
+snowcap plan --config snowcap.yml --use-account-usage
+snowcap apply --config snowcap.yml --use-account-usage
+```
+
+**YAML config:**
+```yaml
+# snowcap.yml
+use_account_usage: true
+```
+
+**Python API:**
+```python
+bp = Blueprint(
+    resources=[...],
+    use_account_usage=True,
+)
+```
+
+??? note "About ACCOUNT_USAGE Latency"
+    ACCOUNT_USAGE views have up to 2 hours of latency—data may not reflect very recent changes. This is acceptable for grants because:
+
+    - **GRANT statements are idempotent**: Re-granting an existing privilege succeeds without error
+    - **REVOKE has IF EXISTS semantics**: Revoking a non-existent grant won't fail
+    - **Worst case**: The plan shows a grant change that's already applied, and re-applies it harmlessly
+
+If `IMPORTED PRIVILEGES` is not granted, Snowcap falls back automatically to `SHOW GRANTS` with a warning.
+
 ## Next Steps
 
 - [Export Existing Resources](export.md) - Generate config from your current Snowflake setup

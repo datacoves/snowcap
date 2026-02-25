@@ -226,6 +226,9 @@ def collect_blueprint_config(yaml_config: dict, cli_config: Optional[dict[str, A
     name = yaml_config_.pop("name", None) or cli_config_.pop("name", None)
     scope = yaml_config_.pop("scope", None) or cli_config_.pop("scope", None)
     schema = yaml_config_.pop("schema", None) or cli_config_.pop("schema", None)
+    use_account_usage = yaml_config_.pop("use_account_usage", None)
+    if use_account_usage is None:
+        use_account_usage = cli_config_.pop("use_account_usage", None)
     input_vars = cli_config_.pop("vars", {}) or {}
     vars_spec = yaml_config_.pop("vars", [])
 
@@ -246,6 +249,9 @@ def collect_blueprint_config(yaml_config: dict, cli_config: Optional[dict[str, A
 
     if schema:
         blueprint_args["schema"] = schema
+
+    if use_account_usage is not None:
+        blueprint_args["use_account_usage"] = use_account_usage
 
     blueprint_args["vars"] = input_vars
 

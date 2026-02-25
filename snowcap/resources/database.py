@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Optional
 
 from ..enums import ResourceType
 from ..identifiers import FQN, URN
@@ -18,12 +19,12 @@ class _Database(ResourceSpec):
     name: ResourceName
     transient: bool = False
     owner: Role = "SYSADMIN"
-    data_retention_time_in_days: int = 1
-    max_data_extension_time_in_days: int = 14
-    external_volume: ExternalVolume = None
-    catalog: str = None
-    default_ddl_collation: str = None
-    comment: str = None
+    data_retention_time_in_days: Optional[int] = None  # Uses Snowflake default if not specified
+    max_data_extension_time_in_days: Optional[int] = None  # Uses Snowflake default if not specified
+    external_volume: Optional[ExternalVolume] = None
+    catalog: Optional[str] = None
+    default_ddl_collation: Optional[str] = None  # Uses Snowflake default if not specified
+    comment: Optional[str] = None
 
 
 class Database(NamedResource, TaggableResource, Resource, ResourceContainer):
@@ -38,9 +39,9 @@ class Database(NamedResource, TaggableResource, Resource, ResourceContainer):
         name (string, required): The name of the database.
         transient (bool): Specifies if the database is transient. Defaults to False.
         owner (string or Role): The owner role of the database. Defaults to "SYSADMIN".
-        data_retention_time_in_days (int): The number of days to retain data. Defaults to 1.
-        max_data_extension_time_in_days (int): The maximum number of days to extend data retention. Defaults to 14.
-        default_ddl_collation (string): The default collation for DDL statements.
+        data_retention_time_in_days (int): The number of days to retain data. Uses Snowflake default if not specified.
+        max_data_extension_time_in_days (int): The maximum number of days to extend data retention. Uses Snowflake default if not specified.
+        default_ddl_collation (string): The default collation for DDL statements. Uses Snowflake default if not specified.
         tags (dict): A dictionary of tags associated with the database.
         comment (string): A comment describing the database.
 
@@ -142,8 +143,8 @@ class Database(NamedResource, TaggableResource, Resource, ResourceContainer):
         name: str,
         transient: bool = False,
         owner: str = "SYSADMIN",
-        data_retention_time_in_days: int = 1,
-        max_data_extension_time_in_days: int = 14,
+        data_retention_time_in_days: int = None,
+        max_data_extension_time_in_days: int = None,
         external_volume: str = None,
         catalog: str = None,
         default_ddl_collation: str = None,
