@@ -110,17 +110,25 @@ database="RAW",
 
 ### use_account_usage
 
-Controls whether Snowcap uses `SNOWFLAKE.ACCOUNT_USAGE` views for fetching grants. Defaults to `True`.
+Controls whether Snowcap uses `SNOWFLAKE.ACCOUNT_USAGE` views for fetching grants. Defaults to `False`.
 
 ```python
-use_account_usage=True  # default
+use_account_usage=False  # default
 ```
 
-When enabled, Snowcap fetches grants with a single query instead of per-role `SHOW GRANTS` commands—a 90%+ reduction in grant queries for accounts with many roles.
+When enabled, Snowcap fetches all grants with a single bulk query to `ACCOUNT_USAGE.GRANTS_TO_ROLES` instead of per-role `SHOW GRANTS` commands. This can significantly reduce the number of queries for accounts with many roles.
+
+**When to enable:**
+- Your manifest manages **50+ roles** with grants
+- You're seeing many `SHOW GRANTS TO ROLE` queries in the logs
+- The bulk query time (typically 30-60 seconds) is less than the cumulative time of individual `SHOW GRANTS` commands
+
+**When to keep disabled (default):**
+- Smaller manifests with fewer roles
+- You want faster apply times for simple configurations
+- Your account has many grants but your manifest only references a few roles
 
 Requires `IMPORTED PRIVILEGES ON DATABASE SNOWFLAKE`. If unavailable, Snowcap falls back to `SHOW GRANTS` automatically.
-
-Set to `False` to always use the traditional `SHOW GRANTS` approach.
 
 See [Getting Started - Optimizing Grant Fetching](getting-started.md#optimizing-grant-fetching-with-account_usage) for setup instructions.
 

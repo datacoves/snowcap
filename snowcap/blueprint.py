@@ -736,7 +736,7 @@ class Blueprint:
         database: Optional[str] = None,
         schema: Optional[str] = None,
         threads: int = 8,
-        use_account_usage: bool = True,
+        use_account_usage: bool = False,
     ) -> None:
         self._config = BlueprintConfig(
             name=name,

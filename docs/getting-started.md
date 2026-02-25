@@ -206,17 +206,43 @@ snowcap --help
 
 ## Optimizing Grant Fetching with ACCOUNT_USAGE
 
-Snowcap uses Snowflake's `ACCOUNT_USAGE` views to fetch grant information efficiently. This reduces API calls from O(N) to O(1) where N is the number of roles—a 90%+ reduction in grant-related queries for accounts with many roles.
+For large manifests with many roles, Snowcap can use Snowflake's `ACCOUNT_USAGE` views to fetch all grant information in a single bulk query instead of running individual `SHOW GRANTS` commands per role.
 
-### Enabling ACCOUNT_USAGE Access
+### When to Enable ACCOUNT_USAGE
 
-To enable this optimization, grant `IMPORTED PRIVILEGES` on the `SNOWFLAKE` database to your role:
+This optimization is **disabled by default** and is most beneficial when:
+
+- Your manifest manages **50+ roles** with grants
+- You're seeing many `SHOW GRANTS TO ROLE` queries in the logs
+- The bulk query time (typically 30-60 seconds) is less than the cumulative time of individual queries
+
+For smaller manifests, the default behavior (per-role `SHOW GRANTS`) is typically faster.
+
+### Enabling ACCOUNT_USAGE
+
+**Step 1:** Grant access to ACCOUNT_USAGE views:
 
 ```sql
 GRANT IMPORTED PRIVILEGES ON DATABASE SNOWFLAKE TO ROLE <your_role>;
 ```
 
 Replace `<your_role>` with the role you use for Snowcap (e.g., `SYSADMIN` or a custom deployment role).
+
+**Step 2:** Enable the option in your configuration:
+
+**CLI (via config file):**
+```yaml
+# snowcap.yml
+use_account_usage: true
+```
+
+**Python API:**
+```python
+bp = Blueprint(
+    resources=[...],
+    use_account_usage=True,
+)
+```
 
 ??? note "About ACCOUNT_USAGE Latency"
     ACCOUNT_USAGE views have up to 2 hours of latency—data may not reflect very recent changes. This is acceptable for grants because:
@@ -225,25 +251,7 @@ Replace `<your_role>` with the role you use for Snowcap (e.g., `SYSADMIN` or a c
     - **REVOKE has IF EXISTS semantics**: Revoking a non-existent grant won't fail
     - **Worst case**: The plan shows a grant change that's already applied, and re-applies it harmlessly
 
-### Disabling ACCOUNT_USAGE
-
-If you encounter issues or prefer the traditional per-role `SHOW GRANTS` approach, you can disable ACCOUNT_USAGE:
-
-**CLI (via environment variable or config file):**
-```yaml
-# snowcap.yml
-use_account_usage: false
-```
-
-**Python API:**
-```python
-bp = Blueprint(
-    resources=[...],
-    use_account_usage=False,
-)
-```
-
-When disabled (or when `IMPORTED PRIVILEGES` is not granted), Snowcap falls back automatically to the traditional `SHOW GRANTS` approach with a warning.
+If `IMPORTED PRIVILEGES` is not granted, Snowcap falls back automatically to `SHOW GRANTS` with a warning.
 
 ## Next Steps
 
