@@ -45,6 +45,8 @@ Deploy any Snowflake resource, including users, roles, schemas, databases, integ
 
  * **Migration-friendly** » Generate config automatically with the export CLI
 
+ * **LLM-friendly** » [llms.txt](https://llmstxt.org/) support for AI-assisted development
+
 ## Contents
 
 * [Getting Started](getting-started.md) - Installation, authentication, and first config

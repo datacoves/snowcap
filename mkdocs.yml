@@ -36,6 +36,30 @@ extra:
     - icon: fontawesome/brands/github
       link: https://github.com/datacoves/snowcap
 
+plugins:
+  - search
+  - llmstxt:
+      full_output: llms-full.txt
+      sections:
+        Overview:
+          - index.md
+        Getting Started:
+          - getting-started.md
+        Role-Based Access Control:
+          - role-based-access-control.md
+        YAML Configuration:
+          - yaml-configuration.md
+        GitHub Action:
+          - snowcap-github-action.md
+        Export:
+          - export.md
+        Advanced:
+          - python-api.md
+          - blueprint.md
+          - working-with-resources.md
+        Resources:
+          - "resources/*.md"
+
 extra_css:
   - stylesheets/extra.css
 
