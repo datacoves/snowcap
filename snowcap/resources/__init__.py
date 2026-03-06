@@ -61,7 +61,7 @@ from .storage_integration import (
 from .stream import StageStream, TableStream, ViewStream  # ExternalTableStream
 from .streamlit import Streamlit
 from .table import Table  # , CreateTableAsSelect
-from .tag import Tag, TagReference
+from .tag import Tag, TagMaskingPolicyReference, TagReference
 from .task import Task
 from .user import User
 from .view import View
@@ -138,6 +138,7 @@ __all__ = [
     "Table",
     "TableStream",
     "Tag",
+    "TagMaskingPolicyReference",
     "TagReference",
     "Task",
     "User",

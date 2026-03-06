@@ -247,6 +247,15 @@ def create_tag_reference(urn: URN, data: dict, props: Props, if_not_exists: bool
     )
 
 
+def create_tag_masking_policy_reference(urn: URN, data: dict, props: Props, if_not_exists: bool = False) -> str:
+    return tidy_sql(
+        "ALTER TAG",
+        data["tag_name"],
+        "SET MASKING POLICY",
+        data["masking_policy_name"],
+    )
+
+
 def create_view(urn: URN, data: dict, props: Props, if_not_exists: bool = False) -> str:
     data = data.copy()
     secure = data.pop("secure", None)
@@ -520,6 +529,15 @@ def drop_scanner_package(urn: URN, data: dict, **kwargs) -> str:
         "'FALSE',",
         package_name,
         ")",
+    )
+
+
+def drop_tag_masking_policy_reference(urn: URN, data: dict, **kwargs) -> str:
+    return tidy_sql(
+        "ALTER TAG",
+        data["tag_name"],
+        "UNSET MASKING POLICY",
+        data["masking_policy_name"],
     )
 
 

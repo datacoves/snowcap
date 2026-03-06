@@ -3763,6 +3763,103 @@ def list_tags(session: SnowflakeConnection) -> list[FQN]:
             raise
 
 
+def list_tag_masking_policy_references(session: SnowflakeConnection) -> list[FQN]:
+    """
+    List all tag-based masking policy references from ACCOUNT_USAGE.POLICY_REFERENCES.
+
+    Note: ACCOUNT_USAGE has up to 120 minutes of latency.
+    """
+    try:
+        result = execute(
+            session,
+            """
+            SELECT DISTINCT
+                TAG_DATABASE,
+                TAG_SCHEMA,
+                TAG_NAME,
+                POLICY_DATABASE,
+                POLICY_SCHEMA,
+                POLICY_NAME
+            FROM SNOWFLAKE.ACCOUNT_USAGE.POLICY_REFERENCES
+            WHERE TAG_NAME IS NOT NULL
+              AND POLICY_KIND = 'MASKING_POLICY'
+            """,
+            cacheable=True,
+        )
+        references = []
+        for row in result:
+            # Build the masking policy FQN string
+            masking_policy_fqn = f"{row['POLICY_DATABASE']}.{row['POLICY_SCHEMA']}.{row['POLICY_NAME']}"
+            references.append(
+                FQN(
+                    database=resource_name_from_snowflake_metadata(row["TAG_DATABASE"]),
+                    schema=resource_name_from_snowflake_metadata(row["TAG_SCHEMA"]),
+                    name=resource_name_from_snowflake_metadata(row["TAG_NAME"]),
+                    params={"masking_policy": masking_policy_fqn},
+                )
+            )
+        return references
+    except ProgrammingError as err:
+        if err.errno == ACCESS_CONTROL_ERR:
+            logger.warning("Cannot list tag masking policy references: missing IMPORTED PRIVILEGES on SNOWFLAKE database")
+            return []
+        elif err.errno == UNSUPPORTED_FEATURE:
+            return []
+        else:
+            raise
+
+
+def fetch_tag_masking_policy_reference(session: SnowflakeConnection, fqn: FQN) -> Optional[dict]:
+    """
+    Fetch a specific tag masking policy reference from ACCOUNT_USAGE.POLICY_REFERENCES.
+
+    Note: ACCOUNT_USAGE has up to 120 minutes of latency.
+    """
+    masking_policy_name = fqn.params.get("masking_policy")
+    if not masking_policy_name:
+        return None
+
+    tag_name = f"{fqn.database}.{fqn.schema}.{fqn.name}"
+
+    try:
+        result = execute(
+            session,
+            f"""
+            SELECT
+                TAG_DATABASE,
+                TAG_SCHEMA,
+                TAG_NAME,
+                POLICY_DATABASE,
+                POLICY_SCHEMA,
+                POLICY_NAME
+            FROM SNOWFLAKE.ACCOUNT_USAGE.POLICY_REFERENCES
+            WHERE TAG_NAME IS NOT NULL
+              AND POLICY_KIND = 'MASKING_POLICY'
+              AND CONCAT(TAG_DATABASE, '.', TAG_SCHEMA, '.', TAG_NAME) = '{tag_name}'
+              AND CONCAT(POLICY_DATABASE, '.', POLICY_SCHEMA, '.', POLICY_NAME) = '{masking_policy_name}'
+            LIMIT 1
+            """,
+            cacheable=True,
+        )
+
+        if len(result) == 0:
+            return None
+
+        row = result[0]
+        return {
+            "tag_name": f"{row['TAG_DATABASE']}.{row['TAG_SCHEMA']}.{row['TAG_NAME']}",
+            "masking_policy_name": f"{row['POLICY_DATABASE']}.{row['POLICY_SCHEMA']}.{row['POLICY_NAME']}",
+        }
+    except ProgrammingError as err:
+        if err.errno == ACCESS_CONTROL_ERR:
+            logger.warning("Cannot fetch tag masking policy reference: missing IMPORTED PRIVILEGES on SNOWFLAKE database")
+            return None
+        elif err.errno == UNSUPPORTED_FEATURE:
+            return None
+        else:
+            raise
+
+
 def list_tasks(session: SnowflakeConnection) -> list[FQN]:
     return list_schema_scoped_resource(session, "TASKS")
 

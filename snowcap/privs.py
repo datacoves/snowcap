@@ -414,6 +414,7 @@ PRIVS_FOR_RESOURCE_TYPE: dict[ResourceType, Optional[type[Priv]]] = {
     ResourceType.STREAM: StreamPriv,
     ResourceType.STREAMLIT: StreamlitPriv,
     ResourceType.TABLE: TablePriv,
+    ResourceType.TAG_MASKING_POLICY_REFERENCE: None,
     ResourceType.TAG_REFERENCE: None,
     ResourceType.TAG: TagPriv,
     ResourceType.TASK: TaskPriv,

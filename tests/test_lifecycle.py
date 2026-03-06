@@ -24,6 +24,7 @@ from snowcap.lifecycle import (
     create_schema,
     create_table,
     create_tag_reference,
+    create_tag_masking_policy_reference,
     create_view,
     update_resource,
     update__default,
@@ -46,6 +47,7 @@ from snowcap.lifecycle import (
     drop_procedure,
     drop_role_grant,
     drop_scanner_package,
+    drop_tag_masking_policy_reference,
     transfer_resource,
     transfer__default,
 )
@@ -1133,3 +1135,60 @@ class TestTransferResource:
         assert "GRANT OWNERSHIP ON SCHEMA" in result
         # ResourceType.DATABASE_ROLE renders as "DATABASE ROLE"
         assert "TO DATABASE ROLE NEW_OWNER" in result
+
+
+# ============================================================================
+# Test tag masking policy reference functions
+# ============================================================================
+
+
+class TestCreateTagMaskingPolicyReference:
+    """Tests for create_tag_masking_policy_reference function."""
+
+    def test_basic_create(self):
+        """Test basic tag masking policy reference creation."""
+        urn = make_urn(ResourceType.TAG_MASKING_POLICY_REFERENCE, "PII")
+        data = {
+            "tag_name": "MY_DB.MY_SCHEMA.PII",
+            "masking_policy_name": "MY_DB.MY_SCHEMA.MASK_PII",
+        }
+        props = MockProps("")
+        result = create_tag_masking_policy_reference(urn, data, props)
+        assert result == "ALTER TAG MY_DB.MY_SCHEMA.PII SET MASKING POLICY MY_DB.MY_SCHEMA.MASK_PII"
+
+    def test_with_different_schemas(self):
+        """Test tag masking policy reference with tag and policy in different schemas."""
+        urn = make_urn(ResourceType.TAG_MASKING_POLICY_REFERENCE, "SENSITIVE")
+        data = {
+            "tag_name": "GOVERNANCE_DB.TAGS.SENSITIVE",
+            "masking_policy_name": "SECURITY_DB.POLICIES.MASK_SENSITIVE",
+        }
+        props = MockProps("")
+        result = create_tag_masking_policy_reference(urn, data, props)
+        assert "ALTER TAG GOVERNANCE_DB.TAGS.SENSITIVE" in result
+        assert "SET MASKING POLICY SECURITY_DB.POLICIES.MASK_SENSITIVE" in result
+
+
+class TestDropTagMaskingPolicyReference:
+    """Tests for drop_tag_masking_policy_reference function."""
+
+    def test_basic_drop(self):
+        """Test basic tag masking policy reference removal."""
+        urn = make_urn(ResourceType.TAG_MASKING_POLICY_REFERENCE, "PII")
+        data = {
+            "tag_name": "MY_DB.MY_SCHEMA.PII",
+            "masking_policy_name": "MY_DB.MY_SCHEMA.MASK_PII",
+        }
+        result = drop_tag_masking_policy_reference(urn, data)
+        assert result == "ALTER TAG MY_DB.MY_SCHEMA.PII UNSET MASKING POLICY MY_DB.MY_SCHEMA.MASK_PII"
+
+    def test_with_different_schemas(self):
+        """Test tag masking policy reference removal with different schemas."""
+        urn = make_urn(ResourceType.TAG_MASKING_POLICY_REFERENCE, "SENSITIVE")
+        data = {
+            "tag_name": "GOVERNANCE_DB.TAGS.SENSITIVE",
+            "masking_policy_name": "SECURITY_DB.POLICIES.MASK_SENSITIVE",
+        }
+        result = drop_tag_masking_policy_reference(urn, data)
+        assert "ALTER TAG GOVERNANCE_DB.TAGS.SENSITIVE" in result
+        assert "UNSET MASKING POLICY SECURITY_DB.POLICIES.MASK_SENSITIVE" in result

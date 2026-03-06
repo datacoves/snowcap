@@ -84,8 +84,10 @@ docs_dir: docs
 
 nav:
   - Overview: index.md
+  - Why Snowcap: why-snowcap.md
   - Getting Started: getting-started.md
   - Role-Based Access Control: role-based-access-control.md
+  - Tag-Based Masking Policies: masking-policies.md
   - YAML Configuration: yaml-configuration.md
   - GitHub Action: snowcap-github-action.md
   - Export Existing Resources: export.md
@@ -163,11 +165,13 @@ nav:
     - Security & Policies:
       - AggregationPolicy: resources/aggregation_policy.md
       - AuthenticationPolicy: resources/authentication_policy.md
+      - MaskingPolicy: resources/masking-policy.md
       - NetworkPolicy: resources/network_policy.md
       - NetworkRule: resources/network_rule.md
       - PackagesPolicy: resources/packages_policy.md
       - PasswordPolicy: resources/password_policy.md
       - SessionPolicy: resources/session_policy.md
+      - TagMaskingPolicyReference: resources/tag-masking-policy-reference.md
     - Snowpark Container Services:
       - ComputePool: resources/compute_pool.md
       - ImageRepository: resources/image_repository.md

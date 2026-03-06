@@ -4,6 +4,7 @@
 * [Getting Started](getting-started.md)
 * [Working With Resources](working-with-resources.md)
 * [Role-Based Access Control](role-based-access-control.md)
+* [Tag-Based Masking Policies](masking-policies.md)
 * [Blueprint](blueprint.md)
 * [GitHub Action](snowcap-github-action.md)
 
@@ -34,6 +35,7 @@
 * [InternalStage](resources/internal_stage.md)
 * [JSONFileFormat](resources/json_file_format.md)
 * [JavascriptUDF](resources/javascript_udf.md)
+* [MaskingPolicy](resources/masking-policy.md)
 * [MaterializedView](resources/materialized_view.md)
 * [NetworkPolicy](resources/network_policy.md)
 * [NetworkRule](resources/network_rule.md)
@@ -62,6 +64,7 @@
 * [Table](resources/table.md)
 * [TableStream](resources/table_stream.md)
 * [Tag](resources/tag.md)
+* [TagMaskingPolicyReference](resources/tag-masking-policy-reference.md)
 * [Task](resources/task.md)
 * [User](resources/user.md)
 * [View](resources/view.md)

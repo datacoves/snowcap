@@ -16,8 +16,11 @@ Represents a tag in Snowflake, which can be used to label various resources for 
 
 ```yaml
 tags:
-  - name: cost_center
-    comment: This is a sample tag
+  - name: governance.public.pii
+    comment: Personally Identifiable Information
+
+  - name: governance.public.cost_center
+    comment: Cost center for billing
     allowed_values:
       - finance
       - engineering
@@ -27,10 +30,11 @@ tags:
 ### Python
 
 ```python
+from snowcap.resources import Tag
+
 tag = Tag(
-    name="cost_center",
-    allowed_values=["finance", "engineering", "sales"],
-    comment="This is a sample tag",
+    name="governance.public.pii",
+    comment="Personally Identifiable Information",
 )
 ```
 
