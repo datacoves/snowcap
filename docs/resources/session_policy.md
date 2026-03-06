@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A session policy in Snowflake.
 ---
 
 # SessionPolicy
@@ -38,8 +38,8 @@ session_policy = SessionPolicy(
 ## Fields
 
 * `name` (string, required) - The name of the session policy.
-* `session_idle_timeout_mins` (int) - The maximum amount of time a session can remain idle before it is automatically terminated.
-* `session_ui_idle_timeout_mins` (int) - The maximum amount of time a user interface session can remain idle before it is automatically terminated.
+* `session_idle_timeout_mins` (int) - The maximum time in minutes a programmatic session (e.g., driver or connector) can remain idle before termination.
+* `session_ui_idle_timeout_mins` (int) - The maximum time in minutes a Snowflake UI session can remain idle before termination.
 * `comment` (string) - A description or comment about the session policy.
 
 

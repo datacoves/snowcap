@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A dynamic table in Snowflake.
 ---
 
 # DynamicTable

@@ -1,11 +1,11 @@
 ---
 description: >-
-  
+  A Python stored procedure in Snowflake.
 ---
 
 # PythonStoredProcedure
 
-[Snowflake Documentation](s://docs.snowflake.com/en/sql-reference/sql/create-procedure)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-procedure)
 
 Represents a Python stored procedure in Snowflake, allowing for the execution of Python code within the Snowflake environment.
 

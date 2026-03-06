@@ -1,6 +1,6 @@
 ---
 description: >-
-
+  Associates a masking policy with a tag.
 ---
 
 # TagMaskingPolicyReference

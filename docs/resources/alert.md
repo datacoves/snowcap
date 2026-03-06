@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  An alert in Snowflake.
 ---
 
 # Alert

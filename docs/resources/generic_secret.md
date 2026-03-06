@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A generic secret in Snowflake.
 ---
 
 # GenericSecret
@@ -15,12 +15,19 @@ This class defines a generic secret.
 
 ### YAML
 
+For sensitive values, use environment variables to avoid storing secrets in your repository. Set environment variables prefixed with `SNOWCAP_VAR_` and reference them using `{{ var.variable_name }}` syntax.
+
+```bash
+# Set in your environment or .env file (loaded before running snowcap)
+export SNOWCAP_VAR_API_KEY="your-secret-api-key"
+```
+
 ```yaml
 secrets:
   - name: some_secret
     secret_type: GENERIC_STRING
-    secret_string: some_secret_string
-    comment: some_comment
+    secret_string: "{{ var.api_key }}"
+    comment: API key for external service
     owner: SYSADMIN
 ```
 
@@ -28,10 +35,12 @@ secrets:
 ### Python
 
 ```python
+import os
+
 secret = GenericSecret(
     name="some_secret",
-    secret_string="some_secret_string",
-    comment="some_comment",
+    secret_string=os.environ.get("API_KEY"),
+    comment="API key for external service",
     owner="SYSADMIN",
 )
 ```

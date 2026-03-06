@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A Google Cloud Storage integration in Snowflake.
 ---
 
 # GCSStorageIntegration

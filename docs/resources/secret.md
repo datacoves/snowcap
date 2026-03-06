@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A secret in Snowflake.
 ---
 
 # Secret
@@ -12,7 +12,20 @@ A Secret defines a set of sensitive data that can be used for authentication or 
 
 ## Examples
 
+For sensitive values, use environment variables to avoid storing secrets in your repository. Set environment variables prefixed with `SNOWCAP_VAR_` and reference them using `{{ var.variable_name }}` syntax.
+
+For specific secret types, see:
+
+- [GenericSecret](generic_secret.md) - For generic string secrets
+- [PasswordSecret](password_secret.md) - For username/password credentials
+- [OAuthSecret](oauth_secret.md) - For OAuth2 authentication
+
 ### YAML
+
+```bash
+# Set in your environment or .env file
+export SNOWCAP_VAR_OAUTH_TOKEN="your-secret-token"
+```
 
 ```yaml
 secrets:
@@ -22,29 +35,25 @@ secrets:
     oauth_scopes:
       - scope1
       - scope2
-    oauth_refresh_token: some_refresh_token
-    oauth_refresh_token_expiry_time: some_expiry_time
-    username: some_username
-    password: some_password
-    secret_string: some_secret_string
-    comment: some_comment
+    oauth_refresh_token: "{{ var.oauth_token }}"
+    oauth_refresh_token_expiry_time: 2049-01-06 20:00:00
+    comment: OAuth secret for API access
     owner: SYSADMIN
 ```
 
 ### Python
 
 ```python
+import os
+
 secret = Secret(
     name="some_secret",
     type="OAUTH2",
     api_authentication="some_security_integration",
     oauth_scopes=["scope1", "scope2"],
-    oauth_refresh_token="some_refresh_token",
-    oauth_refresh_token_expiry_time="some_expiry_time",
-    username="some_username",
-    password="some_password",
-    secret_string="some_secret_string",
-    comment="some_comment",
+    oauth_refresh_token=os.environ.get("OAUTH_TOKEN"),
+    oauth_refresh_token_expiry_time="2049-01-06 20:00:00",
+    comment="OAuth secret for API access",
     owner="SYSADMIN",
 )
 ```

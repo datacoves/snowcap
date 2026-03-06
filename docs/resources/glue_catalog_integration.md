@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  An AWS Glue catalog integration in Snowflake.
 ---
 
 # GlueCatalogIntegration

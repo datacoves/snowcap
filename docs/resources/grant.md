@@ -1,6 +1,6 @@
 ---
 description: >-
-  Documentation for the Grant resource, which represents privilege grants in Snowflake.
+  A privilege grant in Snowflake.
 ---
 
 # Grant

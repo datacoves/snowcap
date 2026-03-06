@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A tag for labeling resources in Snowflake.
 ---
 
 # Tag
@@ -41,8 +41,11 @@ tag = Tag(
 
 ## Fields
 
-* `name` (string, required) - The name of the tag.
-* `allowed_values` (list) - A list of allowed values for the tag.
+* `name` (string, required) - The fully qualified name of the tag (e.g., `db.schema.tag_name`).
+* `owner` (string or [Role](role.md)) - The owner of the tag. Defaults to "SYSADMIN".
+* `allowed_values` (list) - A list of allowed values for the tag. If specified, only these values can be assigned when applying the tag.
 * `comment` (string) - A comment or description for the tag.
+
+**Note:** Tags require Enterprise Edition or higher.
 
 

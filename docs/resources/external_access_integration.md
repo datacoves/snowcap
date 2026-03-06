@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  An external access integration in Snowflake.
 ---
 
 # ExternalAccessIntegration

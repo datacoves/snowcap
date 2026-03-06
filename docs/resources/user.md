@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A user in Snowflake.
 ---
 
 # User
@@ -8,6 +8,8 @@ description: >-
 [Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-user)
 
 A user in Snowflake.
+
+**Note:** Some Snowflake user properties are not yet supported in Snowcap: `ALLOWED_INTERFACES`, `WORKLOAD_IDENTITY`, `RSA_PUBLIC_KEY_FP`, `RSA_PUBLIC_KEY_2_FP`.
 
 
 ## Examples
@@ -52,7 +54,7 @@ user = User(
 * `default_warehouse` (string) - The default warehouse for the user.
 * `default_namespace` (string) - The default namespace for the user.
 * `default_role` (string) - The default role for the user.
-* `default_secondary_roles` (list) - The default secondary roles for the user.
+* `default_secondary_roles` (list) - The default secondary roles for the user. Use `[]` for NONE or `['ALL']` for ALL.
 * `mins_to_bypass_mfa` (int) - The number of minutes until the user can bypass Multi-Factor Authentication.
 * `rsa_public_key` (string) - The RSA public key for the user.
 * `rsa_public_key_2` (string) - The RSA public key for the user.

@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A compute pool in Snowflake.
 ---
 
 # ComputePool

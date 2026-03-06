@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A replication group in Snowflake.
 ---
 
 # ReplicationGroup

@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  An external stage in Snowflake.
 ---
 
 # ExternalStage

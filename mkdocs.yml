@@ -49,6 +49,8 @@ plugins:
           - role-based-access-control.md
         YAML Configuration:
           - yaml-configuration.md
+        Secrets and Variables:
+          - secrets-and-variables.md
         GitHub Action:
           - snowcap-github-action.md
         Export:
@@ -89,6 +91,7 @@ nav:
   - Role-Based Access Control: role-based-access-control.md
   - Tag-Based Masking Policies: masking-policies.md
   - YAML Configuration: yaml-configuration.md
+  - Secrets and Variables: secrets-and-variables.md
   - GitHub Action: snowcap-github-action.md
   - Export Existing Resources: export.md
   - Advanced:

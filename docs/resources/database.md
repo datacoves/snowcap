@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A database in Snowflake.
 ---
 
 # Database
@@ -98,8 +98,10 @@ db.add(sch)
 * `name` (string, required) - The name of the database.
 * `transient` (bool) - Specifies if the database is transient. Defaults to False.
 * `owner` (string or [Role](role.md)) - The owner role of the database. Defaults to "SYSADMIN".
-* `data_retention_time_in_days` (int) - The number of days to retain data. Defaults to 1.
-* `max_data_extension_time_in_days` (int) - The maximum number of days to extend data retention. Defaults to 14.
+* `data_retention_time_in_days` (int) - The number of days to retain data for Time Travel. Uses Snowflake default if not specified.
+* `max_data_extension_time_in_days` (int) - The maximum number of days to extend data retention beyond `data_retention_time_in_days`. Uses Snowflake default if not specified.
+* `external_volume` (string) - The external volume to use for Iceberg tables.
+* `catalog` (string) - The catalog integration for Iceberg tables.
 * `default_ddl_collation` (string) - The default collation for DDL statements.
 * `tags` (dict) - A dictionary of tags associated with the database.
 * `comment` (string) - A comment describing the database.

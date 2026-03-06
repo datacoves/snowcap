@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  An authentication policy in Snowflake.
 ---
 
 # AuthenticationPolicy

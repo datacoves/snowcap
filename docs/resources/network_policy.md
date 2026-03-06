@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A network policy in Snowflake.
 ---
 
 # NetworkPolicy

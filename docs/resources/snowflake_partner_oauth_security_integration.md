@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A Snowflake partner OAuth security integration.
 ---
 
 # SnowflakePartnerOAuthSecurityIntegration

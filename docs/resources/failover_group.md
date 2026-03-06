@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A failover group in Snowflake.
 ---
 
 # FailoverGroup

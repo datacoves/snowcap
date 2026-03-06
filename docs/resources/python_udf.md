@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A Python user-defined function in Snowflake.
 ---
 
 # PythonUDF

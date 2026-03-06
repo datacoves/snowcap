@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A sequence in Snowflake.
 ---
 
 # Sequence

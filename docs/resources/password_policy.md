@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A password policy in Snowflake.
 ---
 
 # PasswordPolicy

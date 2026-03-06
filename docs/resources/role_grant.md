@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A grant of a role to another role or user.
 ---
 
 # RoleGrant
@@ -43,8 +43,12 @@ role_grant = RoleGrant(role="somerole", to_user="someuser")
 
 ## Fields
 
-* `to_role` (string or [Role](role.md)) - The role to receive the grants.
-* `to_user` (string or [User](user.md)) - The user to receive the grants.
-* `roles` (list) - List of roles to grant to the target role or user.
+* `role` (string or [Role](role.md), required) - The role to be granted.
+* `to_role` (string or [Role](role.md)) - The role to receive the grant.
+* `to_user` (string or [User](user.md)) - The user to receive the grant.
+
+**Note:** You must specify either `to_role` or `to_user`, but not both.
+
+In YAML, you can also use the shorthand syntax with `roles` (list) to grant multiple roles at once.
 
 

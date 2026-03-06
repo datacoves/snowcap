@@ -1,13 +1,18 @@
 ---
 description: >-
-  
+  A hybrid table in Snowflake.
 ---
 
 # HybridTable
 
 [Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-hybrid-table)
 
-`[UNDER DEVELOPMENT]`
+!!! warning "Limitations"
+    This resource is under development with the following limitations:
+
+    - **Export not supported** - `snowcap export` cannot export existing hybrid tables
+    - **Missing features** - Primary keys, indexes, and foreign keys are not yet supported
+
 A hybrid table is a Snowflake table type that is optimized for hybrid transactional and operational workloads that require low latency and high throughput on small random point reads and writes.
 
 
