@@ -20,6 +20,7 @@ from .builtins import (
 from .client import (
     ACCESS_CONTROL_ERR,
     DOES_NOT_EXIST_ERR,
+    INVALID_COLUMN_ERR,
     INVALID_IDENTIFIER,
     OBJECT_DOES_NOT_EXIST_ERR,
     UNSUPPORTED_FEATURE,
@@ -3803,7 +3804,9 @@ def list_tag_masking_policy_references(session: SnowflakeConnection) -> list[FQN
         if err.errno == ACCESS_CONTROL_ERR:
             logger.warning("Cannot list tag masking policy references: missing IMPORTED PRIVILEGES on SNOWFLAKE database")
             return []
-        elif err.errno == UNSUPPORTED_FEATURE:
+        elif err.errno in (UNSUPPORTED_FEATURE, INVALID_COLUMN_ERR):
+            # INVALID_COLUMN_ERR (904) occurs when POLICY_DATABASE/POLICY_SCHEMA/POLICY_NAME columns
+            # don't exist in POLICY_REFERENCES view (account edition/configuration dependent)
             return []
         else:
             raise
@@ -3854,7 +3857,9 @@ def fetch_tag_masking_policy_reference(session: SnowflakeConnection, fqn: FQN) -
         if err.errno == ACCESS_CONTROL_ERR:
             logger.warning("Cannot fetch tag masking policy reference: missing IMPORTED PRIVILEGES on SNOWFLAKE database")
             return None
-        elif err.errno == UNSUPPORTED_FEATURE:
+        elif err.errno in (UNSUPPORTED_FEATURE, INVALID_COLUMN_ERR):
+            # INVALID_COLUMN_ERR (904) occurs when POLICY_DATABASE/POLICY_SCHEMA/POLICY_NAME columns
+            # don't exist in POLICY_REFERENCES view (account edition/configuration dependent)
             return None
         else:
             raise

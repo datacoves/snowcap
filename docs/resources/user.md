@@ -9,7 +9,7 @@ description: >-
 
 A user in Snowflake.
 
-**Note:** Some Snowflake user properties are not yet supported in Snowcap: `ALLOWED_INTERFACES`, `WORKLOAD_IDENTITY`, `RSA_PUBLIC_KEY_FP`, `RSA_PUBLIC_KEY_2_FP`.
+**Note:** `RSA_PUBLIC_KEY_FP` and `RSA_PUBLIC_KEY_2_FP` are read-only fingerprint fields computed by Snowflake and cannot be managed through Snowcap.
 
 
 ## Examples
@@ -60,6 +60,8 @@ user = User(
 * `rsa_public_key_2` (string) - The RSA public key for the user.
 * `comment` (string) - A comment for the user.
 * `network_policy` (string) - The network policy for the user.
+* `allowed_interfaces` (list) - The allowed interfaces for the user.
+* `workload_identity` (string) - The workload identity for the user.
 * `type` (string or UserType) - The type of the user. Defaults to "NULL".
 * `tags` (dict) - Tags for the user.
 
