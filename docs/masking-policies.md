@@ -237,15 +237,52 @@ Once your tags and masking policies are deployed with Snowcap, you need to apply
 
 ### Option 1: dbt-tags Package
 
-The [dbt-tags](https://dbt-tags.iflambda.com/latest/getting-started.html#6-apply-tags-to-columns){:target="_blank"} package applies tags to columns during the dbt build process.
+The [dbt-tags](https://hub.getdbt.com/infinitelambda/dbt_tags/latest/){:target="_blank"} package applies tags to columns during the dbt build process. See the [dbt-tags getting started guide](https://dbt-tags.iflambda.com/latest/getting-started.html#6-apply-tags-to-columns){:target="_blank"} for full documentation.
 
-**Steps:**
+#### 1. Add dbt-tags to packages.yml
 
-1. Install the dbt-tags package
-2. Define tags on columns in your model's schema.yml
-3. Add a post-hook to apply the tags
+```yaml
+# packages.yml
+packages:
+  - package: infinitelambda/dbt_tags
+    version: 1.9.0
+```
 
-**Define tags in schema.yml:**
+Then run `dbt deps` to install.
+
+#### 2. Configure dbt_project.yml variables
+
+Since Snowcap manages the tags in a dedicated governance database, you need to tell dbt-tags where to find them. Add these variables to your `dbt_project.yml`:
+
+```yaml
+# dbt_project.yml
+vars:
+  dbt_tags__opt_in_default_naming_config: false
+  dbt_tags__database: "GOVERNANCE"
+  dbt_tags__schema: "TAGS"
+```
+
+!!! note "Why `dbt_tags__opt_in_default_naming_config: false`?"
+    By default, dbt-tags uses dbt's `generate_schema_name` and `generate_database_name` macros to resolve the tag location. If your project overrides these macros (which is common), this can cause errors. Setting this to `false` uses the `dbt_tags__database` and `dbt_tags__schema` values directly.
+
+#### 3. Add the post-hook
+
+Add the `apply_column_tags()` post-hook so tags are applied every time a model is built:
+
+```yaml
+# dbt_project.yml
+models:
+  your_project:
+    +post-hook:
+      - >
+        {% if flags.WHICH in ('run', 'build') %}
+        {{ dbt_tags.apply_column_tags() }}
+        {% endif %}
+```
+
+#### 4. Define tags on columns in schema.yml
+
+Tag columns in your model's schema file. The tag name must match the tag created in Snowcap (e.g., `pii` matches `governance.tags.pii`):
 
 ```yaml
 # models/staging/schema.yml
@@ -265,21 +302,33 @@ models:
           - pii
 ```
 
-**Add post-hook in dbt_project.yml:**
+#### 5. Grant APPLY privilege to the dbt role
+
+The role that runs dbt needs the `APPLY` privilege on the tag. In your Snowcap config:
 
 ```yaml
-# dbt_project.yml
-models:
-  your_project:
-    +post-hook:
-      - >
-        {% if flags.WHICH in ('run', 'build') %}
-        {{ dbt_tags.apply_column_tags() }}
-        {% endif %}
+# resources/tags.yml
+roles:
+  - name: z_tag__apply__pii
+
+grants:
+  - priv: APPLY
+    on: tag governance.tags.pii
+    to: z_tag__apply__pii
+```
+
+Then grant this role to your dbt execution role:
+
+```yaml
+# resources/roles__functional.yml
+role_grants:
+  - to_role: transformer_dbt
+    roles:
+      - z_tag__apply__pii
 ```
 
 !!! warning "dbt-tags manages the full lifecycle"
-    This package can also create tags and masking policies. If you're using Snowcap to manage those, you only need the `apply_column_tags()` macro. See [Documentation](https://dbt-tags.iflambda.com/latest/getting-started.html#6-apply-tags-to-columns){:target="_blank"} for  details.
+    This package can also create tags and masking policies. If you're using Snowcap to manage those, you only need the `apply_column_tags()` macro. See [Documentation](https://dbt-tags.iflambda.com/latest/getting-started.html#6-apply-tags-to-columns){:target="_blank"} for details.
 
 ### Option 2: Manual Tag Application
 
@@ -304,16 +353,27 @@ Test that masking is applied correctly:
 ```sql
 -- As a user WITHOUT z_unmask__pii role
 USE ROLE analyst;
+USE SECONDARY ROLES NONE;
 SELECT email, account_balance, birth_date
   FROM analytics.staging.stg_customers LIMIT 5;
 -- Result: '***MASKED***', NULL, NULL
 
 -- As a user WITH z_unmask__pii role
 USE ROLE data_steward;
+USE SECONDARY ROLES NONE;
 SELECT email, account_balance, birth_date
   FROM analytics.staging.stg_customers LIMIT 5;
 -- Result: 'john@example.com', 50000.00, '1985-03-15'
 ```
+
+!!! warning "Secondary roles can bypass masking"
+    Masking policies use `IS_ROLE_IN_SESSION()` to check access. When `USE SECONDARY ROLES ALL` is active, **all** roles granted to the user are in session — including unmask roles. This means a user with both `analyst` and `analyst_pii` roles will see unmasked data when secondary roles are enabled.
+
+    To ensure masking works as expected, set `DEFAULT_SECONDARY_ROLES` to empty for users who should not have automatic access to all their roles:
+
+    ```sql
+    ALTER USER <username> SET DEFAULT_SECONDARY_ROLES = ();
+    ```
 
 ## Benefits of This Pattern
 
@@ -338,4 +398,4 @@ SELECT email, account_balance, birth_date
 - [Tag](resources/tag.md)
 - [TagMaskingPolicyReference](resources/tag-masking-policy-reference.md)
 - [Snowflake: Introduction to Object Tagging](https://docs.snowflake.com/en/user-guide/object-tagging/introduction){:target="_blank"}
-- [dbt-tags Package](https://dbt-tags.iflambda.com/latest/getting-started.html#6-apply-tags-to-columns){:target="_blank"}
+- [dbt-tags Package](https://hub.getdbt.com/infinitelambda/dbt_tags/latest/){:target="_blank"}
