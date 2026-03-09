@@ -323,22 +323,9 @@ models:
           - pii
 ```
 
-#### 5. Grant APPLY privilege to the dbt role
+#### 5. Grant the tag apply role to your dbt role
 
-The role that runs dbt needs the `APPLY` privilege on the tag. In your Snowcap config:
-
-```yaml
-# resources/tags.yml
-roles:
-  - name: z_tag__apply__pii
-
-grants:
-  - priv: APPLY
-    on: tag governance.tags.pii
-    to: z_tag__apply__pii
-```
-
-Then grant this role to your dbt execution role:
+The role that runs dbt needs the `APPLY` privilege on the tag. The `z_tag__apply__pii` role and grant were already created in [Step 2](#step-2-create-tags). Grant it to your dbt execution role:
 
 ```yaml
 # resources/roles__functional.yml
