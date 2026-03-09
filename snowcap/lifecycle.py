@@ -345,6 +345,15 @@ def update__default(urn: URN, data: dict, props: Props) -> str:
         )
 
 
+def update_masking_policy(urn: URN, data: dict, props: Props) -> str:
+    attr, new_value = data.popitem()
+    attr = attr.lower()
+    if attr == "body":
+        return tidy_sql("ALTER", urn.resource_type, fqn_to_sql(urn.fqn), "SET BODY", props.render({"body": new_value}))
+    else:
+        return update__default(urn, {attr: new_value}, props)
+
+
 def update_account_parameter(urn: URN, data: dict, props: Props) -> str:
     return create_account_parameter(urn, data, props)
 
