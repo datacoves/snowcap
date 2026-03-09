@@ -69,26 +69,46 @@ The `z_` prefix keeps these roles sorted at the bottom of role lists, making fun
 First, create a dedicated location for your governance objects:
 
 ```yaml
-# resources/governance.yml
+# resources/databases.yml
 databases:
   - name: governance
+    owner: sysadmin
+```
 
+```yaml
+# resources/schemas.yml
 schemas:
-  - name: governance.public
+  - name: governance.tags
+    managed_access: true
+  - name: governance.policies
+    managed_access: true
 ```
 
 ### Step 2: Create Tags
 
-Define tags that represent your data classifications:
+Define tags that represent your data classifications, along with a role to grant the `APPLY` privilege:
 
 ```yaml
-# resources/governance.yml (continued)
+# resources/tags.yml
 tags:
-  - name: governance.public.pii
+  - name: governance.tags.pii
     comment: Personally Identifiable Information
 
-  - name: governance.public.confidential
+  - name: governance.tags.confidential
     comment: Confidential business data
+
+roles:
+  - name: z_tag__apply__pii
+  - name: z_tag__apply__confidential
+
+grants:
+  - priv: APPLY
+    on: tag governance.tags.pii
+    to: z_tag__apply__pii
+
+  - priv: APPLY
+    on: tag governance.tags.confidential
+    to: z_tag__apply__confidential
 ```
 
 ### Step 3: Create Unmask Roles
@@ -110,10 +130,10 @@ roles:
 Create a masking policy for each data type. All policies check for the same unmask role:
 
 ```yaml
-# resources/governance.yml (continued)
+# resources/masking_policies.yml
 masking_policies:
   # String/VARCHAR columns
-  - name: governance.public.mask_pii_string
+  - name: governance.policies.mask_pii_string
     args:
       - name: val
         data_type: VARCHAR
@@ -126,7 +146,7 @@ masking_policies:
     comment: Masks PII string data
 
   # Numeric columns
-  - name: governance.public.mask_pii_number
+  - name: governance.policies.mask_pii_number
     args:
       - name: val
         data_type: NUMBER
@@ -139,7 +159,7 @@ masking_policies:
     comment: Masks PII numeric data
 
   # Date columns
-  - name: governance.public.mask_pii_date
+  - name: governance.policies.mask_pii_date
     args:
       - name: val
         data_type: DATE
@@ -152,7 +172,7 @@ masking_policies:
     comment: Masks PII date data
 
   # Timestamp columns
-  - name: governance.public.mask_pii_timestamp
+  - name: governance.policies.mask_pii_timestamp
     args:
       - name: val
         data_type: TIMESTAMP_NTZ
@@ -170,20 +190,19 @@ masking_policies:
 Attach all masking policies to the same tag. Snowflake automatically applies the correct policy based on the column's data type:
 
 ```yaml
-# resources/governance.yml (continued)
+# resources/tag_masking_policies.yml
 tag_masking_policy_references:
-  # Use fully qualified names: database.schema.name
-  - tag_name: governance.public.pii
-    masking_policy_name: governance.public.mask_pii_string
+  - tag_name: governance.tags.pii
+    masking_policy_name: governance.policies.mask_pii_string
 
-  - tag_name: governance.public.pii
-    masking_policy_name: governance.public.mask_pii_number
+  - tag_name: governance.tags.pii
+    masking_policy_name: governance.policies.mask_pii_number
 
-  - tag_name: governance.public.pii
-    masking_policy_name: governance.public.mask_pii_date
+  - tag_name: governance.tags.pii
+    masking_policy_name: governance.policies.mask_pii_date
 
-  - tag_name: governance.public.pii
-    masking_policy_name: governance.public.mask_pii_timestamp
+  - tag_name: governance.tags.pii
+    masking_policy_name: governance.policies.mask_pii_timestamp
 ```
 
 !!! tip "One tag, multiple policies"
@@ -223,8 +242,10 @@ snowcap/
 │   ├── warehouses.yml
 │   ├── roles__base.yml
 │   ├── roles__functional.yml
-│   ├── roles__unmasking.yml     # Unmask roles + grants
-│   ├── governance.yml           # Tags, masking policies, and references
+│   ├── roles__unmasking.yml        # Unmask roles + grants
+│   ├── tags.yml                    # Tags + apply roles + grants
+│   ├── masking_policies.yml        # Masking policy definitions
+│   ├── tag_masking_policies.yml    # Tag-to-policy associations
 │   ├── users.yml
 │   └── ...
 ├── plan.sh
