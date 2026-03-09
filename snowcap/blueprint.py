@@ -1423,6 +1423,14 @@ def execution_strategy_for_change(
 
         return default_role, False
 
+    elif change.urn.resource_type == ResourceType.TAG_MASKING_POLICY_REFERENCE:
+        # Tag-based masking policy references require the APPLY MASKING POLICY privilege
+        # which is granted to ACCOUNTADMIN by default
+        if "ACCOUNTADMIN" in available_roles:
+            return ResourceName("ACCOUNTADMIN"), False
+
+        return default_role, False
+
     elif change.urn.resource_type == ResourceType.RESOURCE_MONITOR:
         # For some reason Snowflake chose to not have a priv type for resource monitors.
         # Only ACCOUNTADMIN can create them.
