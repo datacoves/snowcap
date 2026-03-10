@@ -216,11 +216,12 @@ def collect_blueprint_config(yaml_config: dict, cli_config: Optional[dict[str, A
     cli_config_ = cli_config.copy() if cli_config else {}
     blueprint_args: dict[str, Any] = {}
 
-    for key in ["sync_resources", "dry_run", "name"]:
+    for key in ["sync_resources", "exclude_resources", "dry_run", "name"]:
         if key in yaml_config_ and key in cli_config_:
             raise ValueError(f"Cannot specify `{key}` in both yaml config and cli")
 
     sync_resources = yaml_config_.pop("sync_resources", None) or cli_config_.pop("sync_resources", None)
+    exclude_resources = yaml_config_.pop("exclude_resources", None) or cli_config_.pop("exclude_resources", None)
     database = yaml_config_.pop("database", None) or cli_config_.pop("database", None)
     dry_run = yaml_config_.pop("dry_run", None) or cli_config_.pop("dry_run", None)
     name = yaml_config_.pop("name", None) or cli_config_.pop("name", None)
@@ -234,6 +235,9 @@ def collect_blueprint_config(yaml_config: dict, cli_config: Optional[dict[str, A
 
     if sync_resources:
         blueprint_args["sync_resources"] = [ResourceType(resource_type) for resource_type in sync_resources]
+
+    if exclude_resources:
+        blueprint_args["exclude_resources"] = [ResourceType(resource_type) for resource_type in exclude_resources]
 
     if database:
         blueprint_args["database"] = database

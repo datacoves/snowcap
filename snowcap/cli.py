@@ -118,6 +118,16 @@ def sync_resources_option():
     )
 
 
+def exclude_resources_option():
+    return click.option(
+        "--exclude",
+        "exclude_resources",
+        type=CommaSeparatedListParamType(),
+        help="Exclude resource types from the plan (e.g., --exclude masking_policy)",
+        metavar="<resource_types>",
+    )
+
+
 def scope_option():
     return click.option(
         "--scope",
@@ -170,12 +180,13 @@ def use_account_usage_option():
 @click.option("--out", "output_file", type=str, help="Write plan to a file", metavar="<filename>")
 @vars_option()
 @sync_resources_option()
+@exclude_resources_option()
 @scope_option()
 @database_option()
 @schema_option()
 @use_account_usage_option()
 @debug_option()
-def plan(config_path, json_output, output_file, vars: dict, sync_resources, scope, database, schema, use_account_usage, debug):
+def plan(config_path, json_output, output_file, vars: dict, sync_resources, exclude_resources, scope, database, schema, use_account_usage, debug):
     """Compare a resource config to the current state of Snowflake"""
 
     if not config_path:
@@ -191,6 +202,8 @@ def plan(config_path, json_output, output_file, vars: dict, sync_resources, scop
         cli_config["vars"] = vars
     if sync_resources:
         cli_config["sync_resources"] = sync_resources
+    if exclude_resources:
+        cli_config["exclude_resources"] = exclude_resources
     if scope:
         cli_config["scope"] = scope
     if database:
@@ -228,13 +241,14 @@ def plan(config_path, json_output, output_file, vars: dict, sync_resources, scop
 @click.option("--plan", "plan_file", type=str, help="Path to plan JSON file", metavar="<filename>")
 @vars_option()
 @sync_resources_option()
+@exclude_resources_option()
 @scope_option()
 @database_option()
 @schema_option()
 @click.option("--dry-run", is_flag=True, help="When dry run is true, Snowcap will not make any changes to Snowflake")
 @use_account_usage_option()
 @debug_option()
-def apply(config_path, plan_file, vars, sync_resources, scope, database, schema, dry_run, use_account_usage, debug):
+def apply(config_path, plan_file, vars, sync_resources, exclude_resources, scope, database, schema, dry_run, use_account_usage, debug):
     """Apply a resource config to a Snowflake account"""
 
     if config_path and plan_file:
@@ -249,6 +263,8 @@ def apply(config_path, plan_file, vars, sync_resources, scope, database, schema,
         cli_config["dry_run"] = dry_run
     if sync_resources:
         cli_config["sync_resources"] = sync_resources
+    if exclude_resources:
+        cli_config["exclude_resources"] = exclude_resources
     if scope:
         cli_config["scope"] = scope
     if database:

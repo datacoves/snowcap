@@ -730,6 +730,7 @@ class Blueprint:
         resources: Optional[list[Resource]] = None,
         dry_run: bool = False,
         sync_resources: Optional[list[ResourceType]] = None,
+        exclude_resources: Optional[list[ResourceType]] = None,
         vars: Optional[dict] = None,
         vars_spec: Optional[list[dict]] = None,
         scope: Optional[str] = None,
@@ -743,6 +744,7 @@ class Blueprint:
             resources=resources,
             dry_run=dry_run,
             sync_resources=[ResourceType(item) for item in sync_resources] if sync_resources else None,
+            exclude_resources=[ResourceType(item) for item in exclude_resources] if exclude_resources else None,
             vars=vars or {},
             vars_spec=vars_spec or [],
             scope=BlueprintScope(scope) if scope else None,
@@ -872,6 +874,10 @@ class Blueprint:
                     )
         else:
             urns = list(manifest.urns)
+
+        # Filter out excluded resource types
+        if self._config.exclude_resources:
+            urns = [urn for urn in urns if urn.resource_type not in self._config.exclude_resources]
 
         urns = list(set(urns))  # Deduplicate urns
 
@@ -1208,6 +1214,9 @@ class Blueprint:
         self._finalize(session_ctx)
         for resource in _walk(self._root):
             if isinstance(resource, Resource):
+                # Skip resources that are in the exclude list
+                if self._config.exclude_resources and resource.resource_type in self._config.exclude_resources:
+                    continue
                 manifest.add(resource, session_ctx["account_edition"])
             else:
                 raise RuntimeError(f"Unexpected object found in blueprint: {resource}")
