@@ -55,8 +55,11 @@ class BlueprintConfig:
         if self.exclude_resources is not None:
             if len(self.exclude_resources) == 0:
                 raise ValueError("Exclude Resources must have at least one resource type")
+            # If both are specified, remove excluded types from sync_resources
             if self.sync_resources is not None:
-                raise ValueError("Cannot specify both sync_resources and exclude_resources")
+                self.sync_resources = [r for r in self.sync_resources if r not in self.exclude_resources]
+                if len(self.sync_resources) == 0:
+                    raise ValueError("All sync_resources were excluded - nothing left to sync")
 
         if self.vars_spec:
             for var in self.vars_spec:
