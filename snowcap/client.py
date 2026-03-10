@@ -13,6 +13,7 @@ from snowflake.connector.errors import ProgrammingError
 logger = logging.getLogger("snowcap")
 
 UNSUPPORTED_FEATURE = 2
+INVALID_COLUMN_ERR = 904
 SYNTAX_ERROR = 1003
 OBJECT_ALREADY_EXISTS_ERR = 2002
 DOES_NOT_EXIST_ERR = 2003

@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A network rule in Snowflake.
 ---
 
 # NetworkRule

@@ -542,21 +542,50 @@ def _parse_column(sql):
         raise pp.ParseException("Failed to parse column") from err
 
 
+def _parse_index(sql):
+    """Parse an INDEX definition: INDEX name (col1, col2) [INCLUDE (col3, col4)]"""
+    # INDEX idx_name (col1, col2) INCLUDE (col3, col4)
+    index_parser = (
+        Keyword("INDEX").suppress()
+        + Identifier("name")
+        + _in_parens(pp.delimited_list(Identifier))("columns")
+        + pp.Opt(Keyword("INCLUDE").suppress() + _in_parens(pp.delimited_list(Identifier))("include"))
+        + REST_OF_STRING("remainder")
+    )
+    try:
+        results = index_parser.parse_string(sql, parse_all=True)
+        results = results.as_dict()
+        results["columns"] = list(results["columns"])
+        if "include" in results:
+            results["include"] = list(results["include"])
+        return results
+    except pp.ParseException as err:
+        raise pp.ParseException("Failed to parse index") from err
+
+
 def _parse_table_schema(sql):
     columns_blob, start, end = _first_match(pp.original_text_for(pp.nested_expr()), sql)
     columns_blob = columns_blob[0][1:-1]  # .strip("()")
     columns = []
+    indexes = []
     while columns_blob:
-        col = _parse_column(columns_blob)
-        columns_blob = col.pop("remainder", "")
-        columns.append(col)
+        columns_blob = columns_blob.strip()
+        # Check if this is an INDEX definition
+        if columns_blob.upper().startswith("INDEX "):
+            idx = _parse_index(columns_blob)
+            columns_blob = idx.pop("remainder", "")
+            indexes.append(idx)
+        else:
+            col = _parse_column(columns_blob)
+            columns_blob = col.pop("remainder", "")
+            columns.append(col)
         if columns_blob and columns_blob[0] == ",":
             columns_blob = columns_blob[1:]
 
-    # TODO: outofline constraints
-
     remainder = sql[0:start] + " " + sql[end:]
     table_schema = {"columns": columns}
+    if indexes:
+        table_schema["indexes"] = indexes
     return (table_schema, remainder)
 
 

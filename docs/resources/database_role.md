@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A database role in Snowflake.
 ---
 
 # DatabaseRole

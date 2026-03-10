@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A Parquet file format in Snowflake.
 ---
 
 # ParquetFileFormat

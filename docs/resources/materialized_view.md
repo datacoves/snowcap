@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A materialized view in Snowflake.
 ---
 
 # MaterializedView

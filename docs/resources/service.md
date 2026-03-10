@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A Snowpark Container Services service.
 ---
 
 # Service

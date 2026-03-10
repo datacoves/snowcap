@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  An object store catalog integration in Snowflake.
 ---
 
 # ObjectStoreCatalogIntegration

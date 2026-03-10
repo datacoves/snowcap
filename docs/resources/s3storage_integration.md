@@ -1,13 +1,13 @@
 ---
 description: >-
-  
+  An S3 storage integration in Snowflake.
 ---
 
 # S3StorageIntegration
 
 [Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-storage-integration)
 
-Manages the integration of Snowflake with S3 storage.
+Manages the integration of Snowflake with AWS S3 storage.
 
 
 ## Examples

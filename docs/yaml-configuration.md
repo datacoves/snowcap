@@ -29,6 +29,8 @@ export SNOWCAP_VAR_ENVIRONMENT="prod"
 snowcap plan --config snowcap.yml
 ```
 
+For managing sensitive values like passwords and API keys, see [Secrets and Variables](secrets-and-variables.md).
+
 ### Defining Variables with Defaults
 
 Use the top-level `vars:` key to define expected variables with types and optional defaults:
@@ -325,5 +327,6 @@ This creates `ANALYTICS_STAGE.FINANCE.revenue` and `ANALYTICS_PROD.FINANCE.reven
 ## See Also
 
 - [Getting Started](getting-started.md) - Basic setup and first config
+- [Secrets and Variables](secrets-and-variables.md) - Managing sensitive values with environment variables
 - [Role-Based Access Control](role-based-access-control.md) - Real-world YAML patterns
 - [Blueprint](blueprint.md) - Python API reference

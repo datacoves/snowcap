@@ -654,7 +654,8 @@ class SchemaProp(Prop):
                 default = ""
 
             comment = f" COMMENT '{column['comment']}'" if "comment" in column and column["comment"] else ""
-            column_str = f"{name} {data_type}{not_null}{default}{comment}"
+            constraint = f" {column['constraint']}" if column.get("constraint") else ""
+            column_str = f"{name} {data_type}{not_null}{default}{comment}{constraint}"
             columns.append(column_str)
         return f"({', '.join(columns)})"
 

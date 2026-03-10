@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from ..enums import AccountEdition, ResourceType
-from ..identifiers import FQN
+from ..identifiers import FQN, parse_FQN
 from ..props import Props, StringListProp, StringProp
 from ..resource_name import ResourceName
 from ..resource_tags import ResourceTags
@@ -141,6 +141,92 @@ def tag_reference_for_resource(resource: Resource, tags: dict[str, str]) -> TagR
         object_name=str(resource.fqn),
         object_domain=resource.resource_type,
         tags=tags,
+    )
+
+
+@dataclass(unsafe_hash=True)
+class _TagMaskingPolicyReference(ResourceSpec):
+    tag_name: str
+    masking_policy_name: str
+
+
+class TagMaskingPolicyReference(Resource):
+    """
+    Description:
+        Associates a masking policy with a tag. When a tag with an associated masking policy
+        is applied to a column, the masking policy is automatically enforced on that column.
+
+    Snowflake Docs:
+        https://docs.snowflake.com/en/sql-reference/sql/alter-tag
+
+    Fields:
+        tag_name (string, required): The fully qualified name of the tag (e.g., MY_DB.MY_SCHEMA.PII).
+        masking_policy_name (string, required): The fully qualified name of the masking policy
+            (e.g., MY_DB.MY_SCHEMA.MASK_PII).
+
+    Python:
+
+        ```python
+        ref = TagMaskingPolicyReference(
+            tag_name="MY_DB.MY_SCHEMA.PII",
+            masking_policy_name="MY_DB.MY_SCHEMA.MASK_PII",
+        )
+        ```
+
+    Yaml:
+
+        ```yaml
+        tag_masking_policy_references:
+          - tag_name: MY_DB.MY_SCHEMA.PII
+            masking_policy_name: MY_DB.MY_SCHEMA.MASK_PII
+        ```
+    """
+
+    edition = {AccountEdition.ENTERPRISE, AccountEdition.BUSINESS_CRITICAL}
+    resource_type = ResourceType.TAG_MASKING_POLICY_REFERENCE
+    props = Props()
+    scope = AccountScope()
+    spec = _TagMaskingPolicyReference
+
+    def __init__(
+        self,
+        tag_name: str,
+        masking_policy_name: str,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self._data: _TagMaskingPolicyReference = _TagMaskingPolicyReference(
+            tag_name=tag_name,
+            masking_policy_name=masking_policy_name,
+        )
+        # Establish dependencies on both the tag and the masking policy
+        tag_ptr = ResourcePointer(name=tag_name, resource_type=ResourceType.TAG)
+        masking_policy_ptr = ResourcePointer(name=masking_policy_name, resource_type=ResourceType.MASKING_POLICY)
+        self.requires(tag_ptr)
+        self.requires(masking_policy_ptr)
+
+    @property
+    def fqn(self):
+        return tag_masking_policy_reference_fqn(self._data)
+
+    @property
+    def tag_name(self) -> str:
+        return self._data.tag_name
+
+    @property
+    def masking_policy_name(self) -> str:
+        return self._data.masking_policy_name
+
+
+def tag_masking_policy_reference_fqn(data: _TagMaskingPolicyReference) -> FQN:
+    tag_fqn = parse_FQN(data.tag_name)
+    return FQN(
+        name=tag_fqn.name,
+        database=tag_fqn.database,
+        schema=tag_fqn.schema,
+        params={
+            "masking_policy": data.masking_policy_name,
+        },
     )
 
 

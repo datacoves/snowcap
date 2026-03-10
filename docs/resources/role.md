@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A role in Snowflake.
 ---
 
 # Role

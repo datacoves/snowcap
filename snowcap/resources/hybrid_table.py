@@ -1,7 +1,9 @@
 from dataclasses import dataclass
 
 from ..enums import ResourceType
+from ..parse import _parse_create_header, _parse_props, _parse_table_schema
 from ..props import (
+    IdentifierListProp,
     Props,
     SchemaProp,
     StringProp,
@@ -19,6 +21,9 @@ from .tag import TaggableResource
 class _HybridTable(ResourceSpec):
     name: ResourceName
     columns: list[Column]
+    constraints: list[str] = None
+    indexes: list[dict] = None
+    cluster_by: list[str] = None
     owner: RoleRef = "SYSADMIN"
     comment: str = None
 
@@ -33,7 +38,6 @@ class _HybridTable(ResourceSpec):
 class HybridTable(NamedResource, TaggableResource, Resource):
     """
     Description:
-        `[UNDER DEVELOPMENT]`
         A hybrid table is a Snowflake table type that is optimized for hybrid transactional and operational workloads that require low latency and high throughput on small random point reads and writes.
 
     Snowflake Docs:
@@ -42,6 +46,9 @@ class HybridTable(NamedResource, TaggableResource, Resource):
     Fields:
         name (string, required): The name of the hybrid table.
         columns (list, required): The columns of the hybrid table.
+        constraints (list): Table-level constraints (PRIMARY KEY, FOREIGN KEY).
+        indexes (list): Index definitions. Each index is a dict with 'name', 'columns', and optional 'include'.
+        cluster_by (list): Clustering keys for the hybrid table.
         tags (dict): Tags associated with the hybrid table.
         owner (string or Role): The owner role of the hybrid table. Defaults to "SYSADMIN".
         comment (string): A comment for the hybrid table.
@@ -51,7 +58,12 @@ class HybridTable(NamedResource, TaggableResource, Resource):
         ```python
         hybrid_table = HybridTable(
             name="some_hybrid_table",
-            columns=[Column(name="col1", type="STRING")],
+            columns=[Column(name="id", data_type="INT", constraint="PRIMARY KEY")],
+            indexes=[
+                {"name": "idx_name", "columns": ["name"]},
+                {"name": "idx_status", "columns": ["status"], "include": ["created_at"]}
+            ],
+            cluster_by=["id"],
             owner="SYSADMIN",
             comment="This is a hybrid table."
         )
@@ -63,8 +75,20 @@ class HybridTable(NamedResource, TaggableResource, Resource):
         hybrid_tables:
           - name: some_hybrid_table
             columns:
-              - name: col1
-                type: STRING
+              - name: id
+                data_type: INT
+                constraint: PRIMARY KEY
+            indexes:
+              - name: idx_name
+                columns:
+                  - name
+              - name: idx_status
+                columns:
+                  - status
+                include:
+                  - created_at
+            cluster_by:
+              - id
             owner: SYSADMIN
             comment: This is a hybrid table.
         ```
@@ -73,6 +97,7 @@ class HybridTable(NamedResource, TaggableResource, Resource):
     resource_type = ResourceType.HYBRID_TABLE
     props = Props(
         columns=SchemaProp(),
+        cluster_by=IdentifierListProp("cluster by", eq=False, parens=True),
         tags=TagsProp(),
         comment=StringProp("comment"),
     )
@@ -83,6 +108,9 @@ class HybridTable(NamedResource, TaggableResource, Resource):
         self,
         name: str,
         columns: list[Column],
+        constraints: list[str] = None,
+        indexes: list[dict] = None,
+        cluster_by: list[str] = None,
         tags: dict[str, str] = None,
         owner: str = "SYSADMIN",
         comment: str = None,
@@ -92,6 +120,9 @@ class HybridTable(NamedResource, TaggableResource, Resource):
         self._data: _HybridTable = _HybridTable(
             name=self._name,
             columns=columns,
+            constraints=constraints,
+            indexes=indexes,
+            cluster_by=cluster_by,
             owner=owner,
             comment=comment,
         )
@@ -99,9 +130,7 @@ class HybridTable(NamedResource, TaggableResource, Resource):
 
     @classmethod
     def from_sql(cls, sql):
-        raise NotImplementedError
-
-        # identifier, remainder = _parse_create_header(sql, cls.resource_type, cls.scope)
-        # table_schema, remainder = _parse_table_schema(remainder)
-        # props = _parse_props(cls.props, remainder)
-        # return cls(**identifier, **table_schema, **props)
+        identifier, remainder = _parse_create_header(sql, cls.resource_type, cls.scope)
+        table_schema, remainder = _parse_table_schema(remainder)
+        props = _parse_props(cls.props, remainder)
+        return cls(**identifier, **table_schema, **props)

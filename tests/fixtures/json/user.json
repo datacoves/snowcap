@@ -21,5 +21,7 @@
     "rsa_public_key_2": null,
     "comment": null,
     "network_policy": null,
+    "allowed_interfaces": null,
+    "workload_identity": null,
     "type": "NULL"
 }

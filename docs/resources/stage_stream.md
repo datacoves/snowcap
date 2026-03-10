@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A stream on a stage in Snowflake.
 ---
 
 # StageStream

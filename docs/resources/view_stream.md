@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A stream on a view in Snowflake.
 ---
 
 # ViewStream

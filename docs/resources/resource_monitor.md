@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A resource monitor in Snowflake.
 ---
 
 # ResourceMonitor
@@ -44,10 +44,12 @@ resource_monitor = ResourceMonitor(
 ## Fields
 
 * `name` (string, required) - The name of the resource monitor.
-* `credit_quota` (int) - The amount of credits that can be used by this monitor. Defaults to None.
-* `frequency` (string or ResourceMonitorFrequency) - The frequency of monitoring. Defaults to None.
-* `start_timestamp` (string) - The start time for the monitoring period. Defaults to None.
-* `end_timestamp` (string) - The end time for the monitoring period. Defaults to None.
-* `notify_users` (list) - A list of users to notify when thresholds are reached. Defaults to None.
+* `credit_quota` (int) - The amount of credits that can be used within the monitoring period.
+* `frequency` (string or ResourceMonitorFrequency) - The interval at which the credit usage resets. Valid values: `MONTHLY`, `DAILY`, `WEEKLY`, `YEARLY`, `NEVER`. Defaults to `MONTHLY` when `start_timestamp` is set.
+* `start_timestamp` (string) - The start time for the monitoring period (e.g., `"2024-01-01 00:00"`).
+* `end_timestamp` (string) - The end time for the monitoring period.
+* `notify_users` (list) - A list of user names to notify when thresholds are reached.
+
+**Note:** Resource monitors can only be owned by ACCOUNTADMIN.
 
 

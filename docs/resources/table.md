@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A table in Snowflake.
 ---
 
 # Table

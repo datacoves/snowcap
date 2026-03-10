@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A packages policy in Snowflake.
 ---
 
 # PackagesPolicy

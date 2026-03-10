@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  An Azure storage integration in Snowflake.
 ---
 
 # AzureStorageIntegration

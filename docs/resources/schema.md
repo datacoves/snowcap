@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A schema in Snowflake.
 ---
 
 # Schema
@@ -50,9 +50,9 @@ schema = Schema(
 * `name` (string, required) - The name of the schema.
 * `transient` (bool) - Specifies if the schema is transient. Defaults to False.
 * `managed_access` (bool) - Specifies if the schema has managed access. Defaults to False.
-* `data_retention_time_in_days` (int) - The number of days to retain data. Defaults to 1.
-* `max_data_extension_time_in_days` (int) - The maximum number of days to extend data retention. Defaults to 14.
-* `default_ddl_collation` (string) - The default DDL collation setting.
+* `data_retention_time_in_days` (int) - The number of days to retain data for Time Travel. Inherits from database if not specified.
+* `max_data_extension_time_in_days` (int) - The maximum number of days to extend data retention. Inherits from database if not specified.
+* `default_ddl_collation` (string) - The default DDL collation setting. Inherits from database if not specified.
 * `tags` (dict) - Tags associated with the schema.
 * `owner` (string or [Role](role.md)) - The owner of the schema. Defaults to "SYSADMIN".
 * `comment` (string) - A comment about the schema.

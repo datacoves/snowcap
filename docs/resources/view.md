@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A view in Snowflake.
 ---
 
 # View

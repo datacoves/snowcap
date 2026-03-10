@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  An event table in Snowflake.
 ---
 
 # EventTable

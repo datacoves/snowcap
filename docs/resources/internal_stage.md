@@ -1,11 +1,11 @@
 ---
 description: >-
-  
+  An internal stage in Snowflake.
 ---
 
 # InternalStage
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-stage.html)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-stage)
 
 Represents an internal stage in Snowflake, which is a named location used to store data files
 that will be loaded into or unloaded from Snowflake tables.

@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  An image repository in Snowflake.
 ---
 
 # ImageRepository

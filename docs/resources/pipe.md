@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A data ingestion pipeline in Snowflake.
 ---
 
 # Pipe

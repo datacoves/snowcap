@@ -24,6 +24,7 @@ class BlueprintConfig:
     resources: Optional[list[Resource]] = None
     dry_run: bool = False
     sync_resources: Optional[list[ResourceType]] = None
+    exclude_resources: Optional[list[ResourceType]] = None
     vars: dict = field(default_factory=dict)
     vars_spec: list[dict] = field(default_factory=list)
     scope: Optional[BlueprintScope] = None
@@ -50,6 +51,12 @@ class BlueprintConfig:
         if self.sync_resources is not None:
             if len(self.sync_resources) == 0:
                 raise ValueError("Sync Resources must have at least one resource type")
+
+        if self.exclude_resources is not None:
+            if len(self.exclude_resources) == 0:
+                raise ValueError("Exclude Resources must have at least one resource type")
+            if self.sync_resources is not None:
+                raise ValueError("Cannot specify both sync_resources and exclude_resources")
 
         if self.vars_spec:
             for var in self.vars_spec:
@@ -102,4 +109,5 @@ def print_blueprint_config(config: BlueprintConfig):
     print(f"config.resources={len(config.resources or [])}")
     print(f"{config.dry_run=}")
     print(f"{config.sync_resources=}")
+    print(f"{config.exclude_resources=}")
     print(f"config.vars={list(config.vars.keys())}")

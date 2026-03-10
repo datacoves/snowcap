@@ -51,6 +51,8 @@ class _User(ResourceSpec):
     rsa_public_key_2: str = None
     comment: str = None
     network_policy: str = None
+    allowed_interfaces: list[str] = None
+    workload_identity: str = None
     type: UserType = "NULL"
 
     def __post_init__(self):
@@ -113,6 +115,8 @@ class User(NamedResource, TaggableResource, Resource):
         rsa_public_key_2 (string): The RSA public key for the user.
         comment (string): A comment for the user.
         network_policy (string): The network policy for the user.
+        allowed_interfaces (list): The allowed interfaces for the user.
+        workload_identity (string): The workload identity for the user.
         type (string or UserType): The type of the user. Defaults to "NULL".
         tags (dict): Tags for the user.
 
@@ -161,6 +165,8 @@ class User(NamedResource, TaggableResource, Resource):
         rsa_public_key_2=StringProp("rsa_public_key_2"),
         comment=StringProp("comment"),
         network_policy=StringProp("network_policy"),
+        allowed_interfaces=StringListProp("allowed_interfaces", parens=True),
+        workload_identity=StringProp("workload_identity"),
         type=EnumProp("type", UserType),
         tags=TagsProp(),
     )
@@ -192,6 +198,8 @@ class User(NamedResource, TaggableResource, Resource):
         rsa_public_key_2: str = None,
         comment: str = None,
         network_policy: str = None,
+        allowed_interfaces: list[str] = None,
+        workload_identity: str = None,
         type: str = None,
         tags: dict[str, str] = None,
         **kwargs,
@@ -229,6 +237,8 @@ class User(NamedResource, TaggableResource, Resource):
             rsa_public_key_2=rsa_public_key_2,
             comment=comment,
             network_policy=network_policy,
+            allowed_interfaces=allowed_interfaces,
+            workload_identity=workload_identity,
             type=type,
         )
         self.set_tags(tags)

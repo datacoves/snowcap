@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A Snowservices OAuth security integration in Snowflake.
 ---
 
 # SnowservicesOAuthSecurityIntegration

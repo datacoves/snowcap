@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A virtual warehouse in Snowflake.
 ---
 
 # Warehouse

@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A JSON file format in Snowflake.
 ---
 
 # JSONFileFormat

@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A Streamlit app in Snowflake.
 ---
 
 # Streamlit

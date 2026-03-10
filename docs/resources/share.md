@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A share in Snowflake.
 ---
 
 # Share

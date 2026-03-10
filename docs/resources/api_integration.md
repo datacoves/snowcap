@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  An API integration in Snowflake.
 ---
 
 # APIIntegration

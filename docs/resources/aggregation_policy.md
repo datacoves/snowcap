@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  An aggregation policy in Snowflake.
 ---
 
 # AggregationPolicy

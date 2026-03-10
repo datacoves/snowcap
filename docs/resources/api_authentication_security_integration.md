@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  An API authentication security integration in Snowflake.
 ---
 
 # APIAuthenticationSecurityIntegration

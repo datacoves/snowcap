@@ -104,6 +104,52 @@ def create_function(urn: URN, data: dict, props: Props, if_not_exists: bool = Fa
     )
 
 
+def create_hybrid_table(urn: URN, data: dict, props: Props, if_not_exists: bool = False) -> str:
+    data = data.copy()
+    columns = data.pop("columns", [])
+    indexes = data.pop("indexes", None)
+
+    # Render columns
+    col_strs = []
+    for column in columns:
+        name = column["name"]
+        data_type = str(column["data_type"])
+        not_null = " NOT NULL" if column.get("not_null") else ""
+
+        if isinstance(column.get("default"), str):
+            default = f" DEFAULT '{column['default']}'"
+        elif column.get("default") is not None:
+            default = f" DEFAULT {column['default']}"
+        else:
+            default = ""
+
+        comment = f" COMMENT '{column['comment']}'" if column.get("comment") else ""
+        constraint = f" {column['constraint']}" if column.get("constraint") else ""
+        col_strs.append(f"{name} {data_type}{not_null}{default}{comment}{constraint}")
+
+    # Render indexes
+    if indexes:
+        for idx in indexes:
+            idx_name = idx["name"]
+            idx_columns = ", ".join(idx["columns"])
+            idx_str = f"INDEX {idx_name} ({idx_columns})"
+            if idx.get("include"):
+                idx_include = ", ".join(idx["include"])
+                idx_str += f" INCLUDE ({idx_include})"
+            col_strs.append(idx_str)
+
+    schema_sql = f"({', '.join(col_strs)})"
+
+    return tidy_sql(
+        "CREATE",
+        urn.resource_type,
+        "IF NOT EXISTS" if if_not_exists else "",
+        fqn_to_sql(urn.fqn),
+        schema_sql,
+        props.render(data),
+    )
+
+
 def create_grant(urn: URN, data: dict, props: Props, if_not_exists: bool):
     on_type = data["on_type"]
     if "INTEGRATION" in str(on_type):
@@ -247,6 +293,15 @@ def create_tag_reference(urn: URN, data: dict, props: Props, if_not_exists: bool
     )
 
 
+def create_tag_masking_policy_reference(urn: URN, data: dict, props: Props, if_not_exists: bool = False) -> str:
+    return tidy_sql(
+        "ALTER TAG",
+        data["tag_name"],
+        "SET MASKING POLICY",
+        data["masking_policy_name"],
+    )
+
+
 def create_view(urn: URN, data: dict, props: Props, if_not_exists: bool = False) -> str:
     data = data.copy()
     secure = data.pop("secure", None)
@@ -288,6 +343,15 @@ def update__default(urn: URN, data: dict, props: Props) -> str:
             "SET",
             props.render({attr: new_value}),
         )
+
+
+def update_masking_policy(urn: URN, data: dict, props: Props) -> str:
+    attr, new_value = data.popitem()
+    attr = attr.lower()
+    if attr == "body":
+        return tidy_sql("ALTER", urn.resource_type, fqn_to_sql(urn.fqn), "SET BODY", props.render({"body": new_value}))
+    else:
+        return update__default(urn, {attr: new_value}, props)
 
 
 def update_account_parameter(urn: URN, data: dict, props: Props) -> str:
@@ -520,6 +584,15 @@ def drop_scanner_package(urn: URN, data: dict, **kwargs) -> str:
         "'FALSE',",
         package_name,
         ")",
+    )
+
+
+def drop_tag_masking_policy_reference(urn: URN, data: dict, **kwargs) -> str:
+    return tidy_sql(
+        "ALTER TAG",
+        data["tag_name"],
+        "UNSET MASKING POLICY",
+        data["masking_policy_name"],
     )
 
 

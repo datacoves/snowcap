@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A JavaScript user-defined function in Snowflake.
 ---
 
 # JavascriptUDF

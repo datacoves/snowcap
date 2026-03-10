@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  An email notification integration in Snowflake.
 ---
 
 # EmailNotificationIntegration

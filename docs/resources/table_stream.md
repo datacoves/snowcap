@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A stream on a table in Snowflake.
 ---
 
 # TableStream

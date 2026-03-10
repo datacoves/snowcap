@@ -1,6 +1,6 @@
 ---
 description: >-
-  
+  A password secret in Snowflake.
 ---
 
 # PasswordSecret
@@ -15,13 +15,21 @@ This class defines a password secret.
 
 ### YAML
 
+For sensitive values like passwords, use environment variables to avoid storing secrets in your repository. Set environment variables prefixed with `SNOWCAP_VAR_` and reference them using `{{ var.variable_name }}` syntax.
+
+```bash
+# Set in your environment or .env file (loaded before running snowcap)
+export SNOWCAP_VAR_DB_USERNAME="service_account"
+export SNOWCAP_VAR_DB_PASSWORD="your-secret-password"
+```
+
 ```yaml
 secrets:
   - name: some_secret
     secret_type: PASSWORD
-    username: some_username
-    password: some_password
-    comment: some_comment
+    username: "{{ var.db_username }}"
+    password: "{{ var.db_password }}"
+    comment: Credentials for external database
     owner: SYSADMIN
 ```
 
@@ -29,11 +37,13 @@ secrets:
 ### Python
 
 ```python
+import os
+
 secret = PasswordSecret(
     name="some_secret",
-    username="some_username",
-    password="some_password",
-    comment="some_comment",
+    username=os.environ.get("DB_USERNAME"),
+    password=os.environ.get("DB_PASSWORD"),
+    comment="Credentials for external database",
     owner="SYSADMIN",
 )
 ```
