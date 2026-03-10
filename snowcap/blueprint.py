@@ -1217,6 +1217,14 @@ class Blueprint:
                 # Skip resources that are in the exclude list
                 if self._config.exclude_resources and resource.resource_type in self._config.exclude_resources:
                     continue
+                # Skip grants that reference excluded resource types
+                if (
+                    self._config.exclude_resources
+                    and resource.resource_type == ResourceType.GRANT
+                    and hasattr(resource, "on_type")
+                    and resource.on_type in self._config.exclude_resources
+                ):
+                    continue
                 manifest.add(resource, session_ctx["account_edition"])
             else:
                 raise RuntimeError(f"Unexpected object found in blueprint: {resource}")
