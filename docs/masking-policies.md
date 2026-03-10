@@ -26,7 +26,7 @@ Tag-based masking separates the concerns of data protection:
                                     ▼ (has policies for each data type)
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                         MASKING POLICIES                                     │
-│       MASK_PII_STRING, MASK_PII_NUMBER, MASK_PII_DATE, MASK_PII_TIMESTAMP   │
+│  MASK_PII_STRING, MASK_PII_NUMBER, MASK_PII_FLOAT, MASK_PII_DATE, MASK_PII_TIMESTAMP │
 └─────────────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼ (checks role for visibility)
@@ -158,6 +158,19 @@ masking_policies:
       END
     comment: Masks PII numeric data
 
+  # Float columns
+  - name: governance.policies.mask_pii_float
+    args:
+      - name: val
+        data_type: FLOAT
+    returns: FLOAT
+    body: |
+      CASE
+        WHEN IS_ROLE_IN_SESSION('Z_UNMASK__PII') THEN val
+        ELSE NULL
+      END
+    comment: Masks PII float data
+
   # Date columns
   - name: governance.policies.mask_pii_date
     args:
@@ -197,6 +210,9 @@ tag_masking_policy_references:
 
   - tag_name: governance.tags.pii
     masking_policy_name: governance.policies.mask_pii_number
+
+  - tag_name: governance.tags.pii
+    masking_policy_name: governance.policies.mask_pii_float
 
   - tag_name: governance.tags.pii
     masking_policy_name: governance.policies.mask_pii_date
