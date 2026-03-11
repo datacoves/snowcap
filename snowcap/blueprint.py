@@ -1,12 +1,12 @@
 import json
 import logging
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import (
     Any,
     Generator,
-    Iterable,
     Optional,
     Sequence,
     Set,
@@ -34,6 +34,11 @@ from .enums import (
     GrantType,
     ResourceType,
     resource_type_is_grant,
+)
+from .error_formatting import (
+    format_missing_container_error,
+    format_missing_pointer_error,
+    format_missing_resource_error,
 )
 from .exceptions import (
     DuplicateResourceException,
@@ -461,96 +466,350 @@ def dump_plan(plan: Plan, format: str = "json"):
     if format == "json":
         return json.dumps([change.to_dict() for change in plan], indent=2)
     elif format == "text":
-        """
-        account:ABC123
-
-        » role.transformer will be created
-
-        + role "urn::ABC123:role/transformer" {
-            + name  = "transformer"
-            + owner = "SYSADMIN"
-            }
-
-        + warehouse "urn::ABC123:warehouse/transforming" {
-            + name           = "transforming"
-            + owner          = "SYSADMIN"
-            + warehouse_type = "STANDARD"
-            + warehouse_size = "LARGE"
-            + auto_suspend   = 60
-            }
-
-        + grant "urn::ABC123:grant/..." {
-            + priv = "USAGE"
-            + on   = warehouse "transforming"
-            + to   = role "transformer
-            }
-
-        + grant "urn::ABC123:grant/..." {
-            + priv = "OPERATE"
-            + on   = warehouse "transforming"
-            + to   = role "transformer
-            }
-        """
-        output = ""
-
-        def _render_value(value):
-            if isinstance(value, str):
-                return f'"{value}"'
-            return str(value)
-
-        # Datacoves brand colors (blue/cyan)
-        blue = "\033[94m"
-        cyan = "\033[96m"
-        reset = "\033[0m"
-
-        create_count = len([change for change in plan if isinstance(change, CreateResource)])
-        update_count = len([change for change in plan if isinstance(change, UpdateResource)])
-        transfer_count = len([change for change in plan if isinstance(change, TransferOwnership)])
-        drop_count = len([change for change in plan if isinstance(change, DropResource)])
-
-        output += f"\n{cyan}»{reset} {blue}snowcap{reset}\n"
-        output += f"{cyan}»{reset} Plan: {create_count} to create, {update_count} to update, {transfer_count} to transfer, {drop_count} to drop.\n\n"
-
-        for change in plan:
-            action_marker = ""
-            items: Iterable[tuple[str, str]] = []
-            if isinstance(change, CreateResource):
-                action_marker = "+"
-                items = change.after.items()
-            elif isinstance(change, UpdateResource):
-                action_marker = "~"
-                items = change.delta.items()
-            elif isinstance(change, DropResource):
-                action_marker = "-"
-                items = []
-            elif isinstance(change, TransferOwnership):
-                action_marker = "~"
-                items = [("owner", change.to_owner)]
-
-            output += f"{action_marker} {change.urn}"
-            if not isinstance(change, DropResource):
-                output += " {"
-            output += "\n"
-
-            key_lengths = [len(key) for key, _ in items]
-            max_key_length = max(key_lengths) if len(key_lengths) > 0 else 0
-            for key, value in items:
-                if key.startswith("_"):
-                    continue
-                new_value = _render_value(value)
-                before_value = ""
-                if isinstance(change, UpdateResource) and key in change.before:
-                    before_value = _render_value(change.before[key]) + " -> "
-                elif isinstance(change, TransferOwnership):
-                    before_value = _render_value(change.from_owner) + " -> "
-                output += f"  {action_marker} {key:<{max_key_length}} = {before_value}{new_value}\n"
-            if not isinstance(change, DropResource):
-                output += "}\n"
-            output += "\n"
-
-        return output
+        return _dump_plan_text(plan)
     else:
         raise Exception(f"Unsupported format {format}")
+
+
+def _render_value(value):
+    """Render a value for display in plan output."""
+    if isinstance(value, str):
+        return f'"{value}"'
+    return str(value)
+
+
+def _render_table(rows: list[list[str]], headers: list[str]) -> str:
+    """
+    Render a table with box-drawing characters.
+
+    Args:
+        rows: List of rows, each row is a list of cell values
+        headers: List of column headers
+
+    Returns:
+        Formatted table string with box drawing characters
+    """
+    if not rows:
+        return ""
+
+    # Calculate column widths
+    num_cols = len(headers)
+    col_widths = [len(h) for h in headers]
+    for row in rows:
+        for i, cell in enumerate(row):
+            col_widths[i] = max(col_widths[i], len(str(cell)))
+
+    # Build the table
+    lines = []
+
+    # Top border
+    top_border = "┌" + "┬".join("─" * (w + 2) for w in col_widths) + "┐"
+    lines.append(top_border)
+
+    # Header row
+    header_cells = [f" {headers[i]:<{col_widths[i]}} " for i in range(num_cols)]
+    lines.append("│" + "│".join(header_cells) + "│")
+
+    # Header separator
+    header_sep = "├" + "┼".join("─" * (w + 2) for w in col_widths) + "┤"
+    lines.append(header_sep)
+
+    # Data rows
+    for row in rows:
+        cells = [f" {str(row[i]):<{col_widths[i]}} " for i in range(num_cols)]
+        lines.append("│" + "│".join(cells) + "│")
+
+    # Bottom border
+    bottom_border = "└" + "┴".join("─" * (w + 2) for w in col_widths) + "┘"
+    lines.append(bottom_border)
+
+    return "\n".join(lines)
+
+
+def _get_resource_type_order(resource_type: ResourceType) -> tuple[int, str]:
+    """
+    Return a sort key for resource types.
+    Account-level resources come first, then database, then schema-level.
+    """
+    # Define ordering groups
+    account_level = {
+        ResourceType.ACCOUNT,
+        ResourceType.ACCOUNT_PARAMETER,
+        ResourceType.ROLE,
+        ResourceType.USER,
+        ResourceType.WAREHOUSE,
+        ResourceType.RESOURCE_MONITOR,
+        ResourceType.NETWORK_POLICY,
+        ResourceType.SHARE,
+        ResourceType.STORAGE_INTEGRATION,
+        ResourceType.API_INTEGRATION,
+        ResourceType.NOTIFICATION_INTEGRATION,
+        ResourceType.SECURITY_INTEGRATION,
+        ResourceType.EXTERNAL_ACCESS_INTEGRATION,
+        ResourceType.EXTERNAL_VOLUME,
+        ResourceType.COMPUTE_POOL,
+        ResourceType.FAILOVER_GROUP,
+        ResourceType.REPLICATION_GROUP,
+        ResourceType.CATALOG_INTEGRATION,
+        ResourceType.AUTHENTICATION_POLICY,
+        ResourceType.PASSWORD_POLICY,
+        ResourceType.PACKAGES_POLICY,
+    }
+    database_level = {
+        ResourceType.DATABASE,
+        ResourceType.DATABASE_ROLE,
+        ResourceType.SCHEMA,
+    }
+    grant_types = {
+        ResourceType.GRANT,
+        ResourceType.ROLE_GRANT,
+        ResourceType.DATABASE_ROLE_GRANT,
+    }
+
+    # Return sort key: (group_order, resource_type_name)
+    if resource_type in account_level:
+        return (0, str(resource_type))
+    elif resource_type in database_level:
+        return (1, str(resource_type))
+    elif resource_type in grant_types:
+        return (3, str(resource_type))  # Grants come last
+    else:
+        return (2, str(resource_type))  # Schema-level resources
+
+
+def _format_grant_name(urn: URN, change: "ResourceChange") -> str:
+    """
+    Format a grant URN into a readable format.
+    Example: USAGE on WAREHOUSE.REPORTING → ROLE.ANALYST
+    Example (future grant): SELECT on FUTURE TABLES in DATABASE.MYDB → ROLE.ANALYST
+    Example (role grant): ROLE.ANALYST → ROLE.SYSADMIN
+    """
+    # Get grant details from the change
+    if isinstance(change, CreateResource):
+        data = change.after
+    elif isinstance(change, DropResource):
+        data = change.before
+    else:
+        data = getattr(change, "after", {}) or getattr(change, "before", {})
+
+    resource_type = urn.resource_type
+
+    # Handle role grants (ROLE_GRANT, DATABASE_ROLE_GRANT)
+    if resource_type == ResourceType.ROLE_GRANT:
+        role = data.get("role", "")
+        to_role = data.get("to_role", "")
+        to_user = data.get("to_user", "")
+        if role:
+            if to_role:
+                return f"ROLE.{role} → ROLE.{to_role}"
+            elif to_user:
+                return f"ROLE.{role} → USER.{to_user}"
+        return str(urn.fqn.name)
+
+    if resource_type == ResourceType.DATABASE_ROLE_GRANT:
+        role = data.get("role", "")
+        to_role = data.get("to_role", "")
+        to_database_role = data.get("to_database_role", "")
+        if role:
+            if to_role:
+                return f"DATABASE_ROLE.{role} → ROLE.{to_role}"
+            elif to_database_role:
+                return f"DATABASE_ROLE.{role} → DATABASE_ROLE.{to_database_role}"
+        return str(urn.fqn.name)
+
+    # Handle regular grants
+    priv = data.get("priv", "")
+    on_type = data.get("on_type", "")
+    on = data.get("on", "")
+    to_type = data.get("to_type", "")
+    to = data.get("to", "")
+    grant_type = data.get("grant_type", "")
+    items_type = data.get("items_type", "")
+
+    if priv and to:
+        to_type_str = str(to_type).replace("ResourceType.", "").upper() if to_type else "ROLE"
+
+        # Handle FUTURE and ALL grants
+        grant_type_str = str(grant_type).replace("GrantType.", "").upper() if grant_type else "OBJECT"
+
+        if grant_type_str == "FUTURE" and items_type:
+            # Format: SELECT on FUTURE TABLES in DATABASE.MYDB → ROLE.X
+            items_type_str = str(items_type).replace("ResourceType.", "").upper()
+            # Pluralize the items type
+            items_plural = items_type_str + "S" if not items_type_str.endswith("S") else items_type_str
+            on_type_str = str(on_type).replace("ResourceType.", "").upper() if on_type else ""
+            return f"{priv} on FUTURE {items_plural} in {on_type_str}.{on} → {to_type_str}.{to}"
+
+        elif grant_type_str == "ALL" and items_type:
+            # Format: SELECT on ALL TABLES in DATABASE.MYDB → ROLE.X
+            items_type_str = str(items_type).replace("ResourceType.", "").upper()
+            items_plural = items_type_str + "S" if not items_type_str.endswith("S") else items_type_str
+            on_type_str = str(on_type).replace("ResourceType.", "").upper() if on_type else ""
+            return f"{priv} on ALL {items_plural} in {on_type_str}.{on} → {to_type_str}.{to}"
+
+        elif on_type:
+            # Regular object grant: SELECT on TABLE.MYTABLE → ROLE.X
+            on_type_str = str(on_type).replace("ResourceType.", "").upper()
+            return f"{priv} on {on_type_str}.{on} → {to_type_str}.{to}"
+
+    # Fallback to FQN name
+    return str(urn.fqn.name)
+
+
+def _format_resource_name(urn: URN, change: "ResourceChange") -> str:
+    """
+    Extract a clean resource name from a URN and change.
+    For grants, returns a readable format.
+    For other resources, returns the resource name with key properties.
+    """
+    resource_type = urn.resource_type
+
+    # Handle grants specially
+    if resource_type in (ResourceType.GRANT, ResourceType.ROLE_GRANT, ResourceType.DATABASE_ROLE_GRANT):
+        return _format_grant_name(urn, change)
+
+    # For other resources, use the FQN
+    fqn = urn.fqn
+    if fqn.database and fqn.schema:
+        name = f"{fqn.database}.{fqn.schema}.{fqn.name}"
+    elif fqn.database:
+        name = f"{fqn.database}.{fqn.name}"
+    else:
+        name = str(fqn.name)
+
+    return name
+
+
+def _get_key_properties(change: "ResourceChange", resource_type: ResourceType) -> str:
+    """Get key properties to display inline for CREATE actions."""
+    if not isinstance(change, CreateResource):
+        return ""
+
+    data = change.after
+    props = []
+
+    # Skip owner for grants since the relationship is shown in the name
+    is_grant = resource_type in (
+        ResourceType.GRANT,
+        ResourceType.ROLE_GRANT,
+        ResourceType.DATABASE_ROLE_GRANT,
+    )
+
+    # Show owner if present (but not for grants)
+    if not is_grant and "owner" in data and data["owner"]:
+        props.append(f"owner: {data['owner']}")
+
+    # Show size for warehouses
+    if "warehouse_size" in data:
+        props.append(f"size: {data['warehouse_size']}")
+
+    if props:
+        return f" ({', '.join(props)})"
+    return ""
+
+
+def _dump_plan_text(plan: Plan) -> str:
+    """
+    Generate improved text output for a plan.
+
+    Groups changes by resource type with:
+    - Section headers for each resource type
+    - Compact single-line format for creates/drops
+    - Before/After tables for updates
+    """
+    # Datacoves brand colors (blue/cyan)
+    blue = "\033[94m"
+    cyan = "\033[96m"
+    green = "\033[92m"
+    red = "\033[91m"
+    yellow = "\033[93m"
+    dim = "\033[2m"
+    reset = "\033[0m"
+
+    # Count changes by type
+    create_count = len([c for c in plan if isinstance(c, CreateResource)])
+    update_count = len([c for c in plan if isinstance(c, UpdateResource)])
+    transfer_count = len([c for c in plan if isinstance(c, TransferOwnership)])
+    drop_count = len([c for c in plan if isinstance(c, DropResource)])
+
+    output = f"\n{cyan}»{reset} {blue}snowcap{reset}\n"
+    output += f"{cyan}»{reset} Plan: {create_count} to create, {update_count} to update, {transfer_count} to transfer, {drop_count} to drop.\n"
+
+    if not plan:
+        return output + "\n"
+
+    # Group changes by resource type
+    changes_by_type: dict[ResourceType, list[ResourceChange]] = defaultdict(list)
+    for change in plan:
+        changes_by_type[change.urn.resource_type].append(change)
+
+    # Sort resource types
+    sorted_types = sorted(changes_by_type.keys(), key=_get_resource_type_order)
+
+    for resource_type in sorted_types:
+        changes = changes_by_type[resource_type]
+
+        # Section header
+        type_label = str(resource_type).upper().replace(" ", "_") + "S"
+        header_line = f"━━━ {type_label} "
+        header_line += "━" * (70 - len(header_line))
+        output += f"\n{header_line}\n"
+
+        # Track if we have ALL grants in this section
+        has_all_grants = False
+
+        for change in changes:
+            name = _format_resource_name(change.urn, change)
+
+            # Check for ALL grants
+            if resource_type == ResourceType.GRANT and isinstance(change, CreateResource):
+                grant_type = change.after.get("grant_type", "")
+                grant_type_str = str(grant_type).replace("GrantType.", "").upper()
+                if grant_type_str == "ALL":
+                    has_all_grants = True
+
+            if isinstance(change, CreateResource):
+                props = _get_key_properties(change, resource_type)
+                output += f"{green}+ CREATE:{reset} {name}{props}\n"
+
+            elif isinstance(change, DropResource):
+                output += f"{red}- DROP:{reset}   {name}\n"
+
+            elif isinstance(change, UpdateResource):
+                output += f"{yellow}~ UPDATE:{reset} {name}\n"
+                # Build table for changed properties
+                rows = []
+                for key, new_value in change.delta.items():
+                    if key.startswith("_"):
+                        continue
+                    before = change.before.get(key, "")
+                    rows.append([key, str(before) if before is not None else "", str(new_value) if new_value is not None else ""])
+
+                if rows:
+                    table = _render_table(rows, ["Property", "Before", "After"])
+                    # Indent table
+                    indented_table = "\n".join("  " + line for line in table.split("\n"))
+                    output += indented_table + "\n"
+
+            elif isinstance(change, TransferOwnership):
+                output += f"{yellow}~ TRANSFER:{reset} {name}\n"
+                # Build table for owner change
+                rows = [[
+                    "owner",
+                    str(change.from_owner) if change.from_owner else "",
+                    str(change.to_owner) if change.to_owner else ""
+                ]]
+                table = _render_table(rows, ["Property", "Before", "After"])
+                indented_table = "\n".join("  " + line for line in table.split("\n"))
+                output += indented_table + "\n"
+
+        # Add note about ALL grants if present
+        if has_all_grants:
+            output += f"\n{dim}Note: \"ALL\" grants always appear in the plan because Snowflake converts them{reset}\n"
+            output += f"{dim}to individual object grants. They are idempotent and safe to apply.{reset}\n"
+
+    output += "\n"
+    return output
 
 
 def print_plan(plan: Plan):
@@ -947,7 +1206,15 @@ class Blueprint:
             try:
                 data = data_provider.fetch_resource(session, reference, include_params=False, existence_only=True)
                 if data is None and not is_public_schema:
-                    raise MissingResourceException(f"Resource {reference} required by {parent} not found")
+                    available_names = [
+                        str(u.fqn.name) for u in manifest.urns if u.resource_type == reference.resource_type
+                    ]
+                    raise MissingResourceException(
+                        format_missing_resource_error(reference, parent, available_names),
+                        missing_urn=reference,
+                        required_by=parent,
+                        suggestions=available_names,
+                    )
                 else:
                     checked_refs.append(reference)
             except Exception as e:
@@ -1722,7 +1989,8 @@ def diff(remote_state: State, manifest: Manifest) -> list:
                 container_owner = manifest_item.data["owner"]
             else:
                 raise MissingResourceException(
-                    f"Blueprint has pointer to resource that doesn't exist or isn't visible in session: {container_urn}"
+                    format_missing_container_error(container_urn),
+                    missing_urn=container_urn,
                 )
 
         return (container_urn, container_owner)
@@ -1773,7 +2041,12 @@ def diff(remote_state: State, manifest: Manifest) -> list:
     for urn in manifest_urns - state_urns:
         manifest_item = manifest[urn]
         if isinstance(manifest_item, ResourcePointer):
-            raise MissingResourceException(f"Missing resource: {urn}")
+            available_names = [str(u.fqn.name) for u in manifest_urns if u.resource_type == urn.resource_type]
+            raise MissingResourceException(
+                format_missing_pointer_error(urn, available_names),
+                missing_urn=urn,
+                suggestions=available_names,
+            )
         elif isinstance(manifest_item, ManifestResource) and not manifest_item.implicit:
             changes.append(
                 CreateResource(

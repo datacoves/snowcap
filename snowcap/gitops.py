@@ -9,6 +9,8 @@ from pathspec.patterns.gitwildmatch import GitWildMatchPattern
 
 from .blueprint_config import BlueprintConfig, set_vars_defaults
 from .enums import BlueprintScope, ResourceType
+from .error_formatting import format_invalid_role_grant_keys
+from .exceptions import InvalidKeyException, MissingVarException, MultipleValidationErrors
 from .identifiers import resource_label_for_type, resource_type_for_label
 from .resources import DatabaseRoleGrant, Resource, RoleGrant
 from .resources.resource import ResourcePointer
@@ -32,12 +34,58 @@ def construct_string_on_off(loader, node):
 
 yaml.add_constructor("tag:yaml.org,2002:bool", construct_string_on_off, yaml.SafeLoader)
 
+VALID_ROLE_GRANT_KEYS = {"role", "roles", "to_user", "to_users", "to_role", "to_roles"}
+
+
+def _validate_role_grant_structure(role_grant: dict) -> None:
+    """Validate that role_grant has a valid key combination."""
+    has_role = "role" in role_grant
+    has_roles = "roles" in role_grant
+    has_to_user = "to_user" in role_grant
+    has_to_users = "to_users" in role_grant
+    has_to_role = "to_role" in role_grant
+    has_to_roles = "to_roles" in role_grant
+
+    # Must have either role or roles (but not both)
+    if has_role and has_roles:
+        raise ValueError('Cannot specify both "role" and "roles" in role_grant')
+    if not has_role and not has_roles:
+        raise ValueError('Must specify either "role" or "roles" in role_grant')
+
+    # Must have a target
+    if not any([has_to_user, has_to_users, has_to_role, has_to_roles]):
+        raise ValueError('Must specify a target: "to_user", "to_users", "to_role", or "to_roles"')
+
+    # When using 'roles' (plural), must use singular target
+    if has_roles:
+        if has_to_users:
+            raise ValueError(
+                'Cannot use "to_users" with "roles". Use "to_user" (singular) instead.\n'
+                "  Example:\n"
+                "    - to_user: gomezn\n"
+                "      roles:\n"
+                "        - analyst\n"
+                "        - finance_team"
+            )
+        if has_to_roles:
+            raise ValueError(
+                'Cannot use "to_roles" with "roles". Use "to_role" (singular) instead.'
+            )
+
 
 def _resources_from_role_grants_config(role_grants_config: list) -> list:
     if len(role_grants_config) == 0:
         return []
     resources = []
     for role_grant in role_grants_config:
+        # Validate keys
+        invalid_keys = set(role_grant.keys()) - VALID_ROLE_GRANT_KEYS
+        if invalid_keys:
+            raise ValueError(format_invalid_role_grant_keys(invalid_keys, VALID_ROLE_GRANT_KEYS))
+
+        # Check for invalid combinations
+        _validate_role_grant_structure(role_grant)
+
         # When only one role is being assigned
         if "role" in role_grant:
             # To one role
@@ -131,6 +179,7 @@ def _resources_for_config(config: dict, vars: dict):
 
     resources = []
     config_blocks = []
+    validation_errors = []
 
     for resource_type in Resource.__types__.keys():
         resource_label = pluralize(resource_label_for_type(resource_type))
@@ -144,56 +193,74 @@ def _resources_for_config(config: dict, vars: dict):
 
     for resource_type, block in config_blocks:
         for resource_data in block:
+            try:
+                if isinstance(resource_data, dict):
+                    if "for_each" in resource_data:
+                        resource_cls = Resource.resolve_resource_cls(resource_type, resource_data)
+                        resource_instance = resource_data.copy()
+                        for_each = resource_instance.pop("for_each")
 
-            if isinstance(resource_data, dict):
-                if "for_each" in resource_data:
-                    resource_cls = Resource.resolve_resource_cls(resource_type, resource_data)
-                    resource_instance = resource_data.copy()
-                    for_each = resource_instance.pop("for_each")
+                        if isinstance(for_each, str) and for_each.startswith("var."):
+                            var_name = for_each.split(".")[1]
+                            if var_name not in vars:
+                                raise ValueError(f"Var `{var_name}` not found in for_each")
+                            for_each_input = vars[var_name]
+                        else:
+                            raise ValueError(f"for_each must be a var reference. Got: `{for_each}`")
 
-                    if isinstance(for_each, str) and for_each.startswith("var."):
-                        var_name = for_each.split(".")[1]
-                        if var_name not in vars:
-                            raise ValueError(f"Var `{var_name}` not found in for_each")
-                        for_each_input = vars[var_name]
+                        for each_value in for_each_input:
+                            try:
+                                for key, value in resource_data.items():
+                                    if isinstance(value, str) and string_contains_var(value):
+                                        key_type = getattr(resource_cls.spec, key, None)
+                                        resource_instance[key] = process_for_each(value, each_value)
+                                        if key_type and type(key_type) is int:
+                                            resource_instance[key] = int(resource_instance[key])
+                                    elif isinstance(value, list):
+                                        new_value = []
+                                        for v in value:
+                                            if isinstance(v, str) and string_contains_var(v):
+                                                new_value.append(process_for_each(v, each_value))
+                                            else:
+                                                new_value.append(v)
+                                        resource_instance[key] = new_value
+
+                                resource = resource_cls(**resource_instance)
+                                resources.append(resource)
+                                resources += resource.process_shortcuts()
+                            except (InvalidKeyException, ValueError, MissingVarException) as e:
+                                validation_errors.append(e)
                     else:
-                        raise ValueError(f"for_each must be a var reference. Got: `{for_each}`")
-
-                    for each_value in for_each_input:
-                        for key, value in resource_data.items():
-                            if isinstance(value, str) and string_contains_var(value):
-                                key_type = getattr(resource_cls.spec, key, None)
-                                resource_instance[key] = process_for_each(value, each_value)
-                                if key_type and type(key_type) is int:
-                                    resource_instance[key] = int(resource_instance[key])
-                            elif isinstance(value, list):
-                                new_value = []
-                                for v in value:
-                                    if isinstance(v, str) and string_contains_var(v):
-                                        new_value.append(process_for_each(v, each_value))
-                                    else:
-                                        new_value.append(v)
-                                resource_instance[key] = new_value
-
-                        resource = resource_cls(**resource_instance)
+                        requires = resource_data.pop("requires", [])
+                        resource_cls = Resource.resolve_resource_cls(resource_type, resource_data)
+                        resource = resource_cls(**resource_data)
+                        process_requires(resource, requires)
                         resources.append(resource)
                         resources += resource.process_shortcuts()
-                else:
-                    requires = resource_data.pop("requires", [])
-                    resource_cls = Resource.resolve_resource_cls(resource_type, resource_data)
-                    resource = resource_cls(**resource_data)
-                    process_requires(resource, requires)
+                elif isinstance(resource_data, str):
+                    resource_cls = Resource.resolve_resource_cls(resource_type, {})
+                    resource = resource_cls.from_sql(resource_data)
                     resources.append(resource)
-                    resources += resource.process_shortcuts()
-            elif isinstance(resource_data, str):
-                resource_cls = Resource.resolve_resource_cls(resource_type, {})
-                resource = resource_cls.from_sql(resource_data)
-                resources.append(resource)
-            else:
-                raise Exception(f"Unknown resource data type: {resource_data}")
+                else:
+                    raise Exception(f"Unknown resource data type: {resource_data}")
+            except (InvalidKeyException, ValueError, MissingVarException) as e:
+                validation_errors.append(e)
 
-    resources.extend(_resources_from_role_grants_config(role_grants))
-    resources.extend(_resources_from_database_role_grants_config(database_role_grants))
+    try:
+        resources.extend(_resources_from_role_grants_config(role_grants))
+    except (InvalidKeyException, ValueError) as e:
+        validation_errors.append(e)
+
+    try:
+        resources.extend(_resources_from_database_role_grants_config(database_role_grants))
+    except (InvalidKeyException, ValueError) as e:
+        validation_errors.append(e)
+
+    # If we collected any validation errors, raise them all together
+    if validation_errors:
+        if len(validation_errors) == 1:
+            raise validation_errors[0]
+        raise MultipleValidationErrors(validation_errors)
 
     # This code helps resolve grant references to the fully qualified name of the resource.
     # This probably belongs in blueprint as a finalization step.

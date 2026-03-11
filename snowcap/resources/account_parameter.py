@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..enums import ResourceType
+from ..error_formatting import format_invalid_key_error
+from ..exceptions import InvalidKeyException
 from ..parse import parse_alter_account_parameter
 from ..props import Props
 from ..resource_name import ResourceName
@@ -50,7 +52,35 @@ class AccountParameter(NamedResource, Resource):
     scope = AccountScope()
     spec = _AccountParameter
 
-    def __init__(self, name: str, value: Any, **kwargs):
+    def __init__(self, name: str, value: Any = None, **kwargs):
+        # Check for invalid kwargs before calling super().__init__
+        valid_keys = ["name", "value", "database", "schema", "lifecycle", "requires"]
+        invalid_keys = [k for k in kwargs.keys() if k not in valid_keys]
+        if invalid_keys:
+            msg, suggestions = format_invalid_key_error(
+                invalid_keys=invalid_keys,
+                valid_keys=valid_keys,
+                resource_type="AccountParameter",
+                resource_name=name,
+            )
+            raise InvalidKeyException(
+                msg,
+                invalid_keys=invalid_keys,
+                valid_keys=valid_keys,
+                suggestions=suggestions,
+                resource_type="AccountParameter",
+                resource_name=name,
+            )
+
+        # Check if 'value' is missing (required field)
+        if value is None:
+            raise ValueError(
+                f'AccountParameter "{name}" is missing required key "value".\n'
+                f"  Example:\n"
+                f"    - name: {name}\n"
+                f"      value: YOUR_VALUE"
+            )
+
         super().__init__(name=name, **kwargs)
         self._data: _AccountParameter = _AccountParameter(
             name=self._name,
