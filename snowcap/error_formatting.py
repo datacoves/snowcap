@@ -150,3 +150,82 @@ def format_missing_pointer_error(
             msg += f"\n  Did you mean: {', '.join(suggestions)}?"
 
     return msg
+
+
+def format_invalid_key_error(
+    invalid_keys: list[str],
+    valid_keys: list[str],
+    resource_type: str,
+    resource_name: Optional[str] = None,
+) -> tuple[str, dict[str, str]]:
+    """
+    Format a user-friendly error message for invalid keys in resources.
+
+    Args:
+        invalid_keys: List of invalid key names that were provided
+        valid_keys: List of valid key names for this resource type
+        resource_type: The type of resource (e.g., "Database", "Role")
+        resource_name: Optional name of the specific resource instance
+
+    Returns:
+        A tuple of (formatted error message, dict of suggestions mapping invalid->valid keys)
+    """
+    suggestions = {}
+    for key in invalid_keys:
+        matches = difflib.get_close_matches(key, valid_keys, n=1, cutoff=0.6)
+        if matches:
+            suggestions[key] = matches[0]
+
+    if len(invalid_keys) == 1:
+        key = invalid_keys[0]
+        if resource_name:
+            msg = f'Invalid key "{key}" in {resource_type} "{resource_name}".'
+        else:
+            msg = f'Invalid key "{key}" in {resource_type}.'
+        if key in suggestions:
+            msg += f"\n  Did you mean: {suggestions[key]}?"
+    else:
+        keys_str = ", ".join(f'"{k}"' for k in invalid_keys)
+        if resource_name:
+            msg = f'Invalid keys {keys_str} in {resource_type} "{resource_name}".'
+        else:
+            msg = f'Invalid keys {keys_str} in {resource_type}.'
+        for key, suggestion in suggestions.items():
+            msg += f'\n  "{key}" -> Did you mean: {suggestion}?'
+
+    return msg, suggestions
+
+
+def format_invalid_role_grant_keys(
+    invalid_keys: set[str],
+    valid_keys: set[str],
+) -> str:
+    """
+    Format a user-friendly error message for invalid keys in role_grants config.
+
+    Args:
+        invalid_keys: Set of invalid key names that were provided
+        valid_keys: Set of valid key names for role_grants
+
+    Returns:
+        A formatted error message with suggestions
+    """
+    suggestions = {}
+    for key in invalid_keys:
+        matches = difflib.get_close_matches(key, list(valid_keys), n=1, cutoff=0.6)
+        if matches:
+            suggestions[key] = matches[0]
+
+    if len(invalid_keys) == 1:
+        key = list(invalid_keys)[0]
+        msg = f'Invalid key "{key}" in role_grant.'
+        if key in suggestions:
+            msg += f"\n  Did you mean: {suggestions[key]}?"
+    else:
+        keys_str = ", ".join(f'"{k}"' for k in sorted(invalid_keys))
+        msg = f"Invalid keys {keys_str} in role_grant."
+        for key in sorted(invalid_keys):
+            if key in suggestions:
+                msg += f'\n  "{key}" -> Did you mean: {suggestions[key]}?'
+
+    return msg

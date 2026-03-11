@@ -9,6 +9,7 @@ from pathspec.patterns.gitwildmatch import GitWildMatchPattern
 
 from .blueprint_config import BlueprintConfig, set_vars_defaults
 from .enums import BlueprintScope, ResourceType
+from .error_formatting import format_invalid_role_grant_keys
 from .identifiers import resource_label_for_type, resource_type_for_label
 from .resources import DatabaseRoleGrant, Resource, RoleGrant
 from .resources.resource import ResourcePointer
@@ -32,12 +33,58 @@ def construct_string_on_off(loader, node):
 
 yaml.add_constructor("tag:yaml.org,2002:bool", construct_string_on_off, yaml.SafeLoader)
 
+VALID_ROLE_GRANT_KEYS = {"role", "roles", "to_user", "to_users", "to_role", "to_roles"}
+
+
+def _validate_role_grant_structure(role_grant: dict) -> None:
+    """Validate that role_grant has a valid key combination."""
+    has_role = "role" in role_grant
+    has_roles = "roles" in role_grant
+    has_to_user = "to_user" in role_grant
+    has_to_users = "to_users" in role_grant
+    has_to_role = "to_role" in role_grant
+    has_to_roles = "to_roles" in role_grant
+
+    # Must have either role or roles (but not both)
+    if has_role and has_roles:
+        raise ValueError('Cannot specify both "role" and "roles" in role_grant')
+    if not has_role and not has_roles:
+        raise ValueError('Must specify either "role" or "roles" in role_grant')
+
+    # Must have a target
+    if not any([has_to_user, has_to_users, has_to_role, has_to_roles]):
+        raise ValueError('Must specify a target: "to_user", "to_users", "to_role", or "to_roles"')
+
+    # When using 'roles' (plural), must use singular target
+    if has_roles:
+        if has_to_users:
+            raise ValueError(
+                'Cannot use "to_users" with "roles". Use "to_user" (singular) instead.\n'
+                "  Example:\n"
+                "    - to_user: gomezn\n"
+                "      roles:\n"
+                "        - analyst\n"
+                "        - finance_team"
+            )
+        if has_to_roles:
+            raise ValueError(
+                'Cannot use "to_roles" with "roles". Use "to_role" (singular) instead.'
+            )
+
 
 def _resources_from_role_grants_config(role_grants_config: list) -> list:
     if len(role_grants_config) == 0:
         return []
     resources = []
     for role_grant in role_grants_config:
+        # Validate keys
+        invalid_keys = set(role_grant.keys()) - VALID_ROLE_GRANT_KEYS
+        if invalid_keys:
+            raise ValueError(format_invalid_role_grant_keys(invalid_keys, VALID_ROLE_GRANT_KEYS))
+
+        # Check for invalid combinations
+        _validate_role_grant_structure(role_grant)
+
         # When only one role is being assigned
         if "role" in role_grant:
             # To one role

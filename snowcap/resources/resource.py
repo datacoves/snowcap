@@ -13,7 +13,9 @@ import pyparsing as pp
 from snowcap.data_types import convert_to_simple_data_type
 
 from ..enums import AccountEdition, DataType, ParseableEnum, ResourceType
+from ..error_formatting import format_invalid_key_error
 from ..exceptions import (
+    InvalidKeyException,
     ResourceHasContainerException,
     WrongContainerException,
     WrongEditionException,
@@ -340,24 +342,47 @@ class Resource(metaclass=_Resource):
         # If there are more kwargs, throw an error
         # Based on https://stackoverflow.com/questions/1603940/how-can-i-modify-a-python-traceback-object-when-raising-an-exception
         if kwargs:
+            valid_keys = []
+            if self.spec:
+                valid_keys = [f.name for f in fields(self.spec)]
+            valid_keys.extend(self.shortcut_keys)
+            valid_keys.extend(["database", "schema", "lifecycle", "requires"])
+
+            resource_name = None
+            if self._data and hasattr(self._data, "name"):
+                resource_name = str(self._data.name)
+
+            msg, suggestions = format_invalid_key_error(
+                invalid_keys=list(kwargs.keys()),
+                valid_keys=valid_keys,
+                resource_type=self.__class__.__name__,
+                resource_name=resource_name,
+            )
+
             try:
-                if self.spec:
-                    field_names = [f.name for f in fields(self.spec)]
-                    field_names = ", ".join(field_names)
-                    raise ValueError(
-                        f"Unexpected keyword arguments for {self.__class__.__name__} {kwargs}. Valid field names: {field_names}"
-                    )
-                else:
-                    raise ValueError(f"Unexpected keyword arguments for {self.__class__.__name__} {kwargs}")
-            except ValueError as err:
+                raise InvalidKeyException(
+                    msg,
+                    invalid_keys=list(kwargs.keys()),
+                    valid_keys=valid_keys,
+                    suggestions=suggestions,
+                    resource_type=self.__class__.__name__,
+                    resource_name=resource_name,
+                )
+            except InvalidKeyException:
                 traceback = sys.exc_info()[2]
                 back_frame = traceback.tb_frame.f_back
-                msg = str(err)
 
             back_tb = types.TracebackType(
                 tb_next=None, tb_frame=back_frame, tb_lasti=back_frame.f_lasti, tb_lineno=back_frame.f_lineno
             )
-            raise ValueError(msg).with_traceback(back_tb)
+            raise InvalidKeyException(
+                msg,
+                invalid_keys=list(kwargs.keys()),
+                valid_keys=valid_keys,
+                suggestions=suggestions,
+                resource_type=self.__class__.__name__,
+                resource_name=resource_name,
+            ).with_traceback(back_tb)
 
     @classmethod
     def from_sql(cls, sql):
