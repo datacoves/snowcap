@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from typing import (
     Any,
     Generator,
-    Iterable,
     Optional,
     Sequence,
     Set,

@@ -1,3 +1,9 @@
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .identifiers import URN
+
+
 class MissingVarException(Exception):
     pass
 
