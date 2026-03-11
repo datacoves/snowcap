@@ -36,6 +36,11 @@ from .enums import (
     ResourceType,
     resource_type_is_grant,
 )
+from .error_formatting import (
+    format_missing_container_error,
+    format_missing_pointer_error,
+    format_missing_resource_error,
+)
 from .exceptions import (
     DuplicateResourceException,
     MissingPrivilegeException,
@@ -1202,7 +1207,15 @@ class Blueprint:
             try:
                 data = data_provider.fetch_resource(session, reference, include_params=False, existence_only=True)
                 if data is None and not is_public_schema:
-                    raise MissingResourceException(f"Resource {reference} required by {parent} not found")
+                    available_names = [
+                        str(u.fqn.name) for u in manifest.urns if u.resource_type == reference.resource_type
+                    ]
+                    raise MissingResourceException(
+                        format_missing_resource_error(reference, parent, available_names),
+                        missing_urn=reference,
+                        required_by=parent,
+                        suggestions=available_names,
+                    )
                 else:
                     checked_refs.append(reference)
             except Exception as e:
@@ -1977,7 +1990,8 @@ def diff(remote_state: State, manifest: Manifest) -> list:
                 container_owner = manifest_item.data["owner"]
             else:
                 raise MissingResourceException(
-                    f"Blueprint has pointer to resource that doesn't exist or isn't visible in session: {container_urn}"
+                    format_missing_container_error(container_urn),
+                    missing_urn=container_urn,
                 )
 
         return (container_urn, container_owner)
@@ -2028,7 +2042,12 @@ def diff(remote_state: State, manifest: Manifest) -> list:
     for urn in manifest_urns - state_urns:
         manifest_item = manifest[urn]
         if isinstance(manifest_item, ResourcePointer):
-            raise MissingResourceException(f"Missing resource: {urn}")
+            available_names = [str(u.fqn.name) for u in manifest_urns if u.resource_type == urn.resource_type]
+            raise MissingResourceException(
+                format_missing_pointer_error(urn, available_names),
+                missing_urn=urn,
+                suggestions=available_names,
+            )
         elif isinstance(manifest_item, ManifestResource) and not manifest_item.implicit:
             changes.append(
                 CreateResource(

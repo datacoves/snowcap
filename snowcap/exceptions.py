@@ -7,7 +7,17 @@ class DuplicateResourceException(Exception):
 
 
 class MissingResourceException(Exception):
-    pass
+    def __init__(
+        self,
+        message: str,
+        missing_urn: "URN" = None,
+        required_by: "URN" = None,
+        suggestions: list[str] = None,
+    ):
+        self.missing_urn = missing_urn
+        self.required_by = required_by
+        self.suggestions = suggestions
+        super().__init__(message)
 
 
 class MissingPrivilegeException(Exception):
