@@ -80,3 +80,21 @@ class InvalidKeyException(Exception):
         self.resource_type = resource_type
         self.resource_name = resource_name
         super().__init__(message)
+
+
+class MultipleValidationErrors(Exception):
+    """Exception that collects multiple validation errors to show them all at once."""
+
+    def __init__(self, errors: list[Exception]):
+        self.errors = errors
+        messages = []
+        for i, error in enumerate(errors, 1):
+            error_msg = str(error)
+            # Indent multi-line errors
+            error_lines = error_msg.split("\n")
+            if len(error_lines) > 1:
+                indented = error_lines[0] + "\n" + "\n".join("  " + line for line in error_lines[1:])
+                messages.append(f"{i}. {indented}")
+            else:
+                messages.append(f"{i}. {error_msg}")
+        super().__init__(f"Found {len(errors)} validation error(s):\n\n" + "\n\n".join(messages))

@@ -9,7 +9,7 @@ from .exceptions import MissingVarException
 GLOBAL_JINJA_ENV = Environment(undefined=StrictUndefined)
 
 
-def _format_missing_key_error(key: str, available_keys: list[str], context: str = None) -> str:
+def _format_missing_key_error(key: str, available_keys: list[str], context: str = "") -> str:
     """Format a helpful error message for missing keys with suggestions."""
     suggestions = difflib.get_close_matches(key, available_keys, n=1, cutoff=0.6)
 
