@@ -3502,8 +3502,12 @@ def list_role_grants(session: SnowflakeConnection, use_account_usage: bool = Fal
                 role_being_granted = grant["name"]  # The role being granted
                 grantee_name = grant["grantee_name"]  # Who receives the grant
 
-                # Only include roles we're tracking (includes system roles for grant tracking)
+                # Only include roles we're tracking
                 if role_being_granted.upper() not in role_name_set:
+                    continue
+
+                # Skip grants between system roles (system hierarchy - not user-managed)
+                if role_being_granted.upper() in SYSTEM_ROLES and grantee_name.upper() in SYSTEM_ROLES:
                     continue
 
                 # The granted_to field indicates if grantee is ROLE or DATABASE ROLE
@@ -3557,8 +3561,12 @@ def list_role_grants(session: SnowflakeConnection, use_account_usage: bool = Fal
             cacheable=True,
         ):
             for data in result:
+                grantee_name = data["grantee_name"]
+                # Skip grants between system roles (system hierarchy - not user-managed)
+                if str(name).upper() in SYSTEM_ROLES and grantee_name.upper() in SYSTEM_ROLES:
+                    continue
                 subject = "user" if data["granted_to"] == "USER" else "role"
-                grants.append(FQN(name=name, params={subject: data["grantee_name"]}))
+                grants.append(FQN(name=name, params={subject: grantee_name}))
 
     return grants
 
