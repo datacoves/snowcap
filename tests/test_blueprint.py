@@ -484,11 +484,8 @@ def test_blueprint_dump_plan_create(session_ctx, remote_state):
 » snowcap
 » Plan: 1 to create, 0 to update, 0 to transfer, 0 to drop.
 
-+ urn::ABCD123:role/ROLE1 {
-  + name    = "ROLE1"
-  + owner   = "USERADMIN"
-  + comment = None
-}
+━━━ ROLES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
++ CREATE: ROLE1 (owner: USERADMIN)
 
 """
     )
@@ -524,9 +521,13 @@ def test_blueprint_dump_plan_update(session_ctx):
 » snowcap
 » Plan: 0 to create, 1 to update, 0 to transfer, 0 to drop.
 
-~ urn::ABCD123:role/ROLE1 {
-  ~ comment = "old" -> "new"
-}
+━━━ ROLES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+~ UPDATE: ROLE1
+  ┌──────────┬────────┬───────┐
+  │ Property │ Before │ After │
+  ├──────────┼────────┼───────┤
+  │ comment  │ old    │ new   │
+  └──────────┴────────┴───────┘
 
 """
     )
@@ -561,9 +562,13 @@ def test_blueprint_dump_plan_transfer(session_ctx):
 » snowcap
 » Plan: 0 to create, 0 to update, 1 to transfer, 0 to drop.
 
-~ urn::ABCD123:role/ROLE1 {
-  ~ owner = "ACCOUNTADMIN" -> "USERADMIN"
-}
+━━━ ROLES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+~ TRANSFER: ROLE1
+  ┌──────────┬──────────────┬───────────┐
+  │ Property │ Before       │ After     │
+  ├──────────┼──────────────┼───────────┤
+  │ owner    │ ACCOUNTADMIN │ USERADMIN │
+  └──────────┴──────────────┴───────────┘
 
 """
     )
@@ -597,7 +602,8 @@ def test_blueprint_dump_plan_drop(session_ctx):
 » snowcap
 » Plan: 0 to create, 0 to update, 0 to transfer, 1 to drop.
 
-- urn::ABCD123:role/ROLE1
+━━━ ROLES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- DROP:   ROLE1
 
 """
     )
