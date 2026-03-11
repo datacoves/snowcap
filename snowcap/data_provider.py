@@ -3468,15 +3468,16 @@ def list_role_grants(session: SnowflakeConnection, use_account_usage: bool = Fal
     # Use "SHOW ROLES IN ACCOUNT" to match _show_resources for cache consistency
     roles = execute(session, "SHOW ROLES IN ACCOUNT", cacheable=True)
 
-    # Build set of non-system role names for filtering
+    # Build set of role names for filtering grants
+    # Include system roles so grants OF system roles (e.g., ACCOUNTADMIN → USER) can be tracked
     role_name_set: set[str] = set()
     role_names: list[ResourceName] = []
     for role in roles:
         role_name = resource_name_from_snowflake_metadata(role["name"])
+        role_name_set.add(str(role_name).upper())
         if role_name in SYSTEM_ROLES:
             continue
         role_names.append(role_name)
-        role_name_set.add(str(role_name).upper())
 
     grants: list[FQN] = []
 
@@ -3501,11 +3502,7 @@ def list_role_grants(session: SnowflakeConnection, use_account_usage: bool = Fal
                 role_being_granted = grant["name"]  # The role being granted
                 grantee_name = grant["grantee_name"]  # Who receives the grant
 
-                # Skip system roles (the role being granted)
-                if role_being_granted.upper() in SYSTEM_ROLES:
-                    continue
-
-                # Only include roles we're tracking
+                # Only include roles we're tracking (includes system roles for grant tracking)
                 if role_being_granted.upper() not in role_name_set:
                     continue
 
@@ -3527,11 +3524,7 @@ def list_role_grants(session: SnowflakeConnection, use_account_usage: bool = Fal
                 for grant in user_grants:
                     role_being_granted = grant["role"]
 
-                    # Skip system roles
-                    if role_being_granted.upper() in SYSTEM_ROLES:
-                        continue
-
-                    # Only include roles we're tracking
+                    # Only include roles we're tracking (includes system roles for grant tracking)
                     if role_being_granted.upper() not in role_name_set:
                         continue
 
@@ -3554,9 +3547,12 @@ def list_role_grants(session: SnowflakeConnection, use_account_usage: bool = Fal
                 return
             raise err
 
+        # Include system roles so grants OF them (e.g., ACCOUNTADMIN → USER) can be tracked
+        all_role_names = list(role_names) + [ResourceName(r) for r in SYSTEM_ROLES]
+
         for name, result in execute_in_parallel(
             session,
-            [(f"SHOW GRANTS OF ROLE {role_name}", role_name) for role_name in role_names],
+            [(f"SHOW GRANTS OF ROLE {role_name}", role_name) for role_name in all_role_names],
             error_handler=error_handler,
             cacheable=True,
         ):
