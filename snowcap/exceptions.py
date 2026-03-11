@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional, Sequence
 
 if TYPE_CHECKING:
     from .identifiers import URN
@@ -16,9 +16,9 @@ class MissingResourceException(Exception):
     def __init__(
         self,
         message: str,
-        missing_urn: "URN" = None,
-        required_by: "URN" = None,
-        suggestions: list[str] = None,
+        missing_urn: Optional["URN"] = None,
+        required_by: Optional["URN"] = None,
+        suggestions: Optional[list[str]] = None,
     ):
         self.missing_urn = missing_urn
         self.required_by = required_by
@@ -74,11 +74,11 @@ class InvalidKeyException(Exception):
     def __init__(
         self,
         message: str,
-        invalid_keys: list[str] = None,
-        valid_keys: list[str] = None,
-        suggestions: dict[str, str] = None,
-        resource_type: str = None,
-        resource_name: str = None,
+        invalid_keys: Optional[list[str]] = None,
+        valid_keys: Optional[list[str]] = None,
+        suggestions: Optional[dict[str, str]] = None,
+        resource_type: Optional[str] = None,
+        resource_name: Optional[str] = None,
     ):
         self.invalid_keys = invalid_keys or []
         self.valid_keys = valid_keys or []
@@ -91,7 +91,7 @@ class InvalidKeyException(Exception):
 class MultipleValidationErrors(Exception):
     """Exception that collects multiple validation errors to show them all at once."""
 
-    def __init__(self, errors: list[Exception]):
+    def __init__(self, errors: Sequence[Exception]):
         self.errors = errors
         messages = []
         for i, error in enumerate(errors, 1):
