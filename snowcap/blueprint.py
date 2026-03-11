@@ -719,6 +719,7 @@ def _dump_plan_text(plan: Plan) -> str:
     green = "\033[92m"
     red = "\033[91m"
     yellow = "\033[93m"
+    dim = "\033[2m"
     reset = "\033[0m"
 
     # Count changes by type
@@ -750,8 +751,18 @@ def _dump_plan_text(plan: Plan) -> str:
         header_line += "━" * (70 - len(header_line))
         output += f"\n{header_line}\n"
 
+        # Track if we have ALL grants in this section
+        has_all_grants = False
+
         for change in changes:
             name = _format_resource_name(change.urn, change)
+
+            # Check for ALL grants
+            if resource_type == ResourceType.GRANT and isinstance(change, CreateResource):
+                grant_type = change.after.get("grant_type", "")
+                grant_type_str = str(grant_type).replace("GrantType.", "").upper()
+                if grant_type_str == "ALL":
+                    has_all_grants = True
 
             if isinstance(change, CreateResource):
                 props = _get_key_properties(change, resource_type)
@@ -787,6 +798,11 @@ def _dump_plan_text(plan: Plan) -> str:
                 table = _render_table(rows, ["Property", "Before", "After"])
                 indented_table = "\n".join("  " + line for line in table.split("\n"))
                 output += indented_table + "\n"
+
+        # Add note about ALL grants if present
+        if has_all_grants:
+            output += f"\n{dim}Note: \"ALL\" grants always appear in the plan because Snowflake converts them{reset}\n"
+            output += f"{dim}to individual object grants. They are idempotent and safe to apply.{reset}\n"
 
     output += "\n"
     return output
