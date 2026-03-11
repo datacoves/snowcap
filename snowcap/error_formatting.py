@@ -8,6 +8,32 @@ from typing import Optional
 from .identifiers import URN
 
 
+def _get_resource_display_name(urn: URN) -> str:
+    """
+    Get a display name for a resource that includes full qualification where relevant.
+
+    For schema-scoped resources, includes database.schema.name.
+    For database-scoped resources, includes database.name.
+    For functions/procedures, includes arg types.
+    """
+    fqn = urn.fqn
+    parts = []
+
+    if fqn.database:
+        parts.append(str(fqn.database))
+    if fqn.schema:
+        parts.append(str(fqn.schema))
+    parts.append(str(fqn.name))
+
+    name = ".".join(parts)
+
+    # Add arg types for functions/procedures
+    if fqn.arg_types is not None:
+        name += f"({', '.join(fqn.arg_types)})"
+
+    return name
+
+
 def format_missing_resource_error(
     missing_urn: URN,
     required_by_urn: Optional[URN] = None,
@@ -26,7 +52,7 @@ def format_missing_resource_error(
     """
     # Extract readable names
     resource_type = missing_urn.resource_label.replace("_", " ").title()
-    resource_name = str(missing_urn.fqn.name)
+    resource_name = _get_resource_display_name(missing_urn)
 
     # Build message
     msg = f'{resource_type} "{resource_name}" not found.'
@@ -37,7 +63,9 @@ def format_missing_resource_error(
 
     # Add suggestions if available
     if available_names:
-        suggestions = difflib.get_close_matches(resource_name, available_names, n=3, cutoff=0.4)
+        # For matching, use just the base name for better suggestions
+        base_name = str(missing_urn.fqn.name)
+        suggestions = difflib.get_close_matches(base_name, available_names, n=3, cutoff=0.4)
         if suggestions:
             msg += f"\n  Did you mean: {', '.join(suggestions)}?"
 
@@ -55,16 +83,24 @@ def _format_reference(urn: URN) -> str:
         A human-readable description of the reference
     """
     resource_type = urn.resource_label.replace("_", " ")
+    params = urn.fqn.params
 
     # Special handling for grants
     if "grant" in resource_type:
-        params = urn.fqn.params
         if "user" in params:
             return f'{resource_type} to user "{params["user"]}"'
         elif "role" in params:
             return f'{resource_type} to role "{params["role"]}"'
+        # Fallback for other grant types - include what we know
+        grant_info = []
+        if "on" in params:
+            grant_info.append(f'on "{params["on"]}"')
+        if "to" in params:
+            grant_info.append(f'to "{params["to"]}"')
+        if grant_info:
+            return f'{resource_type} {" ".join(grant_info)}'
 
-    return f'{resource_type} "{urn.fqn.name}"'
+    return f'{resource_type} "{_get_resource_display_name(urn)}"'
 
 
 def format_missing_container_error(container_urn: URN) -> str:
@@ -78,7 +114,7 @@ def format_missing_container_error(container_urn: URN) -> str:
         A formatted error message
     """
     resource_type = container_urn.resource_label.replace("_", " ").title()
-    resource_name = str(container_urn.fqn.name)
+    resource_name = _get_resource_display_name(container_urn)
 
     return (
         f'{resource_type} "{resource_name}" not found.\n'
@@ -101,13 +137,15 @@ def format_missing_pointer_error(
         A formatted error message with suggestions
     """
     resource_type = urn.resource_label.replace("_", " ").title()
-    resource_name = str(urn.fqn.name)
+    resource_name = _get_resource_display_name(urn)
 
     msg = f'{resource_type} "{resource_name}" not found.'
 
     # Add suggestions if available
     if available_names:
-        suggestions = difflib.get_close_matches(resource_name, available_names, n=3, cutoff=0.4)
+        # For matching, use just the base name for better suggestions
+        base_name = str(urn.fqn.name)
+        suggestions = difflib.get_close_matches(base_name, available_names, n=3, cutoff=0.4)
         if suggestions:
             msg += f"\n  Did you mean: {', '.join(suggestions)}?"
 
