@@ -577,6 +577,7 @@ def _format_grant_name(urn: URN, change: "ResourceChange") -> str:
     """
     Format a grant URN into a readable format.
     Example: USAGE on WAREHOUSE.REPORTING → ROLE.ANALYST
+    Example (future grant): SELECT on FUTURE TABLES in DATABASE.MYDB → ROLE.ANALYST
     Example (role grant): ROLE.ANALYST → ROLE.SYSADMIN
     """
     # Get grant details from the change
@@ -618,12 +619,34 @@ def _format_grant_name(urn: URN, change: "ResourceChange") -> str:
     on = data.get("on", "")
     to_type = data.get("to_type", "")
     to = data.get("to", "")
+    grant_type = data.get("grant_type", "")
+    items_type = data.get("items_type", "")
 
-    if priv and on_type and to:
-        # Clean up the resource type name
-        on_type_str = str(on_type).replace("ResourceType.", "").upper()
+    if priv and to:
         to_type_str = str(to_type).replace("ResourceType.", "").upper() if to_type else "ROLE"
-        return f"{priv} on {on_type_str}.{on} → {to_type_str}.{to}"
+
+        # Handle FUTURE and ALL grants
+        grant_type_str = str(grant_type).replace("GrantType.", "").upper() if grant_type else "OBJECT"
+
+        if grant_type_str == "FUTURE" and items_type:
+            # Format: SELECT on FUTURE TABLES in DATABASE.MYDB → ROLE.X
+            items_type_str = str(items_type).replace("ResourceType.", "").upper()
+            # Pluralize the items type
+            items_plural = items_type_str + "S" if not items_type_str.endswith("S") else items_type_str
+            on_type_str = str(on_type).replace("ResourceType.", "").upper() if on_type else ""
+            return f"{priv} on FUTURE {items_plural} in {on_type_str}.{on} → {to_type_str}.{to}"
+
+        elif grant_type_str == "ALL" and items_type:
+            # Format: SELECT on ALL TABLES in DATABASE.MYDB → ROLE.X
+            items_type_str = str(items_type).replace("ResourceType.", "").upper()
+            items_plural = items_type_str + "S" if not items_type_str.endswith("S") else items_type_str
+            on_type_str = str(on_type).replace("ResourceType.", "").upper() if on_type else ""
+            return f"{priv} on ALL {items_plural} in {on_type_str}.{on} → {to_type_str}.{to}"
+
+        elif on_type:
+            # Regular object grant: SELECT on TABLE.MYTABLE → ROLE.X
+            on_type_str = str(on_type).replace("ResourceType.", "").upper()
+            return f"{priv} on {on_type_str}.{on} → {to_type_str}.{to}"
 
     # Fallback to FQN name
     return str(urn.fqn.name)
