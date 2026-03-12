@@ -15,7 +15,7 @@ Snowcap is a Snowflake infrastructure-as-code tool that lets you manage all Snow
 - **Renamed from Titan Core to snowcap** - Fresh identity, same powerful functionality
 - **1656 tests** with 72% code coverage (up from ~400 tests)
 - **60 resource types** fully documented
-- **Comprehensive documentation** at [datacoves.github.io/snowcap](https://datacoves.github.io/snowcap)
+- **Comprehensive documentation** at [snowcap.datacoves.com](https://snowcap.datacoves.com)
 
 ### New Features
 
@@ -104,7 +104,7 @@ This project builds on the excellent foundation created by the original Titan Sy
 
 ### Links
 
-- Documentation: [datacoves.github.io/snowcap](https://datacoves.github.io/snowcap)
+- Documentation: [snowcap.datacoves.com](https://snowcap.datacoves.com)
 - PyPI: [pypi.org/project/snowcap](https://pypi.org/project/snowcap)
 - GitHub: [github.com/datacoves/snowcap](https://github.com/datacoves/snowcap)
 - Issues: [github.com/datacoves/snowcap/issues](https://github.com/datacoves/snowcap/issues)

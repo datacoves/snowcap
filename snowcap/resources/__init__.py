@@ -39,6 +39,7 @@ from .pipe import Pipe
 from .procedure import PythonStoredProcedure
 from .replication_group import ReplicationGroup
 from .resource import Resource
+from .row_access_policy import RowAccessPolicy
 from .resource_monitor import ResourceMonitor
 from .role import DatabaseRole, Role
 from .scanner_package import ScannerPackage
@@ -124,6 +125,7 @@ __all__ = [
     "ResourceMonitor",
     "Role",
     "RoleGrant",
+    "RowAccessPolicy",
     "S3StorageIntegration",
     "ScannerPackage",
     "Schema",

@@ -1,4 +1,7 @@
 import json
+import os
+import shutil
+from pathlib import Path
 from typing import Any
 
 import rich_click as click
@@ -377,6 +380,96 @@ def cli_connect():
         print(f"SNOWFLAKE_{key.upper()}={value_inspect}")
     session = connect()
     print(f"Connection successful as user {session.user}")
+
+
+@snowcap_cli.group()
+def generate():
+    """Generate helper files for integrations."""
+    pass
+
+
+def get_dbt_path_default():
+    """Get the default dbt project path from environment variables."""
+    return os.environ.get("DATACOVES__DBT_HOME") or os.environ.get("DBT_HOME") or ""
+
+
+@generate.command("dbt-macros")
+@click.option(
+    "--dbt-path",
+    prompt="dbt project path",
+    default=get_dbt_path_default,
+    help="Path to dbt project (checks DATACOVES__DBT_HOME and DBT_HOME env vars)",
+)
+@click.option("--macros-path", default="macros", help="Macros directory name relative to dbt project")
+@click.option(
+    "--tag-database",
+    prompt="Tag database",
+    default="GOVERNANCE",
+    help="Database where tags are defined",
+)
+@click.option(
+    "--tag-schema",
+    prompt="Tag schema",
+    default="TAGS",
+    help="Schema where tags are defined",
+)
+@click.option(
+    "--policy-database",
+    prompt="Policy database",
+    default="GOVERNANCE",
+    help="Database where row access policies are defined",
+)
+@click.option(
+    "--policy-schema",
+    prompt="Policy schema",
+    default="POLICIES",
+    help="Schema where row access policies are defined",
+)
+def dbt_macros(dbt_path, macros_path, tag_database, tag_schema, policy_database, policy_schema):
+    """Generate dbt macros for applying Snowflake governance policies."""
+    dbt_project_path = Path(dbt_path)
+
+    if not dbt_project_path.exists():
+        raise click.UsageError(f"dbt project path does not exist: {dbt_project_path}")
+
+    dbt_project_file = dbt_project_path / "dbt_project.yml"
+    if not dbt_project_file.exists():
+        raise click.UsageError(f"No dbt_project.yml found in: {dbt_project_path}")
+
+    macros_dir = dbt_project_path / macros_path
+    macros_dir.mkdir(parents=True, exist_ok=True)
+
+    template_path = Path(__file__).parent / "templates" / "snowcap_apply_tags.sql"
+    dest_path = macros_dir / "snowcap_apply_tags.sql"
+
+    shutil.copy(template_path, dest_path)
+
+    click.echo(f"\nCreated {dest_path}\n")
+    click.echo("Add the following to your dbt_project.yml:\n")
+    click.echo("vars:")
+    click.echo("  # For column masking tags")
+    click.echo(f"  snowcap_tag_database: {tag_database}")
+    click.echo(f"  snowcap_tag_schema: {tag_schema}")
+    click.echo("")
+    click.echo("  # For row access policies")
+    click.echo(f"  snowcap_policy_database: {policy_database}")
+    click.echo(f"  snowcap_policy_schema: {policy_schema}")
+    click.echo("")
+    click.echo("models:")
+    click.echo("  <your_project>:")
+    click.echo("    +post-hook:")
+    click.echo('      - "{{ snowcap_apply_policies() }}"')
+    click.echo("")
+    click.echo("Then use meta in your schema.yml:\n")
+    click.echo("models:")
+    click.echo("  - name: orders")
+    click.echo("    meta:")
+    click.echo("      row_access_policy: rap_country    # Row-level filtering")
+    click.echo("      row_access_column: country_code")
+    click.echo("    columns:")
+    click.echo("      - name: email")
+    click.echo("        meta:")
+    click.echo("          masking_tag: pii              # Column masking")
 
 
 if __name__ == "__main__":

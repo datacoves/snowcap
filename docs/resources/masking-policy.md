@@ -62,3 +62,12 @@ policy = MaskingPolicy(
 **Note:** Masking policies require Enterprise Edition or higher.
 
 
+## CLI
+
+Use `masking_policy` with `--exclude` or `--sync_resources`:
+
+```bash
+snowcap plan --config resources/ --exclude masking_policy
+```
+
+
