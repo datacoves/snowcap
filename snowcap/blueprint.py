@@ -1030,6 +1030,7 @@ class Blueprint:
 
     def _raise_for_nonconforming_plan(self, session_ctx: SessionContext, plan: Plan):
         exceptions = []
+        enterprise_resources: dict[str, list[str]] = {}
 
         for change in plan:
             if isinstance(change, UpdateResource):
@@ -1038,10 +1039,13 @@ class Blueprint:
                 if change.resource_cls.resource_type == ResourceType.GRANT:
                     exceptions.append(f"Grants cannot be updated (ref: {change.urn})")
 
-            # Edition exceptions
+            # Edition exceptions - collect by resource type for better display
             if session_ctx["account_edition"] == AccountEdition.STANDARD:
                 if isinstance(change, CreateResource) and AccountEdition.STANDARD not in change.resource_cls.edition:
-                    exceptions.append(f"Resource {change.urn} requires enterprise edition or higher")
+                    label = change.urn.resource_label
+                    if label not in enterprise_resources:
+                        enterprise_resources[label] = []
+                    enterprise_resources[label].append(str(change.urn.fqn))
 
             # Scope exceptions
             if self._config.scope:
@@ -1049,6 +1053,21 @@ class Blueprint:
                     exceptions.append(
                         f"Resource {change.urn} is out of scope ({self._config.scope}) for this blueprint"
                     )
+
+        # Format enterprise edition errors
+        if enterprise_resources:
+            lines = ["These resources require Enterprise edition (current account is Standard):"]
+            exclude_types = []
+            for label, resources in enterprise_resources.items():
+                exclude_types.append(label)
+                lines.append(f"  {label}:")
+                for resource in resources[:3]:
+                    lines.append(f"    - {resource}")
+                if len(resources) > 3:
+                    lines.append(f"    ... and {len(resources) - 3} more")
+            lines.append("")
+            lines.append(f"Use --exclude to skip: --exclude {','.join(sorted(set(exclude_types)))}")
+            exceptions.insert(0, "\n".join(lines))
 
         if exceptions:
             if len(exceptions) > 5:
