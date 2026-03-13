@@ -3794,9 +3794,10 @@ def list_tag_masking_policy_references(session: SnowflakeConnection) -> list[FQN
         references = []
         for row in result:
             # Build the masking policy FQN string (lowercase to match config format)
-            policy_db = resource_name_from_snowflake_metadata(row["POLICY_DATABASE"])
-            policy_schema = resource_name_from_snowflake_metadata(row["POLICY_SCHEMA"])
-            policy_name = resource_name_from_snowflake_metadata(row["POLICY_NAME"])
+            # Note: str(ResourceName) returns uppercase, so we lowercase the whole thing
+            policy_db = str(resource_name_from_snowflake_metadata(row["POLICY_DATABASE"])).lower()
+            policy_schema = str(resource_name_from_snowflake_metadata(row["POLICY_SCHEMA"])).lower()
+            policy_name = str(resource_name_from_snowflake_metadata(row["POLICY_NAME"])).lower()
             masking_policy_fqn = f"{policy_db}.{policy_schema}.{policy_name}"
             references.append(
                 FQN(
@@ -3859,12 +3860,13 @@ def fetch_tag_masking_policy_reference(session: SnowflakeConnection, fqn: FQN) -
 
         row = result[0]
         # Normalize to lowercase for consistent comparison
-        tag_db = resource_name_from_snowflake_metadata(row["TAG_DATABASE"])
-        tag_schema = resource_name_from_snowflake_metadata(row["TAG_SCHEMA"])
-        tag_name_normalized = resource_name_from_snowflake_metadata(row["TAG_NAME"])
-        policy_db = resource_name_from_snowflake_metadata(row["POLICY_DATABASE"])
-        policy_schema = resource_name_from_snowflake_metadata(row["POLICY_SCHEMA"])
-        policy_name = resource_name_from_snowflake_metadata(row["POLICY_NAME"])
+        # Note: str(ResourceName) returns uppercase, so we lowercase the whole thing
+        tag_db = str(resource_name_from_snowflake_metadata(row["TAG_DATABASE"])).lower()
+        tag_schema = str(resource_name_from_snowflake_metadata(row["TAG_SCHEMA"])).lower()
+        tag_name_normalized = str(resource_name_from_snowflake_metadata(row["TAG_NAME"])).lower()
+        policy_db = str(resource_name_from_snowflake_metadata(row["POLICY_DATABASE"])).lower()
+        policy_schema = str(resource_name_from_snowflake_metadata(row["POLICY_SCHEMA"])).lower()
+        policy_name = str(resource_name_from_snowflake_metadata(row["POLICY_NAME"])).lower()
         return {
             "tag_name": f"{tag_db}.{tag_schema}.{tag_name_normalized}",
             "masking_policy_name": f"{policy_db}.{policy_schema}.{policy_name}",
