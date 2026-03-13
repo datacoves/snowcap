@@ -3793,8 +3793,11 @@ def list_tag_masking_policy_references(session: SnowflakeConnection) -> list[FQN
         )
         references = []
         for row in result:
-            # Build the masking policy FQN string
-            masking_policy_fqn = f"{row['POLICY_DATABASE']}.{row['POLICY_SCHEMA']}.{row['POLICY_NAME']}"
+            # Build the masking policy FQN string (lowercase to match config format)
+            policy_db = resource_name_from_snowflake_metadata(row["POLICY_DATABASE"])
+            policy_schema = resource_name_from_snowflake_metadata(row["POLICY_SCHEMA"])
+            policy_name = resource_name_from_snowflake_metadata(row["POLICY_NAME"])
+            masking_policy_fqn = f"{policy_db}.{policy_schema}.{policy_name}"
             references.append(
                 FQN(
                     database=resource_name_from_snowflake_metadata(row["TAG_DATABASE"]),
@@ -3826,7 +3829,9 @@ def fetch_tag_masking_policy_reference(session: SnowflakeConnection, fqn: FQN) -
     if not masking_policy_name:
         return None
 
-    tag_name = f"{fqn.database}.{fqn.schema}.{fqn.name}"
+    # Uppercase for comparison since Snowflake stores identifiers in uppercase
+    tag_name = f"{fqn.database}.{fqn.schema}.{fqn.name}".upper()
+    masking_policy_name_upper = masking_policy_name.upper()
 
     try:
         result = execute(
@@ -3843,7 +3848,7 @@ def fetch_tag_masking_policy_reference(session: SnowflakeConnection, fqn: FQN) -
             WHERE TAG_NAME IS NOT NULL
               AND POLICY_KIND = 'MASKING_POLICY'
               AND CONCAT(TAG_DATABASE, '.', TAG_SCHEMA, '.', TAG_NAME) = '{tag_name}'
-              AND CONCAT(POLICY_DATABASE, '.', POLICY_SCHEMA, '.', POLICY_NAME) = '{masking_policy_name}'
+              AND CONCAT(POLICY_DATABASE, '.', POLICY_SCHEMA, '.', POLICY_NAME) = '{masking_policy_name_upper}'
             LIMIT 1
             """,
             cacheable=True,
@@ -3853,9 +3858,16 @@ def fetch_tag_masking_policy_reference(session: SnowflakeConnection, fqn: FQN) -
             return None
 
         row = result[0]
+        # Normalize to lowercase for consistent comparison
+        tag_db = resource_name_from_snowflake_metadata(row["TAG_DATABASE"])
+        tag_schema = resource_name_from_snowflake_metadata(row["TAG_SCHEMA"])
+        tag_name_normalized = resource_name_from_snowflake_metadata(row["TAG_NAME"])
+        policy_db = resource_name_from_snowflake_metadata(row["POLICY_DATABASE"])
+        policy_schema = resource_name_from_snowflake_metadata(row["POLICY_SCHEMA"])
+        policy_name = resource_name_from_snowflake_metadata(row["POLICY_NAME"])
         return {
-            "tag_name": f"{row['TAG_DATABASE']}.{row['TAG_SCHEMA']}.{row['TAG_NAME']}",
-            "masking_policy_name": f"{row['POLICY_DATABASE']}.{row['POLICY_SCHEMA']}.{row['POLICY_NAME']}",
+            "tag_name": f"{tag_db}.{tag_schema}.{tag_name_normalized}",
+            "masking_policy_name": f"{policy_db}.{policy_schema}.{policy_name}",
         }
     except ProgrammingError as err:
         if err.errno == ACCESS_CONTROL_ERR:
