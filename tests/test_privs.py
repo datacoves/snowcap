@@ -55,6 +55,7 @@ PSEUDO_RESOURCE_TYPES = {
     ResourceType.EXTERNAL_TABLE,  # Uses different grant syntax via parent stage
     ResourceType.EXTERNAL_VOLUME_STORAGE_LOCATION,  # Subresource of external volume
     ResourceType.MASKING_POLICY,  # Not grantable directly, applied to columns
+    ResourceType.ROW_ACCESS_POLICY,  # Not grantable directly, applied to tables
     ResourceType.SCANNER_PACKAGE,  # Internal service resource
 }
 

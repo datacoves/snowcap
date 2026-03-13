@@ -140,7 +140,7 @@ row_access_policies:
     args:
       - name: country_val
         data_type: VARCHAR
-    body: |
+    body: |-
       country_val IS NOT NULL
       AND IS_ROLE_IN_SESSION('Z_ROW_ACCESS__COUNTRY__' || UPPER(country_val))
     comment: Filters rows by country based on user role
@@ -246,7 +246,7 @@ row_access_policies:
     args:
       - name: val
         data_type: VARCHAR
-    body: |
+    body: |-
       val IS NOT NULL
       AND IS_ROLE_IN_SESSION('Z_ROW_ACCESS__COUNTRY__' || UPPER(val))
 
@@ -254,7 +254,7 @@ row_access_policies:
     args:
       - name: val
         data_type: VARCHAR
-    body: |
+    body: |-
       val IS NOT NULL
       AND IS_ROLE_IN_SESSION('Z_ROW_ACCESS__TERRITORY__' || UPPER(val))
 
@@ -262,7 +262,7 @@ row_access_policies:
     args:
       - name: val
         data_type: VARCHAR
-    body: |
+    body: |-
       val IS NOT NULL
       AND IS_ROLE_IN_SESSION('Z_ROW_ACCESS__PRODUCT__' || UPPER(val))
 
@@ -270,7 +270,7 @@ row_access_policies:
     args:
       - name: val
         data_type: VARCHAR
-    body: |
+    body: |-
       val IS NOT NULL
       AND IS_ROLE_IN_SESSION('Z_ROW_ACCESS__ORG__' || UPPER(val))
 ```

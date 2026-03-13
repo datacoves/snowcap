@@ -20,7 +20,7 @@ row_access_policies:
     args:
       - name: region
         data_type: VARCHAR
-    body: |
+    body: |-
       CURRENT_ROLE() IN ('ADMIN', 'SALES_MANAGER')
       OR region = CURRENT_USER()
     comment: Users can only see rows for their assigned region

@@ -677,6 +677,11 @@ def _format_resource_name(urn: URN, change: "ResourceChange") -> str:
     else:
         name = str(fqn.name)
 
+    # Include params for resources that use them (like tag_masking_policy_reference)
+    if fqn.params:
+        params_str = ", ".join(f"{k}={v}" for k, v in fqn.params.items())
+        name += f" ({params_str})"
+
     return name
 
 
@@ -926,8 +931,11 @@ def _merge_pointers(resources: Sequence[Resource]) -> list[Resource]:
                 if namespace[resource_id] is resource:
                     continue
                 else:
+                    resource_name = getattr(resource, 'name', str(resource.fqn))
                     raise DuplicateResourceException(
-                        f"Duplicate resource found: {resource} and {namespace[resource_id]}"
+                        f"Duplicate {resource.resource_type.value} found: '{resource_name}'\n"
+                        f"  Each resource must be defined only once.\n"
+                        f"  Check your config files for duplicate definitions."
                     )
             else:
                 namespace[resource_id] = resource
@@ -1296,7 +1304,11 @@ class Blueprint:
         if len(databases) == 0 and (len(db_scoped) + len(schema_scoped) > 0):
             if session_ctx.get("database") is None:
                 raise OrphanResourceException(
-                    "Blueprint is missing a database but includes resources that require a database or schema"
+                    "Your config includes resources that require a database (schemas, tables, views, etc.) "
+                    "but no database is defined.\n"
+                    "  Add a database to your config:\n"
+                    "    databases:\n"
+                    "      - name: MY_DATABASE"
                 )
             logger.warning(f"No database found in config, using database {session_ctx['database']} from session")
             self._root.add(ResourcePointer(name=session_ctx["database"], resource_type=ResourceType.DATABASE))
@@ -1308,7 +1320,12 @@ class Blueprint:
                 if len(databases) == 1:
                     databases[0].add(resource)
                 else:
-                    raise OrphanResourceException(f"Resource {resource} has no database")
+                    raise OrphanResourceException(
+                        f"Resource {resource.resource_type.value} '{resource.name}' has no database.\n"
+                        f"  Your config has multiple databases. Specify which database this resource belongs to:\n"
+                        f"    - name: {resource.name}\n"
+                        f"      database: DATABASE_NAME"
+                    )
 
         available_scopes = {}
         for database in databases:
@@ -1329,7 +1346,13 @@ class Blueprint:
                         logger.warning(f"Resource {resource} has no schema, using {databases[0].name}.PUBLIC")
                         _get_public_schema(databases[0]).add(resource)
                 else:
-                    raise OrphanResourceException(f"No schema for resource {repr(resource)} found")
+                    raise OrphanResourceException(
+                        f"Resource {resource.resource_type.value} '{resource.name}' has no schema.\n"
+                        f"  Your config has multiple databases. Specify which schema this resource belongs to:\n"
+                        f"    - name: {resource.name}\n"
+                        f"      database: DATABASE_NAME\n"
+                        f"      schema: SCHEMA_NAME"
+                    )
             elif isinstance(resource.container, ResourcePointer):
                 schema_pointer = resource.container
 
@@ -1342,7 +1365,12 @@ class Blueprint:
                         databases[0].add(schema_pointer)
                     else:
                         raise OrphanResourceException(
-                            f"No database for resource {resource} schema={resource.container}"
+                            f"Resource {resource.resource_type.value} '{resource.name}' references schema "
+                            f"'{resource.container.name}' but no database is specified.\n"
+                            f"  Your config has multiple databases. Specify which database the schema belongs to:\n"
+                            f"    - name: {resource.name}\n"
+                            f"      database: DATABASE_NAME\n"
+                            f"      schema: {resource.container.name}"
                         )
                 elif isinstance(schema_pointer.container, ResourcePointer):
                     expected_scope = f"{schema_pointer.container.name}.{schema_pointer.name}"
@@ -1739,23 +1767,35 @@ def execution_strategy_for_change(
         # Only ACCOUNTADMIN can create them.
         if "ACCOUNTADMIN" in available_roles:
             return ResourceName("ACCOUNTADMIN"), False
-        raise MissingPrivilegeException("ACCOUNTADMIN role is required to work with resource monitors")
+        raise MissingPrivilegeException(
+            "ACCOUNTADMIN role is required to manage resource monitors.\n"
+            "  Grant ACCOUNTADMIN to your user or use a different connection."
+        )
 
     elif change.urn.resource_type == ResourceType.ACCOUNT_PARAMETER:
         if "ACCOUNTADMIN" in available_roles:
             return ResourceName("ACCOUNTADMIN"), False
-        raise MissingPrivilegeException("ACCOUNTADMIN role is required to work with account parameters")
+        raise MissingPrivilegeException(
+            "ACCOUNTADMIN role is required to manage account parameters.\n"
+            "  Grant ACCOUNTADMIN to your user or use a different connection."
+        )
 
     elif change.urn.resource_type == ResourceType.SCANNER_PACKAGE:
         if "ACCOUNTADMIN" in available_roles:
             return ResourceName("ACCOUNTADMIN"), False
-        raise MissingPrivilegeException("ACCOUNTADMIN role is required to work with scanner packages")
+        raise MissingPrivilegeException(
+            "ACCOUNTADMIN role is required to manage scanner packages.\n"
+            "  Grant ACCOUNTADMIN to your user or use a different connection."
+        )
 
     elif isinstance(change, (UpdateResource, DropResource, TransferOwnership)):
         if change_owner:
             return change_owner, False
         else:
-            raise MissingPrivilegeException(change)
+            raise MissingPrivilegeException(
+                f"Insufficient privileges to modify {change.urn.resource_label} '{change.urn.fqn}'.\n"
+                f"  You need ownership or appropriate grants on this resource."
+            )
     elif isinstance(change, CreateResource):
         if isinstance(change.resource_cls.scope, AccountScope):
             create_priv = CREATE_PRIV_FOR_RESOURCE_TYPE[change.urn.resource_type]
@@ -1770,7 +1810,11 @@ def execution_strategy_for_change(
             if system_role and system_role in available_roles:
                 transfer_ownership = system_role != change_owner
                 return ResourceName(system_role), transfer_ownership
-            raise MissingPrivilegeException(f"{system_role} isnt available to execute {change}")
+            raise MissingPrivilegeException(
+                f"Role {system_role} is required to create {change.urn.resource_label} resources.\n"
+                f"  Grant {system_role} to your user:\n"
+                f"    GRANT ROLE {system_role} TO USER your_user;"
+            )
         elif isinstance(change.resource_cls.scope, (DatabaseScope, SchemaScope)) and change.container:
             container_owner = ResourceName(change.container[1])
             transfer_ownership = container_owner != change_owner

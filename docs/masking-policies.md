@@ -138,7 +138,7 @@ masking_policies:
       - name: val
         data_type: VARCHAR
     returns: VARCHAR
-    body: |
+    body: |-
       CASE
         WHEN IS_ROLE_IN_SESSION('Z_UNMASK__PII') THEN val
         ELSE '***MASKED***'
@@ -151,7 +151,7 @@ masking_policies:
       - name: val
         data_type: NUMBER
     returns: NUMBER
-    body: |
+    body: |-
       CASE
         WHEN IS_ROLE_IN_SESSION('Z_UNMASK__PII') THEN val
         ELSE NULL
@@ -164,7 +164,7 @@ masking_policies:
       - name: val
         data_type: FLOAT
     returns: FLOAT
-    body: |
+    body: |-
       CASE
         WHEN IS_ROLE_IN_SESSION('Z_UNMASK__PII') THEN val
         ELSE NULL
@@ -177,7 +177,7 @@ masking_policies:
       - name: val
         data_type: DATE
     returns: DATE
-    body: |
+    body: |-
       CASE
         WHEN IS_ROLE_IN_SESSION('Z_UNMASK__PII') THEN val
         ELSE NULL
@@ -190,7 +190,7 @@ masking_policies:
       - name: val
         data_type: TIMESTAMP_NTZ
     returns: TIMESTAMP_NTZ
-    body: |
+    body: |-
       CASE
         WHEN IS_ROLE_IN_SESSION('Z_UNMASK__PII') THEN val
         ELSE NULL

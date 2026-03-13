@@ -21,7 +21,7 @@ masking_policies:
       - name: val
         data_type: VARCHAR
     returns: VARCHAR
-    body: |
+    body: |-
       CASE
         WHEN IS_ROLE_IN_SESSION('Z_UNMASK__PII') THEN val
         ELSE '***MASKED***'
