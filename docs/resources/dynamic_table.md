@@ -5,7 +5,7 @@ description: >-
 
 # DynamicTable
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-dynamic-table)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-dynamic-table) | Snowcap CLI label: `dynamic_table`
 
 Represents a dynamic table in Snowflake, which can be configured to refresh automatically,
 fully, or incrementally, and initialized on creation or on a schedule.

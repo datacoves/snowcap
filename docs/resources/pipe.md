@@ -5,7 +5,7 @@ description: >-
 
 # Pipe
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-pipe)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-pipe) | Snowcap CLI label: `pipe`
 
 Represents a data ingestion pipeline in Snowflake, which automates the loading of data into tables.
 

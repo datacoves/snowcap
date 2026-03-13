@@ -5,7 +5,7 @@ description: >-
 
 # PythonUDF
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-function)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-function) | Snowcap CLI label: `python_udf`
 
 A Python user-defined function (UDF) in Snowflake allows users to define their own custom functions in Python.
 These functions can be used to perform operations that are not available as standard SQL functions.

@@ -5,7 +5,7 @@ description: >-
 
 # ObjectStoreCatalogIntegration
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-catalog-integration)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-catalog-integration) | Snowcap CLI label: `object_store_catalog_integration`
 
 Manages the integration of an object store as a catalog in Snowflake, supporting the ICEBERG table format.
 

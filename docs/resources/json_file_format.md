@@ -5,7 +5,7 @@ description: >-
 
 # JSONFileFormat
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-file-format)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-file-format) | Snowcap CLI label: `json_file_format`
 
 A JSON file format in Snowflake.
 

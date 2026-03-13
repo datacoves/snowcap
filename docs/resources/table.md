@@ -5,7 +5,7 @@ description: >-
 
 # Table
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-table)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-table) | Snowcap CLI label: `table`
 
 A table in Snowflake.
 

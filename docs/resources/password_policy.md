@@ -5,7 +5,7 @@ description: >-
 
 # PasswordPolicy
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-password-policy)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-password-policy) | Snowcap CLI label: `password_policy`
 
 Defines the rules and constraints for creating and managing passwords within the system, ensuring they meet specific security standards.
 

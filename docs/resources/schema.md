@@ -5,7 +5,7 @@ description: >-
 
 # Schema
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-schema)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-schema) | Snowcap CLI label: `schema`
 
 Represents a schema in Snowflake, which is a logical grouping of database objects such as tables, views, and stored procedures. Schemas are used to organize and manage such objects within a database.
 

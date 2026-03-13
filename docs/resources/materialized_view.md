@@ -5,7 +5,7 @@ description: >-
 
 # MaterializedView
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-materialized-view)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-materialized-view) | Snowcap CLI label: `materialized_view`
 
 A Materialized View in Snowflake is a database object that contains the results of a query.
 It is physically stored and automatically updated as data changes, providing faster access to data.

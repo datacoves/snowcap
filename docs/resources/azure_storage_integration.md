@@ -5,7 +5,7 @@ description: >-
 
 # AzureStorageIntegration
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-storage-integration)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-storage-integration) | Snowcap CLI label: `azure_storage_integration`
 
 Represents an Azure storage integration in Snowflake, which allows Snowflake to access external cloud storage using Azure credentials.
 

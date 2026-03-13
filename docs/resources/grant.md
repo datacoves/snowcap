@@ -5,7 +5,7 @@ description: >-
 
 # Grant
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/grant-privilege)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/grant-privilege) | Snowcap CLI label: `grant`
 
 The `Grant` resource represents a privilege grant, a future grant, or a grant of privileges on all resources of a specified type to a role in Snowflake.
 

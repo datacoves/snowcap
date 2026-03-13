@@ -5,7 +5,7 @@ description: >-
 
 # PasswordSecret
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-secret)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-secret) | Snowcap CLI label: `password_secret`
 
 A Secret defines a set of sensitive data that can be used for authentication or other purposes.
 This class defines a password secret.

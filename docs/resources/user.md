@@ -5,7 +5,7 @@ description: >-
 
 # User
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-user)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-user) | Snowcap CLI label: `user`
 
 A user in Snowflake.
 

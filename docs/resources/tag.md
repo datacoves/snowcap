@@ -5,7 +5,7 @@ description: >-
 
 # Tag
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-tag)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-tag) | Snowcap CLI label: `tag`
 
 Represents a tag in Snowflake, which can be used to label various resources for better management and categorization.
 

@@ -5,7 +5,7 @@ description: >-
 
 # StageStream
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-stream)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-stream) | Snowcap CLI label: `stage_stream`
 
 Represents a stream on a stage in Snowflake, which allows for capturing data changes on the stage.
 

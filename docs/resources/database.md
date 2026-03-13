@@ -5,7 +5,7 @@ description: >-
 
 # Database
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-database)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-database) | Snowcap CLI label: `database`
 
 Represents a database in Snowflake.
 

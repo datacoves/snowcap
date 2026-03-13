@@ -5,7 +5,7 @@ description: >-
 
 # ImageRepository
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-image-repository)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-image-repository) | Snowcap CLI label: `image_repository`
 
 An image repository in Snowflake is a storage unit within a schema that allows for the management of OCIv2-compliant container images.
 

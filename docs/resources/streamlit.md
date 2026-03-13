@@ -5,7 +5,7 @@ description: >-
 
 # Streamlit
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-streamlit)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-streamlit) | Snowcap CLI label: `streamlit`
 
 Represents a Streamlit app in Snowflake, which is a schema-scoped resource for creating interactive applications using Python code.
 

@@ -5,7 +5,7 @@ description: >-
 
 # EventTable
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-event-table)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-event-table) | Snowcap CLI label: `event_table`
 
 An event table captures events, including logged messages from functions and procedures.
 

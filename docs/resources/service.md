@@ -5,7 +5,7 @@ description: >-
 
 # Service
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-service)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-service) | Snowcap CLI label: `service`
 
 Service is a managed resource in Snowflake that allows users to run instances of their applications
 as a collection of containers on a compute pool. Each service instance can handle incoming traffic

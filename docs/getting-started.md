@@ -94,6 +94,9 @@ snowcap plan --config snowcap.yml
 snowcap apply --config snowcap.yml
 ```
 
+!!! tip "Wrapper Scripts"
+    For production use, consider a wrapper script that validates environment variables before running snowcap. See [CLI Wrapper Scripts](cli.md#wrapper-scripts) for an example.
+
 That's it. Snowcap compares your config to Snowflake and generates the SQL to make them match.
 
 ## Scaling Up: Directory Structure with Templates

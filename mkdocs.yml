@@ -98,6 +98,7 @@ nav:
   - Secrets and Variables: secrets-and-variables.md
   - GitHub Action: snowcap-github-action.md
   - Export Existing Resources: export.md
+  - Command Line Interface: cli.md
   - Advanced:
     - Python API: python-api.md
     - Blueprint: blueprint.md

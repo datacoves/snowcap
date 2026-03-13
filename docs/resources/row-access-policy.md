@@ -5,7 +5,7 @@ description: >-
 
 # RowAccessPolicy
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-row-access-policy)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-row-access-policy) | Snowcap CLI label: `row_access_policy`
 
 Represents a row access policy for row-level security in Snowflake. Row access policies define which rows are visible to users based on conditions, typically checking role membership.
 
@@ -52,15 +52,6 @@ policy = RowAccessPolicy(
 * `owner` (string or [Role](role.md)) - The role that owns the row access policy. Defaults to "SYSADMIN".
 
 **Note:** Row access policies require Enterprise Edition or higher.
-
-
-## CLI
-
-Use `row_access_policy` with `--exclude` or `--sync_resources`:
-
-```bash
-snowcap plan --config resources/ --exclude row_access_policy
-```
 
 
 ## Attaching to Tables

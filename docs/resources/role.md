@@ -5,7 +5,7 @@ description: >-
 
 # Role
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-role)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-role) | Snowcap CLI label: `role`
 
 A role in Snowflake defines a set of access controls and permissions.
 

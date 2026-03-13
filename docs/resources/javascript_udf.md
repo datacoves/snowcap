@@ -5,7 +5,7 @@ description: >-
 
 # JavascriptUDF
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-function)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-function) | Snowcap CLI label: `javascript_udf`
 
 A Javascript user-defined function (UDF) in Snowflake allows you to define a function using the JavaScript programming language.
 

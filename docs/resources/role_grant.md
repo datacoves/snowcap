@@ -5,7 +5,7 @@ description: >-
 
 # RoleGrant
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/grant-role)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/grant-role) | Snowcap CLI label: `role_grant`
 
 Represents a grant of a role to another role or user in Snowflake.
 

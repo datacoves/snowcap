@@ -5,7 +5,7 @@ description: >-
 
 # ResourceMonitor
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-resource-monitor)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-resource-monitor) | Snowcap CLI label: `resource_monitor`
 
 Manages the monitoring of resource usage within an account.
 

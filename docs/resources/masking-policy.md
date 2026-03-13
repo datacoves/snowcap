@@ -5,7 +5,7 @@ description: >-
 
 # MaskingPolicy
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-masking-policy)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-masking-policy) | Snowcap CLI label: `masking_policy`
 
 Represents a masking policy for column-level data protection in Snowflake. Masking policies define how data is transformed when accessed by users based on their roles or other conditions.
 
@@ -60,14 +60,5 @@ policy = MaskingPolicy(
 * `owner` (string or [Role](role.md)) - The role that owns the masking policy. Defaults to "SYSADMIN".
 
 **Note:** Masking policies require Enterprise Edition or higher.
-
-
-## CLI
-
-Use `masking_policy` with `--exclude` or `--sync_resources`:
-
-```bash
-snowcap plan --config resources/ --exclude masking_policy
-```
 
 

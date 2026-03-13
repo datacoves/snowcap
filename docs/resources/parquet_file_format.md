@@ -5,7 +5,7 @@ description: >-
 
 # ParquetFileFormat
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-file-format)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-file-format) | Snowcap CLI label: `parquet_file_format`
 
 A Parquet file format in Snowflake.
 

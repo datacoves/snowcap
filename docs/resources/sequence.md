@@ -5,7 +5,7 @@ description: >-
 
 # Sequence
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-sequence)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-sequence) | Snowcap CLI label: `sequence`
 
 Manages the creation and configuration of sequences in Snowflake, which are objects that generate numeric values according to a specified sequence.
 

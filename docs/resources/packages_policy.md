@@ -5,7 +5,7 @@ description: >-
 
 # PackagesPolicy
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-packages-policy)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-packages-policy) | Snowcap CLI label: `packages_policy`
 
 A Packages Policy defines a set of rules for allowed and blocked packages
 that are applied to user-defined functions and stored procedures.

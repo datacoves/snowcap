@@ -5,7 +5,7 @@ description: >-
 
 # AccountParameter
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/alter-account)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/alter-account) | Snowcap CLI label: `account_parameter`
 
 An account parameter in Snowflake that allows you to set or alter account-level parameters.
 
