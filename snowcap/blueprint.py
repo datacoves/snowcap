@@ -1039,6 +1039,7 @@ class Blueprint:
         blueprint._staged = []
         blueprint._root = ResourcePointer(name="ACCOUNT", resource_type=ResourceType.ACCOUNT)
         blueprint._finalized = False
+        blueprint._levels = {}  # Initialize dependency levels
         blueprint.add(config.resources or [])
         return blueprint
 
@@ -1646,16 +1647,16 @@ class Blueprint:
                         raise
 
         def process_commands(commands, roles, available_roles):
-            # Map changes to their levels
+            # Map changes to their levels (default to 0 if not in self._levels)
             levels = {
-                c["change"].urn: self._levels[c["change"].urn] for c in commands if c["change"].urn in self._levels
+                c["change"].urn: self._levels.get(c["change"].urn, 0) for c in commands
             }
-            max_level = max(levels.values()) if levels else -1
+            max_level = max(levels.values()) if levels else 0
 
             roles_dynamically_added = set()
             # Execute additive changes by level
             for level in range(max_level + 1):
-                commands_at_level = [c for c in commands if levels.get(c["change"].urn, -1) == level]
+                commands_at_level = [c for c in commands if levels.get(c["change"].urn, 0) == level]
                 for role in roles:
                     # Execute additive changes in current level by role
                     commands_at_role_level = [c for c in commands_at_level if c["role"] == role]
