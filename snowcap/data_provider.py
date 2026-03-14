@@ -3791,6 +3791,7 @@ def list_tag_masking_policy_references(session: SnowflakeConnection) -> list[FQN
             """,
             cacheable=True,
         )
+        logger.debug(f"list_tag_masking_policy_references: found {len(result)} rows from ACCOUNT_USAGE")
         references = []
         for row in result:
             # Build the masking policy FQN string (lowercase to match config format)
@@ -3799,14 +3800,14 @@ def list_tag_masking_policy_references(session: SnowflakeConnection) -> list[FQN
             policy_schema = str(resource_name_from_snowflake_metadata(row["POLICY_SCHEMA"])).lower()
             policy_name = str(resource_name_from_snowflake_metadata(row["POLICY_NAME"])).lower()
             masking_policy_fqn = f"{policy_db}.{policy_schema}.{policy_name}"
-            references.append(
-                FQN(
-                    database=resource_name_from_snowflake_metadata(row["TAG_DATABASE"]),
-                    schema=resource_name_from_snowflake_metadata(row["TAG_SCHEMA"]),
-                    name=resource_name_from_snowflake_metadata(row["TAG_NAME"]),
-                    params={"masking_policy": masking_policy_fqn},
-                )
+            fqn = FQN(
+                database=resource_name_from_snowflake_metadata(row["TAG_DATABASE"]),
+                schema=resource_name_from_snowflake_metadata(row["TAG_SCHEMA"]),
+                name=resource_name_from_snowflake_metadata(row["TAG_NAME"]),
+                params={"masking_policy": masking_policy_fqn},
             )
+            logger.debug(f"  Found tag masking policy reference: {fqn}")
+            references.append(fqn)
         return references
     except ProgrammingError as err:
         if err.errno == ACCESS_CONTROL_ERR:
@@ -3815,6 +3816,7 @@ def list_tag_masking_policy_references(session: SnowflakeConnection) -> list[FQN
         elif err.errno in (UNSUPPORTED_FEATURE, INVALID_COLUMN_ERR):
             # INVALID_COLUMN_ERR (904) occurs when POLICY_DATABASE/POLICY_SCHEMA/POLICY_NAME columns
             # don't exist in POLICY_REFERENCES view (account edition/configuration dependent)
+            logger.warning(f"Cannot list tag masking policy references: unsupported feature or missing columns (errno={err.errno})")
             return []
         else:
             raise
