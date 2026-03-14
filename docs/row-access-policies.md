@@ -203,15 +203,16 @@ models:
 
 #### 3. Configure schema.yml
 
-Specify the policy and column in your model's meta:
+Specify the policy and column in your model's config.meta (dbt 1.10+ requires meta under config):
 
 ```yaml
 # models/staging/schema.yml
 models:
   - name: stg_orders
-    meta:
-      row_access_policy: rap_country
-      row_access_column: country_code
+    config:
+      meta:
+        row_access_policy: rap_country
+        row_access_column: country_code
     columns:
       - name: order_id
       - name: country_code
@@ -280,19 +281,22 @@ Then in dbt:
 ```yaml
 models:
   - name: orders
-    meta:
-      row_access_policy: rap_country
-      row_access_column: country_code
+    config:
+      meta:
+        row_access_policy: rap_country
+        row_access_column: country_code
 
   - name: sales_targets
-    meta:
-      row_access_policy: rap_territory
-      row_access_column: territory_id
+    config:
+      meta:
+        row_access_policy: rap_territory
+        row_access_column: territory_id
 
   - name: product_costs
-    meta:
-      row_access_policy: rap_product
-      row_access_column: product_code
+    config:
+      meta:
+        row_access_policy: rap_product
+        row_access_column: product_code
 ```
 
 ## Verifying Row Access
