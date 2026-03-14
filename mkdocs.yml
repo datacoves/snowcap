@@ -93,10 +93,12 @@ nav:
   - Getting Started: getting-started.md
   - Role-Based Access Control: role-based-access-control.md
   - Tag-Based Masking Policies: masking-policies.md
+  - Row Access Policies: row-access-policies.md
   - YAML Configuration: yaml-configuration.md
   - Secrets and Variables: secrets-and-variables.md
   - GitHub Action: snowcap-github-action.md
   - Export Existing Resources: export.md
+  - Command Line Interface: cli.md
   - Advanced:
     - Python API: python-api.md
     - Blueprint: blueprint.md
@@ -176,6 +178,7 @@ nav:
       - NetworkRule: resources/network_rule.md
       - PackagesPolicy: resources/packages_policy.md
       - PasswordPolicy: resources/password_policy.md
+      - RowAccessPolicy: resources/row-access-policy.md
       - SessionPolicy: resources/session_policy.md
       - TagMaskingPolicyReference: resources/tag-masking-policy-reference.md
     - Snowpark Container Services:

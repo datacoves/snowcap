@@ -5,7 +5,7 @@ description: >-
 
 # S3StorageIntegration
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-storage-integration)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-storage-integration) | Snowcap CLI label: `s3storage_integration`
 
 Manages the integration of Snowflake with AWS S3 storage.
 

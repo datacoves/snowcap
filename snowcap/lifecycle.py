@@ -228,6 +228,17 @@ def create_procedure(urn: URN, data: dict, props: Props, if_not_exists: bool = F
     )
 
 
+def create_row_access_policy(urn: URN, data: dict, props: Props, if_not_exists: bool = False) -> str:
+    return tidy_sql(
+        "CREATE",
+        urn.resource_type,
+        "IF NOT EXISTS" if if_not_exists else "",
+        urn.fqn,
+        "AS",
+        props.render(data),
+    )
+
+
 def create_role_grant(urn: URN, data: dict, props: Props, if_not_exists: bool = False):
     if data["to_role"] is not None:
         to = data["to_role"]

@@ -5,7 +5,7 @@ description: >-
 
 # DatabaseRole
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-database-role)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-database-role) | Snowcap CLI label: `database_role`
 
 A database role in Snowflake is a collection of privileges that can be assigned to users or other roles within a specific database context. It is used to manage access control and permissions at the database level.
 

@@ -5,7 +5,7 @@ description: >-
 
 # AggregationPolicy
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-aggregation-policy)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-aggregation-policy) | Snowcap CLI label: `aggregation_policy`
 
 Represents an aggregation policy in Snowflake, which defines constraints on aggregation operations.
 

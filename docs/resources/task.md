@@ -5,7 +5,7 @@ description: >-
 
 # Task
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-task)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-task) | Snowcap CLI label: `task`
 
 Represents a scheduled task in Snowflake that performs a specified SQL statement at a recurring interval.
 

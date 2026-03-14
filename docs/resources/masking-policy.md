@@ -5,7 +5,7 @@ description: >-
 
 # MaskingPolicy
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-masking-policy)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-masking-policy) | Snowcap CLI label: `masking_policy`
 
 Represents a masking policy for column-level data protection in Snowflake. Masking policies define how data is transformed when accessed by users based on their roles or other conditions.
 
@@ -21,7 +21,7 @@ masking_policies:
       - name: val
         data_type: VARCHAR
     returns: VARCHAR
-    body: |
+    body: |-
       CASE
         WHEN IS_ROLE_IN_SESSION('Z_UNMASK__PII') THEN val
         ELSE '***MASKED***'

@@ -5,7 +5,7 @@ description: >-
 
 # ReplicationGroup
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-replication-group)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-replication-group) | Snowcap CLI label: `replication_group`
 
 A replication group in Snowflake.
 

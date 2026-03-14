@@ -5,7 +5,7 @@ description: >-
 
 # View
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-view)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-view) | Snowcap CLI label: `view`
 
 Represents a view in Snowflake, which is a virtual table created by a stored query on the data.
 Views are used to simplify complex queries, improve security, or enhance performance.

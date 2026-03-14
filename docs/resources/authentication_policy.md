@@ -5,7 +5,7 @@ description: >-
 
 # AuthenticationPolicy
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-authentication-policy)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-authentication-policy) | Snowcap CLI label: `authentication_policy`
 
 Defines the rules and constraints for authentication within the system, ensuring they meet specific security standards.
 

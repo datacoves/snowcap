@@ -20,7 +20,6 @@ from .builtins import (
 from .client import (
     ACCESS_CONTROL_ERR,
     DOES_NOT_EXIST_ERR,
-    INVALID_COLUMN_ERR,
     INVALID_IDENTIFIER,
     OBJECT_DOES_NOT_EXIST_ERR,
     UNSUPPORTED_FEATURE,
@@ -401,7 +400,6 @@ def _fetch_columns_for_table(session: SnowflakeConnection, fqn: FQN):
     info_schema_result = execute(session, f"SELECT * FROM {fqn.database}.INFORMATION_SCHEMA.COLUMNS", cacheable=True)
     columns = []
     for col in info_schema_result:
-
         if (
             resource_name_from_snowflake_metadata(col["TABLE_SCHEMA"]) != fqn.schema
             or resource_name_from_snowflake_metadata(col["TABLE_NAME"]) != fqn.name
@@ -557,9 +555,9 @@ def _show_grants_to_role(
     """
     Get grants to a role, using ACCOUNT_USAGE cache when available.
 
-    When use_account_usage is True and ACCOUNT_USAGE data is cached, filters the
-    cached data instead of issuing a SHOW GRANTS command. Falls back to SHOW GRANTS
-    when ACCOUNT_USAGE is unavailable or for database roles.
+    Automatically uses the ACCOUNT_USAGE cache if it's been populated (regardless of
+    the use_account_usage flag). Falls back to SHOW GRANTS when the cache is not
+    available or for database roles.
 
     Returns:
     {
@@ -573,14 +571,15 @@ def _show_grants_to_role(
         'granted_by': 'ACCOUNTADMIN'
     }
     """
-    # Try to use ACCOUNT_USAGE cache for regular roles
-    if use_account_usage and role_type == ResourceType.ROLE:
+    # Automatically use ACCOUNT_USAGE cache for regular roles if it's been populated
+    if role_type == ResourceType.ROLE:
         session_id = id(session)
         if session_id in _ACCOUNT_USAGE_GRANTS_CACHE:
             # Filter cached grants by role name (case-insensitive)
             role_upper = str(role).upper()
             filtered_grants = [
-                grant for grant in _ACCOUNT_USAGE_GRANTS_CACHE[session_id]
+                grant
+                for grant in _ACCOUNT_USAGE_GRANTS_CACHE[session_id]
                 if grant["grantee_name"].upper() == role_upper and grant["granted_to"] == "ROLE"
             ]
             logger.debug(f"Using ACCOUNT_USAGE cache for grants to role {role} ({len(filtered_grants)} grants)")
@@ -656,7 +655,9 @@ PARAMETER_FIELDS = {
 }
 
 
-def fetch_resource(session: SnowflakeConnection, urn: URN, include_params: bool = True, existence_only: bool = False) -> Optional[dict]:
+def fetch_resource(
+    session: SnowflakeConnection, urn: URN, include_params: bool = True, existence_only: bool = False
+) -> Optional[dict]:
     """
     Fetch a resource from Snowflake.
 
@@ -756,9 +757,7 @@ def fetch_role_privileges(
     role_privileges: dict[ResourceName, list[GrantedPrivilege]] = {}
 
     # Filter out roles we skip (ACCOUNTADMIN and SNOWFLAKE.* roles)
-    processable_roles = [
-        role for role in roles if role != "ACCOUNTADMIN" and not role.startswith("SNOWFLAKE.")
-    ]
+    processable_roles = [role for role in roles if role != "ACCOUNTADMIN" and not role.startswith("SNOWFLAKE.")]
 
     # Initialize empty lists for all processable roles
     for role in processable_roles:
@@ -782,9 +781,7 @@ def fetch_role_privileges(
                     continue
 
                 # Find the original role name (preserve case)
-                role_match = next(
-                    (role for role in processable_roles if role.upper() == grantee_name.upper()), None
-                )
+                role_match = next((role for role in processable_roles if role.upper() == grantee_name.upper()), None)
                 if role_match is None:
                     continue
 
@@ -1006,7 +1003,9 @@ def _fetch_grants_from_account_usage(session: SnowflakeConnection) -> list[dict[
         if err.errno == ACCESS_CONTROL_ERR:
             logger.warning("ACCOUNT_USAGE query failed: access denied - falling back to SHOW queries")
         else:
-            logger.warning(f"ACCOUNT_USAGE query failed with error {err.errno}: {err.msg} - falling back to SHOW queries")
+            logger.warning(
+                f"ACCOUNT_USAGE query failed with error {err.errno}: {err.msg} - falling back to SHOW queries"
+            )
         _mark_account_usage_fallback(session)
         return None
     except Exception as err:
@@ -1115,7 +1114,9 @@ def _fetch_role_grants_to_users_from_account_usage(session: SnowflakeConnection)
         if err.errno == ACCESS_CONTROL_ERR:
             logger.warning("ACCOUNT_USAGE GRANTS_TO_USERS query failed: access denied - falling back to SHOW queries")
         else:
-            logger.warning(f"ACCOUNT_USAGE GRANTS_TO_USERS query failed with error {err.errno}: {err.msg} - falling back to SHOW queries")
+            logger.warning(
+                f"ACCOUNT_USAGE GRANTS_TO_USERS query failed with error {err.errno}: {err.msg} - falling back to SHOW queries"
+            )
         _mark_account_usage_fallback(session)
         return None
     except Exception as err:
@@ -1707,7 +1708,6 @@ def fetch_grant(session: SnowflakeConnection, fqn: FQN):
     grant_type = fqn.params.get("grant_type", GrantType.OBJECT)
 
     if priv == "ALL":
-
         filters = {
             "granted_on": on_type,
         }
@@ -2142,8 +2142,9 @@ def fetch_role_grant(session: SnowflakeConnection, fqn: FQN, use_account_usage: 
     """
     Fetch a role grant (role granted to another role or user).
 
-    Uses ACCOUNT_USAGE cache when available to avoid SHOW GRANTS OF ROLE commands.
-    Falls back to SHOW GRANTS OF ROLE if grant not found in cache (to handle latency).
+    Automatically uses ACCOUNT_USAGE cache when it's been populated to avoid
+    SHOW GRANTS OF ROLE commands. Falls back to SHOW GRANTS OF ROLE if grant
+    not found in cache (to handle latency).
     """
     subject, grantee = fqn.params.copy().popitem()
     subject = ResourceName(subject)
@@ -2151,39 +2152,36 @@ def fetch_role_grant(session: SnowflakeConnection, fqn: FQN, use_account_usage: 
     role_name = str(fqn.name).upper()
     grantee_upper = str(grantee).upper()
 
-    # Try to use ACCOUNT_USAGE cache
+    # Automatically use ACCOUNT_USAGE cache if it's been populated
     session_id = id(session)
-    if use_account_usage:
-        # For role-to-role grants, check GRANTS_TO_ROLES cache
-        if str(subject).upper() == "ROLE" and session_id in _ACCOUNT_USAGE_GRANTS_CACHE:
-            for grant in _ACCOUNT_USAGE_GRANTS_CACHE[session_id]:
-                if (
-                    grant["privilege"] == "USAGE"
-                    and grant["granted_on"] == "ROLE"
-                    and grant["name"].upper() == role_name
-                    and grant["grantee_name"].upper() == grantee_upper
-                    and grant["granted_to"] == "ROLE"
-                ):
-                    return {
-                        "role": fqn.name,
-                        "to_role": _quote_snowflake_identifier(grant["grantee_name"]),
-                    }
-            # Not found in cache - will fall through to SHOW GRANTS fallback
-            logger.debug(f"Role grant {fqn.name} to role {grantee} not found in ACCOUNT_USAGE cache, trying SHOW GRANTS")
 
-        # For role-to-user grants, check GRANTS_TO_USERS cache
-        if str(subject).upper() == "USER" and session_id in _ACCOUNT_USAGE_USER_GRANTS_CACHE:
-            for grant in _ACCOUNT_USAGE_USER_GRANTS_CACHE[session_id]:
-                if (
-                    grant["role"].upper() == role_name
-                    and grant["grantee_name"].upper() == grantee_upper
-                ):
-                    return {
-                        "role": fqn.name,
-                        "to_user": _quote_snowflake_identifier(grant["grantee_name"]),
-                    }
-            # Not found in cache - will fall through to SHOW GRANTS fallback
-            logger.debug(f"Role grant {fqn.name} to user {grantee} not found in ACCOUNT_USAGE cache, trying SHOW GRANTS")
+    # For role-to-role grants, check GRANTS_TO_ROLES cache
+    if str(subject).upper() == "ROLE" and session_id in _ACCOUNT_USAGE_GRANTS_CACHE:
+        for grant in _ACCOUNT_USAGE_GRANTS_CACHE[session_id]:
+            if (
+                grant["privilege"] == "USAGE"
+                and grant["granted_on"] == "ROLE"
+                and grant["name"].upper() == role_name
+                and grant["grantee_name"].upper() == grantee_upper
+                and grant["granted_to"] == "ROLE"
+            ):
+                return {
+                    "role": fqn.name,
+                    "to_role": _quote_snowflake_identifier(grant["grantee_name"]),
+                }
+        # Not found in cache - will fall through to SHOW GRANTS fallback
+        logger.debug(f"Role grant {fqn.name} to role {grantee} not found in ACCOUNT_USAGE cache, trying SHOW GRANTS")
+
+    # For role-to-user grants, check GRANTS_TO_USERS cache
+    if str(subject).upper() == "USER" and session_id in _ACCOUNT_USAGE_USER_GRANTS_CACHE:
+        for grant in _ACCOUNT_USAGE_USER_GRANTS_CACHE[session_id]:
+            if grant["role"].upper() == role_name and grant["grantee_name"].upper() == grantee_upper:
+                return {
+                    "role": fqn.name,
+                    "to_user": _quote_snowflake_identifier(grant["grantee_name"]),
+                }
+        # Not found in cache - will fall through to SHOW GRANTS fallback
+        logger.debug(f"Role grant {fqn.name} to user {grantee} not found in ACCOUNT_USAGE cache, trying SHOW GRANTS")
 
     # Fall back to SHOW GRANTS OF ROLE (either cache not available or grant not found in cache)
     try:
@@ -2702,6 +2700,27 @@ def fetch_resource_monitor(session: SnowflakeConnection, fqn: FQN):
     }
 
 
+def fetch_row_access_policy(session: SnowflakeConnection, fqn: FQN):
+    policies = _show_resources(session, "ROW ACCESS POLICIES", fqn)
+    if len(policies) == 0:
+        return None
+    if len(policies) > 1:
+        raise Exception(f"Found multiple row access policies matching {fqn}")
+
+    data = policies[0]
+    desc_result = execute(session, f"DESC ROW ACCESS POLICY {fqn}", cacheable=True)
+    properties = desc_result[0]
+
+    return {
+        "name": data["name"],
+        "owner": _get_owner_identifier(data),
+        "args": _parse_signature(properties["signature"]),
+        "returns": "BOOLEAN",  # Row access policies always return BOOLEAN
+        "body": properties["body"],
+        "comment": data["comment"] or None,
+    }
+
+
 def fetch_resource_tags(session: SnowflakeConnection, resource_type: ResourceType, fqn: FQN):
     """
     +----------------------+------------+-------------+-----------+--------+----------------------+---------------+-------------+--------+-------------+
@@ -2827,7 +2846,9 @@ def fetch_tag_reference(session: SnowflakeConnection, fqn: FQN):
     }
 
 
-def fetch_user(session: SnowflakeConnection, fqn: FQN, include_params: bool = True, existence_only: bool = False) -> Optional[dict]:
+def fetch_user(
+    session: SnowflakeConnection, fqn: FQN, include_params: bool = True, existence_only: bool = False
+) -> Optional[dict]:
     show_result = _show_users(session)
     users = _filter_result(show_result, name=fqn.name)
 
@@ -3179,7 +3200,9 @@ def list_database_role_grants(
         # Fall through to SHOW queries if ACCOUNT_USAGE failed or returned empty for filtered query
 
     # Fallback to SHOW GRANTS OF DATABASE ROLE commands
-    logger.debug("Using SHOW GRANTS OF DATABASE ROLE for list_database_role_grants() (ACCOUNT_USAGE unavailable or disabled)")
+    logger.debug(
+        "Using SHOW GRANTS OF DATABASE ROLE for list_database_role_grants() (ACCOUNT_USAGE unavailable or disabled)"
+    )
 
     for database_name in databases:
         try:
@@ -3315,7 +3338,9 @@ def list_grants(
         logger.debug("list_grants: using SHOW GRANTS per role (ACCOUNT_USAGE disabled or unavailable)")
         # Fall back to per-role SHOW queries
         for role_name in role_names:
-            grant_data = _show_grants_to_role(session, role_name, role_type=ResourceType.ROLE, cacheable=True, use_account_usage=False)
+            grant_data = _show_grants_to_role(
+                session, role_name, role_type=ResourceType.ROLE, cacheable=True, use_account_usage=False
+            )
             for data in grant_data:
                 if data["granted_on"] == "ROLE":
                     continue
@@ -3351,10 +3376,7 @@ def list_grants(
         # If future_grant_roles is provided, only fetch for those specific roles
         # This optimization avoids querying all roles when only a few have future grants
         if future_grant_roles:
-            roles_to_query = [
-                rn for rn in role_names
-                if str(rn).upper() in future_grant_roles
-            ]
+            roles_to_query = [rn for rn in role_names if str(rn).upper() in future_grant_roles]
             logger.debug(f"list_grants: fetching future grants for {len(roles_to_query)} roles (filtered by manifest)")
         else:
             roles_to_query = role_names
@@ -3439,6 +3461,10 @@ def list_procedures(session: SnowflakeConnection) -> list[FQN]:
 
 def list_resource_monitors(session: SnowflakeConnection) -> list[FQN]:
     return list_account_scoped_resource(session, "RESOURCE MONITORS")
+
+
+def list_row_access_policies(session: SnowflakeConnection) -> list[FQN]:
+    return list_schema_scoped_resource(session, "ROW ACCESS POLICIES")
 
 
 def list_roles(session: SnowflakeConnection) -> list[FQN]:
@@ -3770,80 +3796,94 @@ def list_tags(session: SnowflakeConnection) -> list[FQN]:
 
 def list_tag_masking_policy_references(session: SnowflakeConnection) -> list[FQN]:
     """
-    List all tag-based masking policy references from ACCOUNT_USAGE.POLICY_REFERENCES.
+    List all tag-based masking policy references using INFORMATION_SCHEMA.POLICY_REFERENCES.
 
-    Note: ACCOUNT_USAGE has up to 120 minutes of latency.
+    Uses the INFORMATION_SCHEMA table function which shows tag-to-masking-policy associations
+    directly, without requiring the tag to be applied to any columns first.
     """
-    try:
-        result = execute(
-            session,
-            """
-            SELECT DISTINCT
-                TAG_DATABASE,
-                TAG_SCHEMA,
-                TAG_NAME,
-                POLICY_DATABASE,
-                POLICY_SCHEMA,
-                POLICY_NAME
-            FROM SNOWFLAKE.ACCOUNT_USAGE.POLICY_REFERENCES
-            WHERE TAG_NAME IS NOT NULL
-              AND POLICY_KIND = 'MASKING_POLICY'
-            """,
-            cacheable=True,
-        )
-        references = []
-        for row in result:
-            # Build the masking policy FQN string
-            masking_policy_fqn = f"{row['POLICY_DATABASE']}.{row['POLICY_SCHEMA']}.{row['POLICY_NAME']}"
-            references.append(
-                FQN(
-                    database=resource_name_from_snowflake_metadata(row["TAG_DATABASE"]),
-                    schema=resource_name_from_snowflake_metadata(row["TAG_SCHEMA"]),
-                    name=resource_name_from_snowflake_metadata(row["TAG_NAME"]),
+    references = []
+
+    # Get all tags first
+    tags = list_tags(session)
+    logger.debug(f"list_tag_masking_policy_references: checking {len(tags)} tags for masking policies")
+
+    for tag_fqn in tags:
+        try:
+            # Use INFORMATION_SCHEMA.POLICY_REFERENCES table function with REF_ENTITY_DOMAIN='TAG'
+            # This shows masking policies directly attached to the tag
+            tag_full_name = f"{tag_fqn.database}.{tag_fqn.schema}.{tag_fqn.name}"
+            result = execute(
+                session,
+                f"""
+                SELECT
+                    POLICY_DB,
+                    POLICY_SCHEMA,
+                    POLICY_NAME,
+                    POLICY_KIND
+                FROM TABLE({tag_fqn.database}.INFORMATION_SCHEMA.POLICY_REFERENCES(
+                    REF_ENTITY_NAME => '{tag_full_name}',
+                    REF_ENTITY_DOMAIN => 'TAG'
+                ))
+                WHERE POLICY_KIND = 'MASKING_POLICY'
+                """,
+                cacheable=True,
+            )
+
+            for row in result:
+                # Build the masking policy FQN string (lowercase to match config format)
+                policy_db = str(resource_name_from_snowflake_metadata(row["POLICY_DB"])).lower()
+                policy_schema = str(resource_name_from_snowflake_metadata(row["POLICY_SCHEMA"])).lower()
+                policy_name = str(resource_name_from_snowflake_metadata(row["POLICY_NAME"])).lower()
+                masking_policy_fqn = f"{policy_db}.{policy_schema}.{policy_name}"
+                fqn = FQN(
+                    database=tag_fqn.database,
+                    schema=tag_fqn.schema,
+                    name=tag_fqn.name,
                     params={"masking_policy": masking_policy_fqn},
                 )
-            )
-        return references
-    except ProgrammingError as err:
-        if err.errno == ACCESS_CONTROL_ERR:
-            logger.warning("Cannot list tag masking policy references: missing IMPORTED PRIVILEGES on SNOWFLAKE database")
-            return []
-        elif err.errno in (UNSUPPORTED_FEATURE, INVALID_COLUMN_ERR):
-            # INVALID_COLUMN_ERR (904) occurs when POLICY_DATABASE/POLICY_SCHEMA/POLICY_NAME columns
-            # don't exist in POLICY_REFERENCES view (account edition/configuration dependent)
-            return []
-        else:
-            raise
+                logger.debug(f"  Found tag masking policy reference: {fqn}")
+                references.append(fqn)
+        except ProgrammingError as err:
+            if err.errno in (ACCESS_CONTROL_ERR, UNSUPPORTED_FEATURE, DOES_NOT_EXIST_ERR):
+                # Skip tags we can't access or don't exist
+                logger.debug(f"  Skipping tag {tag_fqn}: {err.msg}")
+                continue
+            else:
+                raise
+
+    logger.debug(f"list_tag_masking_policy_references: found {len(references)} total references")
+    return references
 
 
 def fetch_tag_masking_policy_reference(session: SnowflakeConnection, fqn: FQN) -> Optional[dict]:
     """
-    Fetch a specific tag masking policy reference from ACCOUNT_USAGE.POLICY_REFERENCES.
+    Fetch a specific tag masking policy reference using INFORMATION_SCHEMA.POLICY_REFERENCES.
 
-    Note: ACCOUNT_USAGE has up to 120 minutes of latency.
+    Uses the INFORMATION_SCHEMA table function which shows tag-to-masking-policy associations
+    directly, without requiring the tag to be applied to any columns first.
     """
     masking_policy_name = fqn.params.get("masking_policy")
     if not masking_policy_name:
         return None
 
-    tag_name = f"{fqn.database}.{fqn.schema}.{fqn.name}"
+    # Build the full tag name for the query
+    tag_full_name = f"{fqn.database}.{fqn.schema}.{fqn.name}"
+    masking_policy_name_upper = masking_policy_name.upper()
 
     try:
         result = execute(
             session,
             f"""
             SELECT
-                TAG_DATABASE,
-                TAG_SCHEMA,
-                TAG_NAME,
-                POLICY_DATABASE,
+                POLICY_DB,
                 POLICY_SCHEMA,
                 POLICY_NAME
-            FROM SNOWFLAKE.ACCOUNT_USAGE.POLICY_REFERENCES
-            WHERE TAG_NAME IS NOT NULL
-              AND POLICY_KIND = 'MASKING_POLICY'
-              AND CONCAT(TAG_DATABASE, '.', TAG_SCHEMA, '.', TAG_NAME) = '{tag_name}'
-              AND CONCAT(POLICY_DATABASE, '.', POLICY_SCHEMA, '.', POLICY_NAME) = '{masking_policy_name}'
+            FROM TABLE({fqn.database}.INFORMATION_SCHEMA.POLICY_REFERENCES(
+                REF_ENTITY_NAME => '{tag_full_name}',
+                REF_ENTITY_DOMAIN => 'TAG'
+            ))
+            WHERE POLICY_KIND = 'MASKING_POLICY'
+              AND CONCAT(POLICY_DB, '.', POLICY_SCHEMA, '.', POLICY_NAME) = '{masking_policy_name_upper}'
             LIMIT 1
             """,
             cacheable=True,
@@ -3853,17 +3893,20 @@ def fetch_tag_masking_policy_reference(session: SnowflakeConnection, fqn: FQN) -
             return None
 
         row = result[0]
+        # Normalize to lowercase for consistent comparison
+        tag_db = str(fqn.database).lower()
+        tag_schema = str(fqn.schema).lower()
+        tag_name_normalized = str(fqn.name).lower()
+        policy_db = str(resource_name_from_snowflake_metadata(row["POLICY_DB"])).lower()
+        policy_schema = str(resource_name_from_snowflake_metadata(row["POLICY_SCHEMA"])).lower()
+        policy_name = str(resource_name_from_snowflake_metadata(row["POLICY_NAME"])).lower()
         return {
-            "tag_name": f"{row['TAG_DATABASE']}.{row['TAG_SCHEMA']}.{row['TAG_NAME']}",
-            "masking_policy_name": f"{row['POLICY_DATABASE']}.{row['POLICY_SCHEMA']}.{row['POLICY_NAME']}",
+            "tag_name": f"{tag_db}.{tag_schema}.{tag_name_normalized}",
+            "masking_policy_name": f"{policy_db}.{policy_schema}.{policy_name}",
         }
     except ProgrammingError as err:
-        if err.errno == ACCESS_CONTROL_ERR:
-            logger.warning("Cannot fetch tag masking policy reference: missing IMPORTED PRIVILEGES on SNOWFLAKE database")
-            return None
-        elif err.errno in (UNSUPPORTED_FEATURE, INVALID_COLUMN_ERR):
-            # INVALID_COLUMN_ERR (904) occurs when POLICY_DATABASE/POLICY_SCHEMA/POLICY_NAME columns
-            # don't exist in POLICY_REFERENCES view (account edition/configuration dependent)
+        if err.errno in (ACCESS_CONTROL_ERR, UNSUPPORTED_FEATURE, DOES_NOT_EXIST_ERR):
+            logger.debug(f"Cannot fetch tag masking policy reference {fqn}: {err.msg}")
             return None
         else:
             raise

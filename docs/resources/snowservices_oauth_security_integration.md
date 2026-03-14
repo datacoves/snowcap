@@ -5,7 +5,7 @@ description: >-
 
 # SnowservicesOAuthSecurityIntegration
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-security-integration)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-security-integration) | Snowcap CLI label: `snowservices_oauth_security_integration`
 
 Manages OAuth security integrations for Snowservices in Snowflake, allowing external authentication mechanisms.
 

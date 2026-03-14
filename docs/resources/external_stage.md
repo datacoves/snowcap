@@ -5,7 +5,7 @@ description: >-
 
 # ExternalStage
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-stage)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-stage) | Snowcap CLI label: `external_stage`
 
 Manages external stages in Snowflake, which are used to reference external storage locations.
 

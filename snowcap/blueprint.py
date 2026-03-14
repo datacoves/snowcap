@@ -275,11 +275,16 @@ class CreateResource(ResourceChange):
     container: Optional[ContainerDescriptor]
     after: dict[str, str]
 
-    def to_dict(self) -> dict[str, Union[str, dict[str, str]]]:
+    def to_dict(self) -> dict[str, Union[str, dict[str, str], None]]:
+        container_dict = None
+        if self.container is not None:
+            container_urn, container_owner = self.container
+            container_dict = {str(container_urn): str(container_owner)}
         return {
             "action": "CREATE",
             "urn": str(self.urn),
             "resource_cls": self.resource_cls.__name__,
+            "container": container_dict,
             "after": self.after,
         }
 
@@ -339,9 +344,10 @@ def plan_from_dict(plan_dict: dict) -> Plan:
     for change in plan_dict:
         action = change["action"]
         if action == "CREATE":
-            container_descriptor: ContainerDescriptor
-            for urn, owner in change["container"].items():
-                container_descriptor = (parse_URN(urn), ResourceName(owner))
+            container_descriptor: Optional[ContainerDescriptor] = None
+            if change.get("container"):
+                for urn, owner in change["container"].items():
+                    container_descriptor = (parse_URN(urn), ResourceName(owner))
             changes.append(
                 CreateResource(
                     urn=parse_URN(change["urn"]),
@@ -677,6 +683,11 @@ def _format_resource_name(urn: URN, change: "ResourceChange") -> str:
     else:
         name = str(fqn.name)
 
+    # Include params for resources that use them (like tag_masking_policy_reference)
+    if fqn.params:
+        params_str = ", ".join(f"{k}={v}" for k, v in fqn.params.items())
+        name += f" ({params_str})"
+
     return name
 
 
@@ -783,7 +794,13 @@ def _dump_plan_text(plan: Plan) -> str:
                     if key.startswith("_"):
                         continue
                     before = change.before.get(key, "")
-                    rows.append([key, str(before) if before is not None else "", str(new_value) if new_value is not None else ""])
+                    rows.append(
+                        [
+                            key,
+                            str(before) if before is not None else "",
+                            str(new_value) if new_value is not None else "",
+                        ]
+                    )
 
                 if rows:
                     table = _render_table(rows, ["Property", "Before", "After"])
@@ -794,18 +811,20 @@ def _dump_plan_text(plan: Plan) -> str:
             elif isinstance(change, TransferOwnership):
                 output += f"{yellow}~ TRANSFER:{reset} {name}\n"
                 # Build table for owner change
-                rows = [[
-                    "owner",
-                    str(change.from_owner) if change.from_owner else "",
-                    str(change.to_owner) if change.to_owner else ""
-                ]]
+                rows = [
+                    [
+                        "owner",
+                        str(change.from_owner) if change.from_owner else "",
+                        str(change.to_owner) if change.to_owner else "",
+                    ]
+                ]
                 table = _render_table(rows, ["Property", "Before", "After"])
                 indented_table = "\n".join("  " + line for line in table.split("\n"))
                 output += indented_table + "\n"
 
         # Add note about ALL grants if present
         if has_all_grants:
-            output += f"\n{dim}Note: \"ALL\" grants always appear in the plan because Snowflake converts them{reset}\n"
+            output += f'\n{dim}Note: "ALL" grants always appear in the plan because Snowflake converts them{reset}\n'
             output += f"{dim}to individual object grants. They are idempotent and safe to apply.{reset}\n"
 
     output += "\n"
@@ -921,13 +940,15 @@ def _merge_pointers(resources: Sequence[Resource]) -> list[Resource]:
             resource = resource_or_pointer
             # We found a potentially conflicting resource
             if resource_id in namespace:
-
                 # Throw away duplicate resources when the object id is the same
                 if namespace[resource_id] is resource:
                     continue
                 else:
+                    resource_name = getattr(resource, "name", str(resource.fqn))
                     raise DuplicateResourceException(
-                        f"Duplicate resource found: {resource} and {namespace[resource_id]}"
+                        f"Duplicate {resource.resource_type.value} found: '{resource_name}'\n"
+                        f"  Each resource must be defined only once.\n"
+                        f"  Check your config files for duplicate definitions."
                     )
             else:
                 namespace[resource_id] = resource
@@ -982,7 +1003,6 @@ def _resource_scope_is_outside_blueprint_scope(resource_type: ResourceType, blue
 
 
 class Blueprint:
-
     def __init__(
         self,
         name: Optional[str] = None,
@@ -1025,11 +1045,13 @@ class Blueprint:
         blueprint._staged = []
         blueprint._root = ResourcePointer(name="ACCOUNT", resource_type=ResourceType.ACCOUNT)
         blueprint._finalized = False
+        blueprint._levels = {}  # Initialize dependency levels
         blueprint.add(config.resources or [])
         return blueprint
 
     def _raise_for_nonconforming_plan(self, session_ctx: SessionContext, plan: Plan):
         exceptions = []
+        enterprise_resources: dict[str, list[str]] = {}
 
         for change in plan:
             if isinstance(change, UpdateResource):
@@ -1038,10 +1060,13 @@ class Blueprint:
                 if change.resource_cls.resource_type == ResourceType.GRANT:
                     exceptions.append(f"Grants cannot be updated (ref: {change.urn})")
 
-            # Edition exceptions
+            # Edition exceptions - collect by resource type for better display
             if session_ctx["account_edition"] == AccountEdition.STANDARD:
                 if isinstance(change, CreateResource) and AccountEdition.STANDARD not in change.resource_cls.edition:
-                    exceptions.append(f"Resource {change.urn} requires enterprise edition or higher")
+                    label = change.urn.resource_label
+                    if label not in enterprise_resources:
+                        enterprise_resources[label] = []
+                    enterprise_resources[label].append(str(change.urn.fqn))
 
             # Scope exceptions
             if self._config.scope:
@@ -1049,6 +1074,21 @@ class Blueprint:
                     exceptions.append(
                         f"Resource {change.urn} is out of scope ({self._config.scope}) for this blueprint"
                     )
+
+        # Format enterprise edition errors
+        if enterprise_resources:
+            lines = ["These resources require Enterprise edition (current account is Standard):"]
+            exclude_types = []
+            for label, resources in enterprise_resources.items():
+                exclude_types.append(label)
+                lines.append(f"  {label}:")
+                for resource in resources[:3]:
+                    lines.append(f"    - {resource}")
+                if len(resources) > 3:
+                    lines.append(f"    ... and {len(resources) - 3} more")
+            lines.append("")
+            lines.append(f"Use --exclude to skip: --exclude {','.join(sorted(set(exclude_types)))}")
+            exceptions.insert(0, "\n".join(lines))
 
         if exceptions:
             if len(exceptions) > 5:
@@ -1165,12 +1205,7 @@ class Blueprint:
 
         with ThreadPoolExecutor(max_workers=self._config.threads) as executor:
             future_to_urn = {
-                executor.submit(
-                    data_provider.fetch_resource,
-                    session,
-                    urn,
-                    include_params=_needs_params(urn)
-                ): urn
+                executor.submit(data_provider.fetch_resource, session, urn, include_params=_needs_params(urn)): urn
                 for urn in urns
             }
             for future in as_completed(future_to_urn):
@@ -1277,7 +1312,11 @@ class Blueprint:
         if len(databases) == 0 and (len(db_scoped) + len(schema_scoped) > 0):
             if session_ctx.get("database") is None:
                 raise OrphanResourceException(
-                    "Blueprint is missing a database but includes resources that require a database or schema"
+                    "Your config includes resources that require a database (schemas, tables, views, etc.) "
+                    "but no database is defined.\n"
+                    "  Add a database to your config:\n"
+                    "    databases:\n"
+                    "      - name: MY_DATABASE"
                 )
             logger.warning(f"No database found in config, using database {session_ctx['database']} from session")
             self._root.add(ResourcePointer(name=session_ctx["database"], resource_type=ResourceType.DATABASE))
@@ -1289,7 +1328,12 @@ class Blueprint:
                 if len(databases) == 1:
                     databases[0].add(resource)
                 else:
-                    raise OrphanResourceException(f"Resource {resource} has no database")
+                    raise OrphanResourceException(
+                        f"Resource {resource.resource_type.value} '{resource.name}' has no database.\n"
+                        f"  Your config has multiple databases. Specify which database this resource belongs to:\n"
+                        f"    - name: {resource.name}\n"
+                        f"      database: DATABASE_NAME"
+                    )
 
         available_scopes = {}
         for database in databases:
@@ -1310,7 +1354,13 @@ class Blueprint:
                         logger.warning(f"Resource {resource} has no schema, using {databases[0].name}.PUBLIC")
                         _get_public_schema(databases[0]).add(resource)
                 else:
-                    raise OrphanResourceException(f"No schema for resource {repr(resource)} found")
+                    raise OrphanResourceException(
+                        f"Resource {resource.resource_type.value} '{resource.name}' has no schema.\n"
+                        f"  Your config has multiple databases. Specify which schema this resource belongs to:\n"
+                        f"    - name: {resource.name}\n"
+                        f"      database: DATABASE_NAME\n"
+                        f"      schema: SCHEMA_NAME"
+                    )
             elif isinstance(resource.container, ResourcePointer):
                 schema_pointer = resource.container
 
@@ -1323,7 +1373,12 @@ class Blueprint:
                         databases[0].add(schema_pointer)
                     else:
                         raise OrphanResourceException(
-                            f"No database for resource {resource} schema={resource.container}"
+                            f"Resource {resource.resource_type.value} '{resource.name}' references schema "
+                            f"'{resource.container.name}' but no database is specified.\n"
+                            f"  Your config has multiple databases. Specify which database the schema belongs to:\n"
+                            f"    - name: {resource.name}\n"
+                            f"      database: DATABASE_NAME\n"
+                            f"      schema: {resource.container.name}"
                         )
                 elif isinstance(schema_pointer.container, ResourcePointer):
                     expected_scope = f"{schema_pointer.container.name}.{schema_pointer.name}"
@@ -1533,7 +1588,8 @@ class Blueprint:
             #   (only sync resources that are defined in YML, don't delete remote-only resources)
             if self._config.sync_resources:
                 finished_plan = [
-                    change for change in finished_plan
+                    change
+                    for change in finished_plan
                     if (
                         # Keep all changes for sync_resources types
                         change.urn.resource_type in self._config.sync_resources
@@ -1573,6 +1629,29 @@ class Blueprint:
          Once we've determined those things, we can compare the list of required roles and privileges
          against what we have access to in the session and the role tree."""
 
+        def print_apply_summary(plan: Plan, phase: str = "start"):
+            """Print a summary of what will be or was applied."""
+            # Colors
+            cyan = "\033[96m"
+            blue = "\033[94m"
+            green = "\033[92m"
+            reset = "\033[0m"
+
+            create_count = len([c for c in plan if isinstance(c, CreateResource)])
+            update_count = len([c for c in plan if isinstance(c, UpdateResource)])
+            transfer_count = len([c for c in plan if isinstance(c, TransferOwnership)])
+            drop_count = len([c for c in plan if isinstance(c, DropResource)])
+
+            if phase == "start":
+                print(f"\n{cyan}»{reset} {blue}snowcap apply{reset}")
+                print(
+                    f"{cyan}»{reset} Applying: {green}{create_count}{reset} to create, {update_count} to update, {transfer_count} to transfer, {drop_count} to drop.\n"
+                )
+            else:
+                print(
+                    f"\n{cyan}»{reset} {green}Applied:{reset} {create_count} created, {update_count} updated, {transfer_count} transferred, {drop_count} dropped.\n"
+                )
+
         def execute_commands_in_parallel(commands):
             """Execute a list of SQL commands in parallel using a thread pool."""
             with ThreadPoolExecutor(max_workers=self._config.threads) as executor:
@@ -1593,16 +1672,14 @@ class Blueprint:
                         raise
 
         def process_commands(commands, roles, available_roles):
-            # Map changes to their levels
-            levels = {
-                c["change"].urn: self._levels[c["change"].urn] for c in commands if c["change"].urn in self._levels
-            }
-            max_level = max(levels.values()) if levels else -1
+            # Map changes to their levels (default to 0 if not in self._levels)
+            levels = {c["change"].urn: self._levels.get(c["change"].urn, 0) for c in commands}
+            max_level = max(levels.values()) if levels else 0
 
             roles_dynamically_added = set()
             # Execute additive changes by level
             for level in range(max_level + 1):
-                commands_at_level = [c for c in commands if levels.get(c["change"].urn, -1) == level]
+                commands_at_level = [c for c in commands if levels.get(c["change"].urn, 0) == level]
                 for role in roles:
                     # Execute additive changes in current level by role
                     commands_at_role_level = [c for c in commands_at_level if c["role"] == role]
@@ -1625,6 +1702,12 @@ class Blueprint:
         if plan is None:
             plan = self.plan(session)
 
+        # Print summary of what will be applied
+        print_apply_summary(plan, "start")
+
+        if not plan:
+            return
+
         session_ctx = data_provider.fetch_session(session)
         _raise_if_plan_would_drop_session_user(session_ctx, plan)
 
@@ -1645,6 +1728,9 @@ class Blueprint:
 
         # Process destructive changes
         process_commands(destructive_commands, roles_set, session_ctx["available_roles"])
+
+        # Print completion summary
+        print_apply_summary(plan, "end")
 
     def _add(self, resource: Resource):
         if self._finalized:
@@ -1686,7 +1772,6 @@ def execution_strategy_for_change(
     change_owner = owner_for_change(change)
 
     if resource_type_is_grant(change.urn.resource_type):
-
         # 2024-10-22: maybe the better thing to do is check role privs selectively
         if isinstance(change, CreateResource) and change.urn.resource_type == ResourceType.GRANT:
             execution_role = system_role_for_priv(change.after["priv"])
@@ -1720,23 +1805,35 @@ def execution_strategy_for_change(
         # Only ACCOUNTADMIN can create them.
         if "ACCOUNTADMIN" in available_roles:
             return ResourceName("ACCOUNTADMIN"), False
-        raise MissingPrivilegeException("ACCOUNTADMIN role is required to work with resource monitors")
+        raise MissingPrivilegeException(
+            "ACCOUNTADMIN role is required to manage resource monitors.\n"
+            "  Grant ACCOUNTADMIN to your user or use a different connection."
+        )
 
     elif change.urn.resource_type == ResourceType.ACCOUNT_PARAMETER:
         if "ACCOUNTADMIN" in available_roles:
             return ResourceName("ACCOUNTADMIN"), False
-        raise MissingPrivilegeException("ACCOUNTADMIN role is required to work with account parameters")
+        raise MissingPrivilegeException(
+            "ACCOUNTADMIN role is required to manage account parameters.\n"
+            "  Grant ACCOUNTADMIN to your user or use a different connection."
+        )
 
     elif change.urn.resource_type == ResourceType.SCANNER_PACKAGE:
         if "ACCOUNTADMIN" in available_roles:
             return ResourceName("ACCOUNTADMIN"), False
-        raise MissingPrivilegeException("ACCOUNTADMIN role is required to work with scanner packages")
+        raise MissingPrivilegeException(
+            "ACCOUNTADMIN role is required to manage scanner packages.\n"
+            "  Grant ACCOUNTADMIN to your user or use a different connection."
+        )
 
     elif isinstance(change, (UpdateResource, DropResource, TransferOwnership)):
         if change_owner:
             return change_owner, False
         else:
-            raise MissingPrivilegeException(change)
+            raise MissingPrivilegeException(
+                f"Insufficient privileges to modify {change.urn.resource_label} '{change.urn.fqn}'.\n"
+                f"  You need ownership or appropriate grants on this resource."
+            )
     elif isinstance(change, CreateResource):
         if isinstance(change.resource_cls.scope, AccountScope):
             create_priv = CREATE_PRIV_FOR_RESOURCE_TYPE[change.urn.resource_type]
@@ -1751,7 +1848,11 @@ def execution_strategy_for_change(
             if system_role and system_role in available_roles:
                 transfer_ownership = system_role != change_owner
                 return ResourceName(system_role), transfer_ownership
-            raise MissingPrivilegeException(f"{system_role} isnt available to execute {change}")
+            raise MissingPrivilegeException(
+                f"Role {system_role} is required to create {change.urn.resource_label} resources.\n"
+                f"  Grant {system_role} to your user:\n"
+                f"    GRANT ROLE {system_role} TO USER your_user;"
+            )
         elif isinstance(change.resource_cls.scope, (DatabaseScope, SchemaScope)) and change.container:
             container_owner = ResourceName(change.container[1])
             transfer_ownership = container_owner != change_owner
@@ -1799,7 +1900,6 @@ def sql_commands_for_change(
     )
 
     if isinstance(change, CreateResource):
-
         change_cmd = lifecycle.create_resource(change.urn, change.after, change.resource_cls.props)
         if transfer_owner:
             after_change_cmd.append(
@@ -2010,6 +2110,27 @@ def diff(remote_state: State, manifest: Manifest) -> list:
     changes: list[ResourceChange] = []
     state_urns = set(remote_state.keys())
     manifest_urns = set(manifest.urns)
+
+    # Debug logging for tag masking policy references
+    tmpr_state_urns = [u for u in state_urns if u.resource_type == ResourceType.TAG_MASKING_POLICY_REFERENCE]
+    tmpr_manifest_urns = [u for u in manifest_urns if u.resource_type == ResourceType.TAG_MASKING_POLICY_REFERENCE]
+    if tmpr_state_urns or tmpr_manifest_urns:
+        logger.debug("TAG_MASKING_POLICY_REFERENCE comparison:")
+        logger.debug(f"  State URNs ({len(tmpr_state_urns)}):")
+        for urn in tmpr_state_urns:
+            logger.debug(f"    {urn} (hash={hash(urn)})")
+        logger.debug(f"  Manifest URNs ({len(tmpr_manifest_urns)}):")
+        for urn in tmpr_manifest_urns:
+            logger.debug(f"    {urn} (hash={hash(urn)})")
+            # Check if this URN matches any state URN
+            for state_urn in tmpr_state_urns:
+                if urn == state_urn:
+                    logger.debug("      MATCHES state URN!")
+                else:
+                    logger.debug(f"      != {state_urn}")
+                    logger.debug(f"        fqn match: {urn.fqn == state_urn.fqn}")
+                    logger.debug(f"        resource_type match: {urn.resource_type == state_urn.resource_type}")
+                    logger.debug(f"        account_locator match: {urn.account_locator == state_urn.account_locator}")
 
     grant_on_all_resources = [
         r

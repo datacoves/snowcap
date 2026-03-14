@@ -138,7 +138,7 @@ masking_policies:
       - name: val
         data_type: VARCHAR
     returns: VARCHAR
-    body: |
+    body: |-
       CASE
         WHEN IS_ROLE_IN_SESSION('Z_UNMASK__PII') THEN val
         ELSE '***MASKED***'
@@ -151,7 +151,7 @@ masking_policies:
       - name: val
         data_type: NUMBER
     returns: NUMBER
-    body: |
+    body: |-
       CASE
         WHEN IS_ROLE_IN_SESSION('Z_UNMASK__PII') THEN val
         ELSE NULL
@@ -164,7 +164,7 @@ masking_policies:
       - name: val
         data_type: FLOAT
     returns: FLOAT
-    body: |
+    body: |-
       CASE
         WHEN IS_ROLE_IN_SESSION('Z_UNMASK__PII') THEN val
         ELSE NULL
@@ -177,7 +177,7 @@ masking_policies:
       - name: val
         data_type: DATE
     returns: DATE
-    body: |
+    body: |-
       CASE
         WHEN IS_ROLE_IN_SESSION('Z_UNMASK__PII') THEN val
         ELSE NULL
@@ -190,7 +190,7 @@ masking_policies:
       - name: val
         data_type: TIMESTAMP_NTZ
     returns: TIMESTAMP_NTZ
-    body: |
+    body: |-
       CASE
         WHEN IS_ROLE_IN_SESSION('Z_UNMASK__PII') THEN val
         ELSE NULL
@@ -272,54 +272,62 @@ snowcap/
 
 Once your tags and masking policies are deployed with Snowcap, you need to apply tags to columns. The recommended approach is to use dbt to tag columns during the build process.
 
-### Option 1: dbt-tags Package
+### Option 1: Snowcap Macros
 
-The [dbt-tags](https://hub.getdbt.com/infinitelambda/dbt_tags/latest/){:target="_blank"} package applies tags to columns during the dbt build process. See the [dbt-tags getting started guide](https://dbt-tags.iflambda.com/latest/getting-started.html#6-apply-tags-to-columns){:target="_blank"} for full documentation.
+Snowcap can generate dbt macros that apply Snowflake tags to tables and columns based on `meta` configuration in your schema.yml files.
 
-#### 1. Add dbt-tags to packages.yml
+#### 1. Generate the macros
 
-```yaml
-# packages.yml
-packages:
-  - package: infinitelambda/dbt_tags
-    version: 1.9.0
+Run the following command:
+
+```bash
+snowcap generate dbt-macros
 ```
 
-Then run `dbt deps` to install.
+This will prompt you for:
 
-#### 2. Configure dbt_project.yml variables
+- **dbt project path** - The path to your dbt project (auto-detected from `DATACOVES__DBT_HOME` or `DBT_HOME` environment variables)
+- **Tag database** (default: `GOVERNANCE`) - The database where your tags are defined
+- **Tag schema** (default: `TAGS`) - The schema where your tags are defined
+- **Policy database** (default: `GOVERNANCE`) - The database where row access policies are defined
+- **Policy schema** (default: `POLICIES`) - The schema where row access policies are defined
 
-Since Snowcap manages the tags in a dedicated governance database, you need to tell dbt-tags where to find them. Add these variables to your `dbt_project.yml`:
+You can also pass all options directly:
+
+```bash
+snowcap generate dbt-macros \
+  --dbt-path ./transform \
+  --tag-database GOVERNANCE \
+  --tag-schema TAGS \
+  --policy-database GOVERNANCE \
+  --policy-schema POLICIES
+```
+
+The command creates `<dbt-path>/macros/snowcap_apply_tags.sql` containing:
+
+- `snowcap_apply_policies()` - Main entry point for post-hook
+- `snowcap_apply_masking_tags()` - Applies tags from column-level `meta.masking_tag`
+- `snowcap_apply_row_access_policy()` - Applies row access policies from model-level `meta.row_access_policy`
+
+#### 2. Configure dbt_project.yml
+
+Add the variables and post-hook to your `dbt_project.yml`:
 
 ```yaml
 # dbt_project.yml
 vars:
-  dbt_tags__opt_in_default_naming_config: false
-  dbt_tags__database: "GOVERNANCE"
-  dbt_tags__schema: "TAGS"
-```
+  snowcap_tag_database: GOVERNANCE
+  snowcap_tag_schema: TAGS
 
-!!! note "Why `dbt_tags__opt_in_default_naming_config: false`?"
-    By default, dbt-tags uses dbt's `generate_schema_name` and `generate_database_name` macros to resolve the tag location. If your project overrides these macros (which is common), this can cause errors. Setting this to `false` uses the `dbt_tags__database` and `dbt_tags__schema` values directly.
-
-#### 3. Add the post-hook
-
-Add the `apply_column_tags()` post-hook so tags are applied every time a model is built:
-
-```yaml
-# dbt_project.yml
 models:
   your_project:
     +post-hook:
-      - >
-        {% if flags.WHICH in ('run', 'build') %}
-        {{ dbt_tags.apply_column_tags() }}
-        {% endif %}
+      - "{{ snowcap_apply_policies() }}"
 ```
 
-#### 4. Define tags on columns in schema.yml
+#### 3. Define tags in schema.yml using meta
 
-Tag columns in your model's schema file. The tag name must match the tag created in Snowcap (e.g., `pii` matches `governance.tags.pii`):
+Use the `meta` property to specify which tags to apply:
 
 ```yaml
 # models/staging/schema.yml
@@ -328,18 +336,21 @@ models:
     columns:
       - name: id
       - name: email
-        tags:
-          - pii
+        meta:
+          masking_tag: pii        # Applied to column for masking policies
       - name: phone_number
-        tags:
-          - pii
+        meta:
+          masking_tag: pii
       - name: city
       - name: birth_date
-        tags:
-          - pii
+        meta:
+          masking_tag: pii
 ```
 
-#### 5. Grant the tag apply role to your dbt role
+!!! tip "Row access policies"
+    For row-level security, see [Row Access Policies](row-access-policies.md).
+
+#### 4. Grant the tag apply role to your dbt role
 
 The role that runs dbt needs the `APPLY` privilege on the tag. The `z_tag__apply__pii` role and grant were already created in [Step 2](#step-2-create-tags). Grant it to your dbt execution role:
 
@@ -350,9 +361,6 @@ role_grants:
     roles:
       - z_tag__apply__pii
 ```
-
-!!! warning "dbt-tags manages the full lifecycle"
-    This package can also create tags and masking policies. If you're using Snowcap to manage those, you only need the `apply_column_tags()` macro. See [Documentation](https://dbt-tags.iflambda.com/latest/getting-started.html#6-apply-tags-to-columns){:target="_blank"} for details.
 
 ### Option 2: Manual Tag Application
 
@@ -417,9 +425,9 @@ SELECT email, account_balance, birth_date
 
 ## See Also
 
+- [Row Access Policies](row-access-policies.md)
 - [Role-Based Access Control](role-based-access-control.md)
 - [MaskingPolicy](resources/masking-policy.md)
 - [Tag](resources/tag.md)
 - [TagMaskingPolicyReference](resources/tag-masking-policy-reference.md)
 - [Snowflake: Introduction to Object Tagging](https://docs.snowflake.com/en/user-guide/object-tagging/introduction){:target="_blank"}
-- [dbt-tags Package](https://hub.getdbt.com/infinitelambda/dbt_tags/latest/){:target="_blank"}

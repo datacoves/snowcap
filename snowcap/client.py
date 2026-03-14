@@ -71,7 +71,7 @@ def execute(
         session = conn_or_cursor.connection
         cur = conn_or_cursor
         cur._use_dict_result = True
-    elif hasattr(conn_or_cursor, 'connection') and hasattr(conn_or_cursor, 'execute'):
+    elif hasattr(conn_or_cursor, "connection") and hasattr(conn_or_cursor, "execute"):
         # Handle cursor-like objects
         session = conn_or_cursor.connection
         cur = conn_or_cursor
@@ -122,18 +122,18 @@ def execute(
     # Log start message for potentially slow queries (ACCOUNT_USAGE, large SHOW commands)
     is_slow_query = "ACCOUNT_USAGE" in sql_text or "GRANTS_TO_ROLES" in sql_text
     if is_slow_query:
-        logger.warning(f"{session_header}    \033[93m(running...)\033[0m")
+        logger.info(f"{session_header}    \033[93m(running...)\033[0m")
 
     start = time.time()
     try:
         cur.execute(sql_text)
         result = cur.fetchall()
         runtime = time.time() - start
-        # Clear the "running" line for slow queries by using carriage return
+        # Log execution details - use debug for routine queries, info for slow ones
         if is_slow_query:
-            logger.warning(f"{session_header}    \033[94m({len(result)} rows, {runtime:.2f}s)\033[0m")
+            logger.info(f"{session_header}    \033[94m({len(result)} rows, {runtime:.2f}s)\033[0m")
         else:
-            logger.warning(f"{session_header}    \033[94m({len(result)} rows, {runtime:.2f}s)\033[0m")
+            logger.debug(f"{session_header}    \033[94m({len(result)} rows, {runtime:.2f}s)\033[0m")
         if cacheable:
             cache_key = (session.role, sql_text)
             with _EXECUTION_CACHE_LOCK:
@@ -148,7 +148,7 @@ def execute(
     except ProgrammingError as err:
         if empty_response_codes and err.errno in empty_response_codes:
             runtime = time.time() - start
-            logger.warning(f"{session_header}    \033[94m(empty, {runtime:.2f}s)\033[0m")
+            logger.debug(f"{session_header}    \033[94m(empty, {runtime:.2f}s)\033[0m")
             if cacheable:
                 cache_key = (session.role, sql_text)
                 with _EXECUTION_CACHE_LOCK:

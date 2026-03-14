@@ -5,7 +5,7 @@ description: >-
 
 # Alert
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-alert)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-alert) | Snowcap CLI label: `alert`
 
 Alerts trigger notifications when certain conditions are met.
 

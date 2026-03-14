@@ -5,7 +5,7 @@ description: >-
 
 # PythonStoredProcedure
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-procedure)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-procedure) | Snowcap CLI label: `python_stored_procedure`
 
 Represents a Python stored procedure in Snowflake, allowing for the execution of Python code within the Snowflake environment.
 

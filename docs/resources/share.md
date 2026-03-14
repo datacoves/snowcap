@@ -5,7 +5,7 @@ description: >-
 
 # Share
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-share)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-share) | Snowcap CLI label: `share`
 
 Represents a share resource in Snowflake, which allows sharing data across Snowflake accounts.
 

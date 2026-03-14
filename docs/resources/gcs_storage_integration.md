@@ -5,7 +5,7 @@ description: >-
 
 # GCSStorageIntegration
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-storage-integration)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-storage-integration) | Snowcap CLI label: `gcs_storage_integration`
 
 Manages the integration of Google Cloud Storage (GCS) as an external stage for storing data.
 

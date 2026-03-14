@@ -5,7 +5,7 @@ description: >-
 
 # APIAuthenticationSecurityIntegration
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-security-integration)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-security-integration) | Snowcap CLI label: `api_authentication_security_integration`
 
 Manages API authentication security integrations in Snowflake, allowing for secure API access management.
 

@@ -5,7 +5,7 @@ description: >-
 
 # NetworkPolicy
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-network-policy)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-network-policy) | Snowcap CLI label: `network_policy`
 
 A Network Policy in Snowflake defines a set of network rules and IP addresses
 that are allowed or blocked from accessing a Snowflake account. This helps in

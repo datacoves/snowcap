@@ -1,4 +1,8 @@
 import json
+import logging
+import os
+import shutil
+from pathlib import Path
 from typing import Any
 
 import rich_click as click
@@ -59,6 +63,7 @@ def get_version():
     """Get version from package metadata."""
     try:
         from importlib.metadata import version
+
         return version("snowcap")
     except Exception:
         return "unknown"
@@ -186,8 +191,23 @@ def use_account_usage_option():
 @schema_option()
 @use_account_usage_option()
 @debug_option()
-def plan(config_path, json_output, output_file, vars: dict, sync_resources, exclude_resources, scope, database, schema, use_account_usage, debug):
+def plan(
+    config_path,
+    json_output,
+    output_file,
+    vars: dict,
+    sync_resources,
+    exclude_resources,
+    scope,
+    database,
+    schema,
+    use_account_usage,
+    debug,
+):
     """Compare a resource config to the current state of Snowflake"""
+
+    if debug:
+        logging.basicConfig(level=logging.DEBUG, format="%(levelname)s - %(name)s - %(message)s")
 
     if not config_path:
         raise click.UsageError("--config is required")
@@ -247,9 +267,28 @@ def plan(config_path, json_output, output_file, vars: dict, sync_resources, excl
 @schema_option()
 @click.option("--dry-run", is_flag=True, help="When dry run is true, Snowcap will not make any changes to Snowflake")
 @use_account_usage_option()
+@click.option("--verbose", "-v", is_flag=True, help="Show SQL commands being executed")
 @debug_option()
-def apply(config_path, plan_file, vars, sync_resources, exclude_resources, scope, database, schema, dry_run, use_account_usage, debug):
+def apply(
+    config_path,
+    plan_file,
+    vars,
+    sync_resources,
+    exclude_resources,
+    scope,
+    database,
+    schema,
+    dry_run,
+    use_account_usage,
+    verbose,
+    debug,
+) -> None:
     """Apply a resource config to a Snowflake account"""
+
+    if debug:
+        logging.basicConfig(level=logging.DEBUG, format="%(levelname)s - %(name)s - %(message)s")
+    elif verbose:
+        logging.basicConfig(level=logging.DEBUG, format="%(message)s")
 
     if config_path and plan_file:
         raise click.UsageError("Cannot specify both --config and --plan.")
@@ -315,7 +354,7 @@ def apply(config_path, plan_file, vars, sync_resources, exclude_resources, scope
 )
 @click.option("--out", type=str, help="Write exported config to a file", metavar="<filename>")
 @click.option("--format", type=click.Choice(["json", "yml"]), default="yml", help="Output format")
-def export(resources, export_all, exclude_resources, out, format):
+def export(resources, export_all, exclude_resources, out, format) -> None:
     """
     Generate a resource config for existing Snowflake resources
 
@@ -377,6 +416,96 @@ def cli_connect():
         print(f"SNOWFLAKE_{key.upper()}={value_inspect}")
     session = connect()
     print(f"Connection successful as user {session.user}")
+
+
+@snowcap_cli.group()
+def generate():
+    """Generate helper files for integrations."""
+    pass
+
+
+def get_dbt_path_default():
+    """Get the default dbt project path from environment variables."""
+    return os.environ.get("DATACOVES__DBT_HOME") or os.environ.get("DBT_HOME") or ""
+
+
+@generate.command("dbt-macros")
+@click.option(
+    "--dbt-path",
+    prompt="dbt project path",
+    default=get_dbt_path_default,
+    help="Path to dbt project (checks DATACOVES__DBT_HOME and DBT_HOME env vars)",
+)
+@click.option("--macros-path", default="macros", help="Macros directory name relative to dbt project")
+@click.option(
+    "--tag-database",
+    prompt="Tag database",
+    default="GOVERNANCE",
+    help="Database where tags are defined",
+)
+@click.option(
+    "--tag-schema",
+    prompt="Tag schema",
+    default="TAGS",
+    help="Schema where tags are defined",
+)
+@click.option(
+    "--policy-database",
+    prompt="Policy database",
+    default="GOVERNANCE",
+    help="Database where row access policies are defined",
+)
+@click.option(
+    "--policy-schema",
+    prompt="Policy schema",
+    default="POLICIES",
+    help="Schema where row access policies are defined",
+)
+def dbt_macros(dbt_path, macros_path, tag_database, tag_schema, policy_database, policy_schema):
+    """Generate dbt macros for applying Snowflake governance policies."""
+    dbt_project_path = Path(dbt_path)
+
+    if not dbt_project_path.exists():
+        raise click.UsageError(f"dbt project path does not exist: {dbt_project_path}")
+
+    dbt_project_file = dbt_project_path / "dbt_project.yml"
+    if not dbt_project_file.exists():
+        raise click.UsageError(f"No dbt_project.yml found in: {dbt_project_path}")
+
+    macros_dir = dbt_project_path / macros_path
+    macros_dir.mkdir(parents=True, exist_ok=True)
+
+    template_path = Path(__file__).parent / "templates" / "snowcap_apply_tags.sql"
+    dest_path = macros_dir / "snowcap_apply_tags.sql"
+
+    shutil.copy(template_path, dest_path)
+
+    click.echo(f"\nCreated {dest_path}\n")
+    click.echo("Add the following to your dbt_project.yml:\n")
+    click.echo("vars:")
+    click.echo("  # For column masking tags")
+    click.echo(f"  snowcap_tag_database: {tag_database}")
+    click.echo(f"  snowcap_tag_schema: {tag_schema}")
+    click.echo("")
+    click.echo("  # For row access policies")
+    click.echo(f"  snowcap_policy_database: {policy_database}")
+    click.echo(f"  snowcap_policy_schema: {policy_schema}")
+    click.echo("")
+    click.echo("models:")
+    click.echo("  <your_project>:")
+    click.echo("    +post-hook:")
+    click.echo('      - "{{ snowcap_apply_policies() }}"')
+    click.echo("")
+    click.echo("Then use meta in your schema.yml:\n")
+    click.echo("models:")
+    click.echo("  - name: orders")
+    click.echo("    meta:")
+    click.echo("      row_access_policy: rap_country    # Row-level filtering")
+    click.echo("      row_access_column: country_code")
+    click.echo("    columns:")
+    click.echo("      - name: email")
+    click.echo("        meta:")
+    click.echo("          masking_tag: pii              # Column masking")
 
 
 if __name__ == "__main__":

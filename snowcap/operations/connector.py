@@ -468,7 +468,11 @@ def _update_connection_details_with_private_key(connection_parameters: Dict):
             connection_parameters["private_key"] = private_key
             del connection_parameters["private_key_path"]
         else:
-            raise ClickException("Private Key authentication requires authenticator set to SNOWFLAKE_JWT")
+            raise ClickException(
+                "Private key authentication requires SNOWFLAKE_JWT authenticator.\n"
+                "  Set: SNOWFLAKE_AUTHENTICATOR=SNOWFLAKE_JWT\n"
+                "  See: https://docs.snowflake.com/en/user-guide/key-pair-auth"
+            )
     return connection_parameters
 
 
@@ -491,14 +495,20 @@ def _load_pem_to_der(private_key_path: str) -> bytes:
     private_key_passphrase = os.getenv("PRIVATE_KEY_PASSPHRASE", None)
     if private_key_pem.startswith(ENCRYPTED_PKCS8_PK_HEADER) and private_key_passphrase is None:
         raise ClickException(
-            "Encrypted private key, you must provide the"
-            "passphrase in the environment variable PRIVATE_KEY_PASSPHRASE"
+            "Private key is encrypted but no passphrase was provided.\n"
+            "  Set: PRIVATE_KEY_PASSPHRASE=your_passphrase\n"
+            "  Or use an unencrypted key file."
         )
 
     if not private_key_pem.startswith(ENCRYPTED_PKCS8_PK_HEADER) and not private_key_pem.startswith(
         UNENCRYPTED_PKCS8_PK_HEADER
     ):
-        raise ClickException("Private key provided is not in PKCS#8 format. Please use correct format.")
+        raise ClickException(
+            "Private key is not in PKCS#8 format.\n"
+            "  Convert your key with:\n"
+            "    openssl pkcs8 -topk8 -inform PEM -outform PEM -in old_key.pem -out new_key.pem -nocrypt\n"
+            "  See: https://docs.snowflake.com/en/user-guide/key-pair-auth"
+        )
 
     if private_key_pem.startswith(UNENCRYPTED_PKCS8_PK_HEADER):
         private_key_passphrase = None

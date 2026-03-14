@@ -335,7 +335,13 @@ def collect_blueprint_config(yaml_config: dict, cli_config: Optional[dict[str, A
     resources = _resources_for_config(yaml_config_, blueprint_args["vars"])
 
     if len(resources) == 0:
-        raise ValueError("No resources found in config")
+        raise ValueError(
+            "No resources found in config.\n"
+            "  Your YAML files must define resources like databases, roles, warehouses, etc.\n"
+            "  Example:\n"
+            "    databases:\n"
+            "      - name: MY_DATABASE"
+        )
 
     blueprint_args["resources"] = resources
 
@@ -373,7 +379,16 @@ def read_config(config_path) -> dict:
         try:
             config = yaml.safe_load(f)
         except yaml.YAMLError as e:
-            raise ValueError(f"Error parsing YAML file: `{config_path}`") from e
+            # Extract line/column info from YAML error if available
+            error_msg = f"Error parsing YAML file: {config_path}\n"
+            if hasattr(e, "problem_mark") and e.problem_mark:
+                mark = e.problem_mark
+                error_msg += f"  Line {mark.line + 1}, column {mark.column + 1}\n"
+            if hasattr(e, "problem") and e.problem:
+                error_msg += f"  {e.problem}"
+            if hasattr(e, "context") and e.context:
+                error_msg += f" {e.context}"
+            raise ValueError(error_msg) from e
     return config
 
 
@@ -396,14 +411,20 @@ def collect_configs_from_path(path: str) -> list[tuple[str, dict]]:
     configs = []
 
     if not os.path.exists(path):
-        raise ValueError(f"Invalid path: `{path}`. Must be a file or directory.")
+        raise ValueError(
+            f"Config path not found: {path}\n"
+            f"  Provide a valid path to a YAML file or directory containing YAML files."
+        )
 
     for file in crawl(path):
         config = read_config(file)
         configs.append((file, config))
 
     if len(configs) == 0:
-        raise ValueError(f"No valid YAML files were read from the given path: {path}")
+        raise ValueError(
+            f"No YAML files found in: {path}\n"
+            f"  Expected .yml or .yaml files containing Snowflake resource definitions."
+        )
 
     return configs
 

@@ -505,7 +505,7 @@ class TestNestedDirectoryCollection:
 
         (tmp_path / "readme.md").write_text("# No YAML here\n")
 
-        with pytest.raises(ValueError, match="No valid YAML files"):
+        with pytest.raises(ValueError, match="No YAML files found"):
             collect_configs_from_path(str(tmp_path))
 
     def test_nested_with_snowcapignore(self, tmp_path):
@@ -543,7 +543,7 @@ class TestNestedDirectoryCollection:
         """Test: Invalid path raises ValueError."""
         from snowcap.gitops import collect_configs_from_path
 
-        with pytest.raises(ValueError, match="Invalid path"):
+        with pytest.raises(ValueError, match="Config path not found"):
             collect_configs_from_path(str(tmp_path / "nonexistent"))
 
 

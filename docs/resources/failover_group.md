@@ -5,7 +5,7 @@ description: >-
 
 # FailoverGroup
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-failover-group)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/create-failover-group) | Snowcap CLI label: `failover_group`
 
 Represents a failover group in Snowflake, which is a collection of databases, shares, and other resources
 that can be failed over together to a secondary account in case of a disaster recovery scenario.

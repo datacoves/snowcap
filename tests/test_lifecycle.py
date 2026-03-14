@@ -19,6 +19,7 @@ from snowcap.lifecycle import (
     create_grant,
     create_masking_policy,
     create_procedure,
+    create_row_access_policy,
     create_role_grant,
     create_scanner_package,
     create_schema,
@@ -436,6 +437,29 @@ class TestCreateMaskingPolicy:
         result = create_masking_policy(urn, data, props)
         assert "CREATE MASKING POLICY" in result
         assert "AS" in result
+
+
+class TestCreateRowAccessPolicy:
+    """Tests for create_row_access_policy function."""
+
+    def test_basic_create(self):
+        """Test basic row access policy creation."""
+        urn = make_urn(ResourceType.ROW_ACCESS_POLICY, "RAP_COUNTRY", database="GOVERNANCE", schema="POLICIES")
+        data = {}
+        props = MockProps("(COUNTRY_VAL VARCHAR) RETURNS BOOLEAN -> IS_ROLE_IN_SESSION('ADMIN')")
+        result = create_row_access_policy(urn, data, props)
+        assert "CREATE ROW ACCESS POLICY" in result
+        assert "GOVERNANCE.POLICIES.RAP_COUNTRY" in result
+        assert "AS" in result
+
+    def test_with_if_not_exists(self):
+        """Test row access policy creation with IF NOT EXISTS."""
+        urn = make_urn(ResourceType.ROW_ACCESS_POLICY, "RAP_COUNTRY", database="GOVERNANCE", schema="POLICIES")
+        data = {}
+        props = MockProps("(COUNTRY_VAL VARCHAR) RETURNS BOOLEAN -> TRUE")
+        result = create_row_access_policy(urn, data, props, if_not_exists=True)
+        assert "IF NOT EXISTS" in result
+        assert "CREATE ROW ACCESS POLICY" in result
 
 
 class TestCreateProcedure:

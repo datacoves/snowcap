@@ -34,8 +34,24 @@ class VarString:
     def to_string(self, vars: dict, parent: dict):
         try:
             return GLOBAL_JINJA_ENV.from_string(self.string).render(var=vars, parent=parent)
-        except jinja2.exceptions.UndefinedError:
-            raise MissingVarException(f"Missing var: {self.string}")
+        except jinja2.exceptions.UndefinedError as e:
+            # Try to extract the missing key and provide helpful suggestions
+            error_str = str(e)
+            import re
+
+            # Check if it's a var.xxx reference
+            if "var" in error_str or "var" in self.string:
+                match = re.search(r"'(\w+)'$", error_str)
+                if match:
+                    missing_key = match.group(1)
+                    available_keys = list(vars.keys()) if vars else []
+                    raise MissingVarException(
+                        _format_missing_key_error(missing_key, available_keys, context="vars")
+                        + f"\n  Template: {self.string}"
+                        + "\n  Provide vars with: --vars '{\"" + missing_key + "\": ...}'"
+                    ) from e
+
+            raise MissingVarException(f"Missing var in template: {self.string}\n  Error: {e}")
 
     def __eq__(self, other: Any):
         return False

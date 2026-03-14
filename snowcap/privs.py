@@ -324,6 +324,11 @@ class TagPriv(Priv):
     READ = "READ"
 
 
+class RowAccessPolicyPriv(Priv):
+    APPLY = "APPLY"
+    OWNERSHIP = "OWNERSHIP"
+
+
 class TaskPriv(Priv):
     ALL = "ALL"
     APPLYBUDGET = "APPLYBUDGET"
@@ -403,6 +408,7 @@ PRIVS_FOR_RESOURCE_TYPE: dict[ResourceType, Optional[type[Priv]]] = {
     ResourceType.RESOURCE_MONITOR: None,
     ResourceType.ROLE_GRANT: None,
     ResourceType.ROLE: RolePriv,
+    ResourceType.ROW_ACCESS_POLICY: RowAccessPolicyPriv,
     ResourceType.SCHEMA: SchemaPriv,
     ResourceType.SECRET: SecretPriv,
     ResourceType.SECURITY_INTEGRATION: IntegrationPriv,

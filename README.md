@@ -83,14 +83,14 @@ snowcap apply --config snowcap.yml
 
 ## Documentation
 
-Full documentation, examples, and resource reference at **[datacoves.github.io/snowcap](https://datacoves.github.io/snowcap)**
+Full documentation, examples, and resource reference at **[snowcap.datacoves.com](https://snowcap.datacoves.com)**
 
-- [Getting Started](https://datacoves.github.io/snowcap/getting-started/)
-- [YAML Configuration](https://datacoves.github.io/snowcap/yaml-configuration/)
-- [Role-Based Access Control](https://datacoves.github.io/snowcap/role-based-access-control/)
-- [Resource Reference](https://datacoves.github.io/snowcap/resources/database/)
+- [Getting Started](https://snowcap.datacoves.com/getting-started/)
+- [YAML Configuration](https://snowcap.datacoves.com/yaml-configuration/)
+- [Role-Based Access Control](https://snowcap.datacoves.com/role-based-access-control/)
+- [Resource Reference](https://snowcap.datacoves.com/resources/database/)
 
 ## Support
 
-- [Documentation](https://datacoves.github.io/snowcap)
+- [Documentation](https://snowcap.datacoves.com)
 - [GitHub Issues](https://github.com/datacoves/snowcap/issues)

@@ -55,6 +55,7 @@ PSEUDO_RESOURCE_TYPES = {
     ResourceType.EXTERNAL_TABLE,  # Uses different grant syntax via parent stage
     ResourceType.EXTERNAL_VOLUME_STORAGE_LOCATION,  # Subresource of external volume
     ResourceType.MASKING_POLICY,  # Not grantable directly, applied to columns
+    ResourceType.ROW_ACCESS_POLICY,  # Not grantable directly, applied to tables
     ResourceType.SCANNER_PACKAGE,  # Internal service resource
 }
 
@@ -77,19 +78,46 @@ class TestPrivBaseClass:
     def test_priv_is_parseable_enum(self):
         """Priv inherits from ParseableEnum."""
         from snowcap.enums import ParseableEnum
+
         assert issubclass(Priv, ParseableEnum)
 
     def test_priv_subclasses(self):
         """All privilege enums inherit from Priv."""
         priv_classes = [
-            AccountPriv, AlertPriv, DatabasePriv, DatabaseRolePriv,
-            DirectoryTablePriv, EventTablePriv, ExternalVolumePriv,
-            FailoverGroupPriv, FileFormatPriv, FunctionPriv, IcebergTablePriv,
-            IntegrationPriv, MaterializedViewPriv, NetworkPolicyPriv,
-            NetworkRulePriv, NotebookPriv, PackagesPolicyPriv, PasswordPolicyPriv,
-            PipePriv, ProcedurePriv, ReplicationGroupPriv, RolePriv, SchemaPriv,
-            SecretPriv, SequencePriv, StagePriv, StreamPriv, StreamlitPriv,
-            TablePriv, TagPriv, TaskPriv, UserPriv, ViewPriv, WarehousePriv,
+            AccountPriv,
+            AlertPriv,
+            DatabasePriv,
+            DatabaseRolePriv,
+            DirectoryTablePriv,
+            EventTablePriv,
+            ExternalVolumePriv,
+            FailoverGroupPriv,
+            FileFormatPriv,
+            FunctionPriv,
+            IcebergTablePriv,
+            IntegrationPriv,
+            MaterializedViewPriv,
+            NetworkPolicyPriv,
+            NetworkRulePriv,
+            NotebookPriv,
+            PackagesPolicyPriv,
+            PasswordPolicyPriv,
+            PipePriv,
+            ProcedurePriv,
+            ReplicationGroupPriv,
+            RolePriv,
+            SchemaPriv,
+            SecretPriv,
+            SequencePriv,
+            StagePriv,
+            StreamPriv,
+            StreamlitPriv,
+            TablePriv,
+            TagPriv,
+            TaskPriv,
+            UserPriv,
+            ViewPriv,
+            WarehousePriv,
         ]
         for priv_class in priv_classes:
             assert issubclass(priv_class, Priv), f"{priv_class.__name__} should inherit from Priv"

@@ -5,7 +5,7 @@ description: >-
 
 # TagMaskingPolicyReference
 
-[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/alter-tag)
+[Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/alter-tag) | Snowcap CLI label: `tag_masking_policy_reference`
 
 Associates a masking policy with a tag. When a tag with an associated masking policy is applied to a column, the masking policy is automatically enforced on that column.
 
