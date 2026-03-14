@@ -21,8 +21,16 @@ TEST_ROLE = os.environ.get("TEST_SNOWFLAKE_ROLE")
 pytestmark = pytest.mark.requires_snowflake
 
 
-@pytest.fixture(autouse=True)
-def clear_cache():
+@pytest.fixture(scope="module")
+def module_cache_reset():
+    """Clear cache once per module, not per test - reduces Snowflake queries."""
+    reset_cache()
+    yield
+
+
+@pytest.fixture
+def fresh_cache():
+    """Use explicitly in tests that need isolated cache state."""
     reset_cache()
     yield
 

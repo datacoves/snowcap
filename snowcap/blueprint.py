@@ -275,7 +275,7 @@ class CreateResource(ResourceChange):
     container: Optional[ContainerDescriptor]
     after: dict[str, str]
 
-    def to_dict(self) -> dict[str, Union[str, dict[str, str]]]:
+    def to_dict(self) -> dict[str, Union[str, dict[str, str], None]]:
         container_dict = None
         if self.container is not None:
             container_urn, container_owner = self.container
@@ -794,7 +794,13 @@ def _dump_plan_text(plan: Plan) -> str:
                     if key.startswith("_"):
                         continue
                     before = change.before.get(key, "")
-                    rows.append([key, str(before) if before is not None else "", str(new_value) if new_value is not None else ""])
+                    rows.append(
+                        [
+                            key,
+                            str(before) if before is not None else "",
+                            str(new_value) if new_value is not None else "",
+                        ]
+                    )
 
                 if rows:
                     table = _render_table(rows, ["Property", "Before", "After"])
@@ -805,18 +811,20 @@ def _dump_plan_text(plan: Plan) -> str:
             elif isinstance(change, TransferOwnership):
                 output += f"{yellow}~ TRANSFER:{reset} {name}\n"
                 # Build table for owner change
-                rows = [[
-                    "owner",
-                    str(change.from_owner) if change.from_owner else "",
-                    str(change.to_owner) if change.to_owner else ""
-                ]]
+                rows = [
+                    [
+                        "owner",
+                        str(change.from_owner) if change.from_owner else "",
+                        str(change.to_owner) if change.to_owner else "",
+                    ]
+                ]
                 table = _render_table(rows, ["Property", "Before", "After"])
                 indented_table = "\n".join("  " + line for line in table.split("\n"))
                 output += indented_table + "\n"
 
         # Add note about ALL grants if present
         if has_all_grants:
-            output += f"\n{dim}Note: \"ALL\" grants always appear in the plan because Snowflake converts them{reset}\n"
+            output += f'\n{dim}Note: "ALL" grants always appear in the plan because Snowflake converts them{reset}\n'
             output += f"{dim}to individual object grants. They are idempotent and safe to apply.{reset}\n"
 
     output += "\n"
@@ -932,12 +940,11 @@ def _merge_pointers(resources: Sequence[Resource]) -> list[Resource]:
             resource = resource_or_pointer
             # We found a potentially conflicting resource
             if resource_id in namespace:
-
                 # Throw away duplicate resources when the object id is the same
                 if namespace[resource_id] is resource:
                     continue
                 else:
-                    resource_name = getattr(resource, 'name', str(resource.fqn))
+                    resource_name = getattr(resource, "name", str(resource.fqn))
                     raise DuplicateResourceException(
                         f"Duplicate {resource.resource_type.value} found: '{resource_name}'\n"
                         f"  Each resource must be defined only once.\n"
@@ -996,7 +1003,6 @@ def _resource_scope_is_outside_blueprint_scope(resource_type: ResourceType, blue
 
 
 class Blueprint:
-
     def __init__(
         self,
         name: Optional[str] = None,
@@ -1199,12 +1205,7 @@ class Blueprint:
 
         with ThreadPoolExecutor(max_workers=self._config.threads) as executor:
             future_to_urn = {
-                executor.submit(
-                    data_provider.fetch_resource,
-                    session,
-                    urn,
-                    include_params=_needs_params(urn)
-                ): urn
+                executor.submit(data_provider.fetch_resource, session, urn, include_params=_needs_params(urn)): urn
                 for urn in urns
             }
             for future in as_completed(future_to_urn):
@@ -1587,7 +1588,8 @@ class Blueprint:
             #   (only sync resources that are defined in YML, don't delete remote-only resources)
             if self._config.sync_resources:
                 finished_plan = [
-                    change for change in finished_plan
+                    change
+                    for change in finished_plan
                     if (
                         # Keep all changes for sync_resources types
                         change.urn.resource_type in self._config.sync_resources
@@ -1642,9 +1644,13 @@ class Blueprint:
 
             if phase == "start":
                 print(f"\n{cyan}»{reset} {blue}snowcap apply{reset}")
-                print(f"{cyan}»{reset} Applying: {green}{create_count}{reset} to create, {update_count} to update, {transfer_count} to transfer, {drop_count} to drop.\n")
+                print(
+                    f"{cyan}»{reset} Applying: {green}{create_count}{reset} to create, {update_count} to update, {transfer_count} to transfer, {drop_count} to drop.\n"
+                )
             else:
-                print(f"\n{cyan}»{reset} {green}Applied:{reset} {create_count} created, {update_count} updated, {transfer_count} transferred, {drop_count} dropped.\n")
+                print(
+                    f"\n{cyan}»{reset} {green}Applied:{reset} {create_count} created, {update_count} updated, {transfer_count} transferred, {drop_count} dropped.\n"
+                )
 
         def execute_commands_in_parallel(commands):
             """Execute a list of SQL commands in parallel using a thread pool."""
@@ -1667,9 +1673,7 @@ class Blueprint:
 
         def process_commands(commands, roles, available_roles):
             # Map changes to their levels (default to 0 if not in self._levels)
-            levels = {
-                c["change"].urn: self._levels.get(c["change"].urn, 0) for c in commands
-            }
+            levels = {c["change"].urn: self._levels.get(c["change"].urn, 0) for c in commands}
             max_level = max(levels.values()) if levels else 0
 
             roles_dynamically_added = set()
@@ -1768,7 +1772,6 @@ def execution_strategy_for_change(
     change_owner = owner_for_change(change)
 
     if resource_type_is_grant(change.urn.resource_type):
-
         # 2024-10-22: maybe the better thing to do is check role privs selectively
         if isinstance(change, CreateResource) and change.urn.resource_type == ResourceType.GRANT:
             execution_role = system_role_for_priv(change.after["priv"])
@@ -1897,7 +1900,6 @@ def sql_commands_for_change(
     )
 
     if isinstance(change, CreateResource):
-
         change_cmd = lifecycle.create_resource(change.urn, change.after, change.resource_cls.props)
         if transfer_owner:
             after_change_cmd.append(
@@ -2113,7 +2115,7 @@ def diff(remote_state: State, manifest: Manifest) -> list:
     tmpr_state_urns = [u for u in state_urns if u.resource_type == ResourceType.TAG_MASKING_POLICY_REFERENCE]
     tmpr_manifest_urns = [u for u in manifest_urns if u.resource_type == ResourceType.TAG_MASKING_POLICY_REFERENCE]
     if tmpr_state_urns or tmpr_manifest_urns:
-        logger.debug(f"TAG_MASKING_POLICY_REFERENCE comparison:")
+        logger.debug("TAG_MASKING_POLICY_REFERENCE comparison:")
         logger.debug(f"  State URNs ({len(tmpr_state_urns)}):")
         for urn in tmpr_state_urns:
             logger.debug(f"    {urn} (hash={hash(urn)})")
@@ -2123,7 +2125,7 @@ def diff(remote_state: State, manifest: Manifest) -> list:
             # Check if this URN matches any state URN
             for state_urn in tmpr_state_urns:
                 if urn == state_urn:
-                    logger.debug(f"      MATCHES state URN!")
+                    logger.debug("      MATCHES state URN!")
                 else:
                     logger.debug(f"      != {state_urn}")
                     logger.debug(f"        fqn match: {urn.fqn == state_urn.fqn}")

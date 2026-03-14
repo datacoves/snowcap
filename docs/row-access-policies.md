@@ -175,58 +175,31 @@ role_grants:
 
 ## Applying Row Access Policies with dbt
 
-### Option 1: Snowcap Macros
-
-Snowcap can generate dbt macros that apply row access policies based on `meta` configuration.
-
-#### 1. Generate the macros
-
-```bash
-snowcap generate dbt-macros
-```
-
-This creates `macros/snowcap_apply_tags.sql` with the governance macros.
-
-#### 2. Configure dbt_project.yml
-
-```yaml
-# dbt_project.yml
-vars:
-  snowcap_policy_database: GOVERNANCE
-  snowcap_policy_schema: POLICIES
-
-models:
-  your_project:
-    +post-hook:
-      - "{{ snowcap_apply_policies() }}"
-```
-
-#### 3. Configure schema.yml
-
-Specify the policy and column in your model's config.meta (dbt 1.10+ requires meta under config):
+The dbt-snowflake adapter has native support for row access policies. Configure the policy directly in your model's config:
 
 ```yaml
 # models/staging/schema.yml
 models:
   - name: stg_orders
     config:
-      meta:
-        row_access_policy: rap_country
-        row_access_column: country_code
+      row_access_policy: "governance.policies.rap_country ON (country_code)"
     columns:
       - name: order_id
       - name: country_code
       - name: order_total
 ```
 
-The macro generates:
+dbt-snowflake applies the policy when creating the table or view:
 
 ```sql
-ALTER TABLE <table> ADD ROW ACCESS POLICY
-  governance.policies.rap_country ON (country_code);
+CREATE OR REPLACE VIEW stg_orders
+  WITH ROW ACCESS POLICY governance.policies.rap_country ON (country_code)
+AS (
+  SELECT ...
+);
 ```
 
-### Option 2: Manual Application
+### Manual Application
 
 Apply row access policies directly in Snowflake:
 
@@ -282,21 +255,15 @@ Then in dbt:
 models:
   - name: orders
     config:
-      meta:
-        row_access_policy: rap_country
-        row_access_column: country_code
+      row_access_policy: "governance.policies.rap_country ON (country_code)"
 
   - name: sales_targets
     config:
-      meta:
-        row_access_policy: rap_territory
-        row_access_column: territory_id
+      row_access_policy: "governance.policies.rap_territory ON (territory_id)"
 
   - name: product_costs
     config:
-      meta:
-        row_access_policy: rap_product
-        row_access_column: product_code
+      row_access_policy: "governance.policies.rap_product ON (product_code)"
 ```
 
 ## Verifying Row Access

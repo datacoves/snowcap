@@ -63,6 +63,7 @@ def get_version():
     """Get version from package metadata."""
     try:
         from importlib.metadata import version
+
         return version("snowcap")
     except Exception:
         return "unknown"
@@ -190,7 +191,19 @@ def use_account_usage_option():
 @schema_option()
 @use_account_usage_option()
 @debug_option()
-def plan(config_path, json_output, output_file, vars: dict, sync_resources, exclude_resources, scope, database, schema, use_account_usage, debug):
+def plan(
+    config_path,
+    json_output,
+    output_file,
+    vars: dict,
+    sync_resources,
+    exclude_resources,
+    scope,
+    database,
+    schema,
+    use_account_usage,
+    debug,
+):
     """Compare a resource config to the current state of Snowflake"""
 
     if debug:
@@ -256,7 +269,20 @@ def plan(config_path, json_output, output_file, vars: dict, sync_resources, excl
 @use_account_usage_option()
 @click.option("--verbose", "-v", is_flag=True, help="Show SQL commands being executed")
 @debug_option()
-def apply(config_path, plan_file, vars, sync_resources, exclude_resources, scope, database, schema, dry_run, use_account_usage, verbose, debug):
+def apply(
+    config_path,
+    plan_file,
+    vars,
+    sync_resources,
+    exclude_resources,
+    scope,
+    database,
+    schema,
+    dry_run,
+    use_account_usage,
+    verbose,
+    debug,
+) -> None:
     """Apply a resource config to a Snowflake account"""
 
     if debug:
@@ -328,7 +354,7 @@ def apply(config_path, plan_file, vars, sync_resources, exclude_resources, scope
 )
 @click.option("--out", type=str, help="Write exported config to a file", metavar="<filename>")
 @click.option("--format", type=click.Choice(["json", "yml"]), default="yml", help="Output format")
-def export(resources, export_all, exclude_resources, out, format):
+def export(resources, export_all, exclude_resources, out, format) -> None:
     """
     Generate a resource config for existing Snowflake resources
 

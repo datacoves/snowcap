@@ -9,7 +9,7 @@ from snowcap import resources as res
 
 def strip_ansi(text):
     """Remove ANSI color codes from text."""
-    return re.sub(r'\x1b\[[0-9;]*m', '', text)
+    return re.sub(r"\x1b\[[0-9;]*m", "", text)
 
 
 def find_change_by_urn(plan, urn):
@@ -45,7 +45,6 @@ from snowcap.blueprint_config import BlueprintConfig
 from snowcap.enums import AccountEdition, BlueprintScope, ResourceType
 from snowcap.exceptions import (
     DuplicateResourceException,
-    InvalidResourceException,
     MissingVarException,
     NonConformingPlanException,
     WrongEditionException,
@@ -472,8 +471,9 @@ def test_blueprint_dump_plan_create(session_ctx, remote_state):
     assert json.loads(plan_json_str) == [
         {
             "action": "CREATE",
-            "resource_cls": "Role",
             "urn": "urn::ABCD123:role/ROLE1",
+            "resource_cls": "Role",
+            "container": None,
             "after": {"name": "ROLE1", "owner": "USERADMIN", "comment": None},
         }
     ]

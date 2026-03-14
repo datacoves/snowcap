@@ -55,7 +55,9 @@ class _Grant(ResourceSpec):
                 self._privs = [self.priv]
 
         if self.to is None:
-            raise ValueError(f"Grant 'to' field is None after coercion - priv={self.priv}, on={self.on}, on_type={self.on_type}")
+            raise ValueError(
+                f"Grant 'to' field is None after coercion - priv={self.priv}, on={self.on}, on_type={self.on_type}"
+            )
         self.to_type = self.to.resource_type
 
 
@@ -263,7 +265,10 @@ class Grant(Resource):
                         # but preserve case for the last item which is the FQN
                         # Note: we normalize underscores to spaces to match ResourceType values
                         part_normalized = part.upper().replace("_", " ")
-                        if part_normalized in [e.value for e in ResourceType] or part.upper() in [GrantType.FUTURE, GrantType.ALL]:
+                        if part_normalized in [e.value for e in ResourceType] or part.upper() in [
+                            GrantType.FUTURE,
+                            GrantType.ALL,
+                        ]:
                             on_items.append(part_normalized)
                         elif part:
                             # This is likely the FQN - preserve case
@@ -392,7 +397,9 @@ def grant_fqn(grant: _Grant):
     else:
         on = f"{resource_label_for_type(grant.on_type)}/{grant.on}"
     if grant.to is None:
-        raise ValueError(f"Grant 'to' field is None - grant details: priv={grant.priv}, on={grant.on}, on_type={grant.on_type}, to_type={grant.to_type}")
+        raise ValueError(
+            f"Grant 'to' field is None - grant details: priv={grant.priv}, on={grant.on}, on_type={grant.on_type}, to_type={grant.to_type}"
+        )
     to = f"{resource_label_for_type(grant.to_type)}/{grant.to.fqn}"
     return FQN(
         name=ResourceName("GRANT"),

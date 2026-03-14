@@ -71,7 +71,7 @@ def execute(
         session = conn_or_cursor.connection
         cur = conn_or_cursor
         cur._use_dict_result = True
-    elif hasattr(conn_or_cursor, 'connection') and hasattr(conn_or_cursor, 'execute'):
+    elif hasattr(conn_or_cursor, "connection") and hasattr(conn_or_cursor, "execute"):
         # Handle cursor-like objects
         session = conn_or_cursor.connection
         cur = conn_or_cursor

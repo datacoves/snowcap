@@ -1,7 +1,6 @@
 import os
 
 import pytest
-import snowflake.connector
 
 from tests.helpers import flatten_sql_commands, safe_fetch
 from snowcap import data_provider
@@ -25,8 +24,16 @@ TEST_ROLE = os.environ.get("TEST_SNOWFLAKE_ROLE")
 pytestmark = pytest.mark.requires_snowflake
 
 
-@pytest.fixture(autouse=True)
-def clear_cache():
+@pytest.fixture(scope="module")
+def module_cache_reset():
+    """Clear cache once per module, not per test - reduces Snowflake queries."""
+    reset_cache()
+    yield
+
+
+@pytest.fixture
+def fresh_cache():
+    """Use explicitly in tests that need isolated cache state."""
     reset_cache()
     yield
 
@@ -684,16 +691,13 @@ class TestQueryOptimizations:
                 ],
             )
 
-            with caplog.at_level(logging.WARNING, logger="snowcap"):
+            with caplog.at_level(logging.DEBUG, logger="snowcap"):
                 caplog.clear()
                 reset_cache()
                 blueprint.plan(session)
 
             # Check that no SHOW PARAMETERS IN SCHEMA was executed
-            show_params_queries = [
-                r.message for r in caplog.records
-                if "SHOW PARAMETERS IN SCHEMA" in r.message
-            ]
+            show_params_queries = [r.message for r in caplog.records if "SHOW PARAMETERS IN SCHEMA" in r.message]
             assert len(show_params_queries) == 0, (
                 f"Expected no SHOW PARAMETERS IN SCHEMA queries but found: {show_params_queries}"
             )
@@ -726,19 +730,14 @@ class TestQueryOptimizations:
                 ],
             )
 
-            with caplog.at_level(logging.WARNING, logger="snowcap"):
+            with caplog.at_level(logging.DEBUG, logger="snowcap"):
                 caplog.clear()
                 reset_cache()
                 blueprint.plan(session)
 
             # Check that SHOW PARAMETERS IN SCHEMA was executed
-            show_params_queries = [
-                r.message for r in caplog.records
-                if "SHOW PARAMETERS IN SCHEMA" in r.message
-            ]
-            assert len(show_params_queries) > 0, (
-                "Expected SHOW PARAMETERS IN SCHEMA query but none found"
-            )
+            show_params_queries = [r.message for r in caplog.records if "SHOW PARAMETERS IN SCHEMA" in r.message]
+            assert len(show_params_queries) > 0, "Expected SHOW PARAMETERS IN SCHEMA query but none found"
         finally:
             cursor.execute(f"DROP DATABASE IF EXISTS {db_name}")
 
@@ -762,16 +761,13 @@ class TestQueryOptimizations:
                 ],
             )
 
-            with caplog.at_level(logging.WARNING, logger="snowcap"):
+            with caplog.at_level(logging.DEBUG, logger="snowcap"):
                 caplog.clear()
                 reset_cache()
                 blueprint.plan(session)
 
             # Check that no SHOW PARAMETERS FOR WAREHOUSE was executed
-            show_params_queries = [
-                r.message for r in caplog.records
-                if "SHOW PARAMETERS FOR WAREHOUSE" in r.message
-            ]
+            show_params_queries = [r.message for r in caplog.records if "SHOW PARAMETERS FOR WAREHOUSE" in r.message]
             assert len(show_params_queries) == 0, (
                 f"Expected no SHOW PARAMETERS FOR WAREHOUSE queries but found: {show_params_queries}"
             )
@@ -796,15 +792,14 @@ class TestQueryOptimizations:
         )
 
         try:
-            with caplog.at_level(logging.WARNING, logger="snowcap"):
+            with caplog.at_level(logging.DEBUG, logger="snowcap"):
                 caplog.clear()
                 reset_cache()
                 blueprint.plan(session)
 
             # Check that no SHOW FUTURE GRANTS was executed
             show_future_grants_queries = [
-                r.message for r in caplog.records
-                if "SHOW FUTURE GRANTS TO ROLE" in r.message
+                r.message for r in caplog.records if "SHOW FUTURE GRANTS TO ROLE" in r.message
             ]
             assert len(show_future_grants_queries) == 0, (
                 f"Expected no SHOW FUTURE GRANTS queries but found: {show_future_grants_queries}"
@@ -828,24 +823,23 @@ class TestQueryOptimizations:
         blueprint = Blueprint(
             resources=[
                 res.Role(name=role_name),
-                res.Grant.from_sql(f"GRANT SELECT ON FUTURE TABLES IN SCHEMA STATIC_DATABASE.PUBLIC TO ROLE {role_name}"),
+                res.Grant.from_sql(
+                    f"GRANT SELECT ON FUTURE TABLES IN SCHEMA STATIC_DATABASE.PUBLIC TO ROLE {role_name}"
+                ),
             ],
             sync_resources=[ResourceType.GRANT],
         )
 
         try:
-            with caplog.at_level(logging.WARNING, logger="snowcap"):
+            with caplog.at_level(logging.DEBUG, logger="snowcap"):
                 caplog.clear()
                 reset_cache()
                 blueprint.plan(session)
 
             # Check that SHOW FUTURE GRANTS was executed
             show_future_grants_queries = [
-                r.message for r in caplog.records
-                if "SHOW FUTURE GRANTS TO ROLE" in r.message
+                r.message for r in caplog.records if "SHOW FUTURE GRANTS TO ROLE" in r.message
             ]
-            assert len(show_future_grants_queries) > 0, (
-                "Expected SHOW FUTURE GRANTS queries but none found"
-            )
+            assert len(show_future_grants_queries) > 0, "Expected SHOW FUTURE GRANTS queries but none found"
         finally:
             cursor.execute(f"DROP ROLE IF EXISTS {role_name}")

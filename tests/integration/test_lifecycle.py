@@ -11,7 +11,6 @@ from snowcap.resources.view import ViewColumn
 from snowcap.resources.dynamic_table import DynamicTableColumn
 from snowcap.client import FEATURE_NOT_ENABLED_ERR, UNSUPPORTED_FEATURE, reset_cache
 from snowcap.exceptions import NonConformingPlanException
-from snowcap.data_provider import fetch_session
 from snowcap.resources import Resource
 from snowcap.scope import DatabaseScope, SchemaScope
 
@@ -75,34 +74,60 @@ def create(cursor, resource: Resource):
     return resource
 
 
-def test_create_drop_from_json(resource, cursor, suffix):
+@pytest.fixture(scope="module")
+def lifecycle_db(cursor, suffix):
+    """Shared database for lifecycle tests - created once per module."""
+    db_name = f"LIFECYCLE_DB_{suffix}"
+    cursor.execute("USE ROLE SYSADMIN")
+    cursor.execute(f"CREATE DATABASE IF NOT EXISTS {db_name}")
+    yield db_name
+    cursor.execute(f"DROP DATABASE IF EXISTS {db_name}")
+
+
+def test_create_drop_from_json(resource, cursor, suffix, lifecycle_db):
 
     # Note: Pseudo-resources (Column types, AccountParameter, ScannerPackage) are filtered
     # at parameterization time (see _filter_json_fixtures_for_lifecycle_test)
 
-    lifecycle_db = f"LIFECYCLE_DB_{suffix}_{resource.__class__.__name__}"
-    database = res.Database(name=lifecycle_db, owner="SYSADMIN")
+    # Use shared database for schema-scoped resources, create dedicated DB only for database-scoped
+    if isinstance(resource.scope, SchemaScope):
+        # Use shared database with unique schema per resource type
+        schema_name = f"SCH_{resource.__class__.__name__}"
+        db_name = lifecycle_db
+        needs_own_db = False
+    else:
+        # Database-scoped or account-scoped resources need their own database
+        db_name = f"LIFECYCLE_DB_{suffix}_{resource.__class__.__name__}"
+        schema_name = None
+        needs_own_db = isinstance(resource.scope, DatabaseScope)
 
+    database = res.Database(name=db_name, owner="SYSADMIN")
     feature_enabled = True
     drop_sql = None
 
     try:
-        fetch_session.cache_clear()
+        reset_cache()
 
         if isinstance(resource.scope, (DatabaseScope, SchemaScope)):
             cursor.execute("USE ROLE SYSADMIN")
-            cursor.execute(f"CREATE DATABASE IF NOT EXISTS {lifecycle_db}")
-            cursor.execute(f"USE DATABASE {lifecycle_db}")
+            if needs_own_db:
+                cursor.execute(f"CREATE DATABASE IF NOT EXISTS {db_name}")
+            cursor.execute(f"USE DATABASE {db_name}")
             if TEST_WAREHOUSE:
                 cursor.execute(f"USE WAREHOUSE {TEST_WAREHOUSE}")
+
+            # Create unique schema for schema-scoped resources
+            if schema_name:
+                cursor.execute(f"CREATE SCHEMA IF NOT EXISTS {schema_name}")
+                cursor.execute(f"USE SCHEMA {schema_name}")
 
         if isinstance(resource.scope, DatabaseScope):
             database.add(resource)
         elif isinstance(resource.scope, SchemaScope):
+            # Update resource to use the unique schema
+            if hasattr(resource, 'schema') and schema_name:
+                resource._data['schema'] = schema_name
             database.public_schema.add(resource)
-
-        fetch_session.cache_clear()
-        reset_cache()
         blueprint = Blueprint()
         blueprint.add(resource)
         plan = blueprint.plan(cursor.connection)
@@ -178,7 +203,12 @@ def test_create_drop_from_json(resource, cursor, suffix):
             except Exception:
                 pytest.fail(f"Failed to drop resource with sql {drop_sql}")
         cursor.execute("USE ROLE SYSADMIN")
-        cursor.execute(database.drop_sql(if_exists=True))
+        # Only drop the database if we created a dedicated one (not the shared lifecycle_db)
+        if needs_own_db:
+            cursor.execute(database.drop_sql(if_exists=True))
+        elif schema_name:
+            # Drop the schema we created in the shared database
+            cursor.execute(f"DROP SCHEMA IF EXISTS {lifecycle_db}.{schema_name}")
 
 
 def test_task_lifecycle(cursor, suffix, marked_for_cleanup):
