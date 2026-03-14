@@ -276,10 +276,15 @@ class CreateResource(ResourceChange):
     after: dict[str, str]
 
     def to_dict(self) -> dict[str, Union[str, dict[str, str]]]:
+        container_dict = None
+        if self.container is not None:
+            container_urn, container_owner = self.container
+            container_dict = {str(container_urn): str(container_owner)}
         return {
             "action": "CREATE",
             "urn": str(self.urn),
             "resource_cls": self.resource_cls.__name__,
+            "container": container_dict,
             "after": self.after,
         }
 
@@ -339,9 +344,10 @@ def plan_from_dict(plan_dict: dict) -> Plan:
     for change in plan_dict:
         action = change["action"]
         if action == "CREATE":
-            container_descriptor: ContainerDescriptor
-            for urn, owner in change["container"].items():
-                container_descriptor = (parse_URN(urn), ResourceName(owner))
+            container_descriptor: Optional[ContainerDescriptor] = None
+            if change.get("container"):
+                for urn, owner in change["container"].items():
+                    container_descriptor = (parse_URN(urn), ResourceName(owner))
             changes.append(
                 CreateResource(
                     urn=parse_URN(change["urn"]),
