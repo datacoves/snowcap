@@ -3794,70 +3794,78 @@ def list_tags(session: SnowflakeConnection) -> list[FQN]:
 
 def list_tag_masking_policy_references(session: SnowflakeConnection) -> list[FQN]:
     """
-    List all tag-based masking policy references from ACCOUNT_USAGE.POLICY_REFERENCES.
+    List all tag-based masking policy references using INFORMATION_SCHEMA.POLICY_REFERENCES.
 
-    Note: ACCOUNT_USAGE has up to 120 minutes of latency.
+    Uses the INFORMATION_SCHEMA table function which shows tag-to-masking-policy associations
+    directly, without requiring the tag to be applied to any columns first.
     """
-    try:
-        result = execute(
-            session,
-            """
-            SELECT DISTINCT
-                TAG_DATABASE,
-                TAG_SCHEMA,
-                TAG_NAME,
-                POLICY_DB,
-                POLICY_SCHEMA,
-                POLICY_NAME
-            FROM SNOWFLAKE.ACCOUNT_USAGE.POLICY_REFERENCES
-            WHERE TAG_NAME IS NOT NULL
-              AND POLICY_KIND = 'MASKING_POLICY'
-            """,
-            cacheable=True,
-        )
-        logger.debug(f"list_tag_masking_policy_references: found {len(result)} rows from ACCOUNT_USAGE")
-        references = []
-        for row in result:
-            # Build the masking policy FQN string (lowercase to match config format)
-            # Note: str(ResourceName) returns uppercase, so we lowercase the whole thing
-            policy_db = str(resource_name_from_snowflake_metadata(row["POLICY_DB"])).lower()
-            policy_schema = str(resource_name_from_snowflake_metadata(row["POLICY_SCHEMA"])).lower()
-            policy_name = str(resource_name_from_snowflake_metadata(row["POLICY_NAME"])).lower()
-            masking_policy_fqn = f"{policy_db}.{policy_schema}.{policy_name}"
-            fqn = FQN(
-                database=resource_name_from_snowflake_metadata(row["TAG_DATABASE"]),
-                schema=resource_name_from_snowflake_metadata(row["TAG_SCHEMA"]),
-                name=resource_name_from_snowflake_metadata(row["TAG_NAME"]),
-                params={"masking_policy": masking_policy_fqn},
+    references = []
+
+    # Get all tags first
+    tags = list_tags(session)
+    logger.debug(f"list_tag_masking_policy_references: checking {len(tags)} tags for masking policies")
+
+    for tag_fqn in tags:
+        try:
+            # Use INFORMATION_SCHEMA.POLICY_REFERENCES table function with REF_ENTITY_DOMAIN='TAG'
+            # This shows masking policies directly attached to the tag
+            tag_full_name = f"{tag_fqn.database}.{tag_fqn.schema}.{tag_fqn.name}"
+            result = execute(
+                session,
+                f"""
+                SELECT
+                    POLICY_DB,
+                    POLICY_SCHEMA,
+                    POLICY_NAME,
+                    POLICY_KIND
+                FROM TABLE({tag_fqn.database}.INFORMATION_SCHEMA.POLICY_REFERENCES(
+                    REF_ENTITY_NAME => '{tag_full_name}',
+                    REF_ENTITY_DOMAIN => 'TAG'
+                ))
+                WHERE POLICY_KIND = 'MASKING_POLICY'
+                """,
+                cacheable=True,
             )
-            logger.debug(f"  Found tag masking policy reference: {fqn}")
-            references.append(fqn)
-        return references
-    except ProgrammingError as err:
-        if err.errno == ACCESS_CONTROL_ERR:
-            logger.warning("Cannot list tag masking policy references: missing IMPORTED PRIVILEGES on SNOWFLAKE database")
-            return []
-        elif err.errno in (UNSUPPORTED_FEATURE, INVALID_COLUMN_ERR):
-            # INVALID_COLUMN_ERR (904) occurs when POLICY_DB/POLICY_SCHEMA/POLICY_NAME columns
-            # don't exist in POLICY_REFERENCES view (account edition/configuration dependent)
-            logger.warning(f"Cannot list tag masking policy references: unsupported feature or missing columns (errno={err.errno})")
-            return []
-        else:
-            raise
+
+            for row in result:
+                # Build the masking policy FQN string (lowercase to match config format)
+                policy_db = str(resource_name_from_snowflake_metadata(row["POLICY_DB"])).lower()
+                policy_schema = str(resource_name_from_snowflake_metadata(row["POLICY_SCHEMA"])).lower()
+                policy_name = str(resource_name_from_snowflake_metadata(row["POLICY_NAME"])).lower()
+                masking_policy_fqn = f"{policy_db}.{policy_schema}.{policy_name}"
+                fqn = FQN(
+                    database=tag_fqn.database,
+                    schema=tag_fqn.schema,
+                    name=tag_fqn.name,
+                    params={"masking_policy": masking_policy_fqn},
+                )
+                logger.debug(f"  Found tag masking policy reference: {fqn}")
+                references.append(fqn)
+        except ProgrammingError as err:
+            if err.errno in (ACCESS_CONTROL_ERR, UNSUPPORTED_FEATURE, DOES_NOT_EXIST_ERR):
+                # Skip tags we can't access or don't exist
+                logger.debug(f"  Skipping tag {tag_fqn}: {err.msg}")
+                continue
+            else:
+                raise
+
+    logger.debug(f"list_tag_masking_policy_references: found {len(references)} total references")
+    return references
 
 
 def fetch_tag_masking_policy_reference(session: SnowflakeConnection, fqn: FQN) -> Optional[dict]:
     """
-    Fetch a specific tag masking policy reference from ACCOUNT_USAGE.POLICY_REFERENCES.
+    Fetch a specific tag masking policy reference using INFORMATION_SCHEMA.POLICY_REFERENCES.
 
-    Note: ACCOUNT_USAGE has up to 120 minutes of latency.
+    Uses the INFORMATION_SCHEMA table function which shows tag-to-masking-policy associations
+    directly, without requiring the tag to be applied to any columns first.
     """
     masking_policy_name = fqn.params.get("masking_policy")
     if not masking_policy_name:
         return None
 
-    # Uppercase for comparison since Snowflake stores identifiers in uppercase
-    tag_name = f"{fqn.database}.{fqn.schema}.{fqn.name}".upper()
+    # Build the full tag name for the query
+    tag_full_name = f"{fqn.database}.{fqn.schema}.{fqn.name}"
     masking_policy_name_upper = masking_policy_name.upper()
 
     try:
@@ -3865,16 +3873,14 @@ def fetch_tag_masking_policy_reference(session: SnowflakeConnection, fqn: FQN) -
             session,
             f"""
             SELECT
-                TAG_DATABASE,
-                TAG_SCHEMA,
-                TAG_NAME,
                 POLICY_DB,
                 POLICY_SCHEMA,
                 POLICY_NAME
-            FROM SNOWFLAKE.ACCOUNT_USAGE.POLICY_REFERENCES
-            WHERE TAG_NAME IS NOT NULL
-              AND POLICY_KIND = 'MASKING_POLICY'
-              AND CONCAT(TAG_DATABASE, '.', TAG_SCHEMA, '.', TAG_NAME) = '{tag_name}'
+            FROM TABLE({fqn.database}.INFORMATION_SCHEMA.POLICY_REFERENCES(
+                REF_ENTITY_NAME => '{tag_full_name}',
+                REF_ENTITY_DOMAIN => 'TAG'
+            ))
+            WHERE POLICY_KIND = 'MASKING_POLICY'
               AND CONCAT(POLICY_DB, '.', POLICY_SCHEMA, '.', POLICY_NAME) = '{masking_policy_name_upper}'
             LIMIT 1
             """,
@@ -3886,10 +3892,9 @@ def fetch_tag_masking_policy_reference(session: SnowflakeConnection, fqn: FQN) -
 
         row = result[0]
         # Normalize to lowercase for consistent comparison
-        # Note: str(ResourceName) returns uppercase, so we lowercase the whole thing
-        tag_db = str(resource_name_from_snowflake_metadata(row["TAG_DATABASE"])).lower()
-        tag_schema = str(resource_name_from_snowflake_metadata(row["TAG_SCHEMA"])).lower()
-        tag_name_normalized = str(resource_name_from_snowflake_metadata(row["TAG_NAME"])).lower()
+        tag_db = str(fqn.database).lower()
+        tag_schema = str(fqn.schema).lower()
+        tag_name_normalized = str(fqn.name).lower()
         policy_db = str(resource_name_from_snowflake_metadata(row["POLICY_DB"])).lower()
         policy_schema = str(resource_name_from_snowflake_metadata(row["POLICY_SCHEMA"])).lower()
         policy_name = str(resource_name_from_snowflake_metadata(row["POLICY_NAME"])).lower()
@@ -3898,12 +3903,8 @@ def fetch_tag_masking_policy_reference(session: SnowflakeConnection, fqn: FQN) -
             "masking_policy_name": f"{policy_db}.{policy_schema}.{policy_name}",
         }
     except ProgrammingError as err:
-        if err.errno == ACCESS_CONTROL_ERR:
-            logger.warning("Cannot fetch tag masking policy reference: missing IMPORTED PRIVILEGES on SNOWFLAKE database")
-            return None
-        elif err.errno in (UNSUPPORTED_FEATURE, INVALID_COLUMN_ERR):
-            # INVALID_COLUMN_ERR (904) occurs when POLICY_DB/POLICY_SCHEMA/POLICY_NAME columns
-            # don't exist in POLICY_REFERENCES view (account edition/configuration dependent)
+        if err.errno in (ACCESS_CONTROL_ERR, UNSUPPORTED_FEATURE, DOES_NOT_EXIST_ERR):
+            logger.debug(f"Cannot fetch tag masking policy reference {fqn}: {err.msg}")
             return None
         else:
             raise

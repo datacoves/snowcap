@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from snowcap.enums import AccountEdition, ResourceType
-from snowcap.props import Props, StringProp, ArgsProp, QueryProp
+from snowcap.props import Props, StringProp, ArgsProp, QueryProp, ReturnsProp
 from snowcap.scope import SchemaScope
 from snowcap.resource_name import ResourceName
 from snowcap.resources.resource import Arg, NamedResource, Resource, ResourceSpec
@@ -12,6 +12,7 @@ from snowcap.role_ref import RoleRef
 class _RowAccessPolicy(ResourceSpec):
     name: ResourceName
     args: list[Arg]
+    returns: str
     body: str
     comment: str = None
     owner: RoleRef = "SYSADMIN"
@@ -46,6 +47,7 @@ class RowAccessPolicy(NamedResource, Resource):
     resource_type = ResourceType.ROW_ACCESS_POLICY
     props = Props(
         args=ArgsProp(),
+        returns=ReturnsProp("returns", eq=False),
         body=QueryProp("->"),
         comment=StringProp("comment"),
     )
@@ -65,6 +67,7 @@ class RowAccessPolicy(NamedResource, Resource):
         self._data: _RowAccessPolicy = _RowAccessPolicy(
             name=self._name,
             args=args,
+            returns="BOOLEAN",
             body=body,
             comment=comment,
             owner=owner,
