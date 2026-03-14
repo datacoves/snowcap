@@ -2702,6 +2702,26 @@ def fetch_resource_monitor(session: SnowflakeConnection, fqn: FQN):
     }
 
 
+def fetch_row_access_policy(session: SnowflakeConnection, fqn: FQN):
+    policies = _show_resources(session, "ROW ACCESS POLICIES", fqn)
+    if len(policies) == 0:
+        return None
+    if len(policies) > 1:
+        raise Exception(f"Found multiple row access policies matching {fqn}")
+
+    data = policies[0]
+    desc_result = execute(session, f"DESC ROW ACCESS POLICY {fqn}", cacheable=True)
+    properties = desc_result[0]
+
+    return {
+        "name": data["name"],
+        "owner": _get_owner_identifier(data),
+        "args": _parse_signature(properties["signature"]),
+        "body": properties["body"],
+        "comment": data["comment"] or None,
+    }
+
+
 def fetch_resource_tags(session: SnowflakeConnection, resource_type: ResourceType, fqn: FQN):
     """
     +----------------------+------------+-------------+-----------+--------+----------------------+---------------+-------------+--------+-------------+
@@ -3439,6 +3459,10 @@ def list_procedures(session: SnowflakeConnection) -> list[FQN]:
 
 def list_resource_monitors(session: SnowflakeConnection) -> list[FQN]:
     return list_account_scoped_resource(session, "RESOURCE MONITORS")
+
+
+def list_row_access_policies(session: SnowflakeConnection) -> list[FQN]:
+    return list_schema_scoped_resource(session, "ROW ACCESS POLICIES")
 
 
 def list_roles(session: SnowflakeConnection) -> list[FQN]:
