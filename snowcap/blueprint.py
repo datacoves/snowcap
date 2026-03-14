@@ -2074,6 +2074,27 @@ def diff(remote_state: State, manifest: Manifest) -> list:
     state_urns = set(remote_state.keys())
     manifest_urns = set(manifest.urns)
 
+    # Debug logging for tag masking policy references
+    tmpr_state_urns = [u for u in state_urns if u.resource_type == ResourceType.TAG_MASKING_POLICY_REFERENCE]
+    tmpr_manifest_urns = [u for u in manifest_urns if u.resource_type == ResourceType.TAG_MASKING_POLICY_REFERENCE]
+    if tmpr_state_urns or tmpr_manifest_urns:
+        logger.debug(f"TAG_MASKING_POLICY_REFERENCE comparison:")
+        logger.debug(f"  State URNs ({len(tmpr_state_urns)}):")
+        for urn in tmpr_state_urns:
+            logger.debug(f"    {urn} (hash={hash(urn)})")
+        logger.debug(f"  Manifest URNs ({len(tmpr_manifest_urns)}):")
+        for urn in tmpr_manifest_urns:
+            logger.debug(f"    {urn} (hash={hash(urn)})")
+            # Check if this URN matches any state URN
+            for state_urn in tmpr_state_urns:
+                if urn == state_urn:
+                    logger.debug(f"      MATCHES state URN!")
+                else:
+                    logger.debug(f"      != {state_urn}")
+                    logger.debug(f"        fqn match: {urn.fqn == state_urn.fqn}")
+                    logger.debug(f"        resource_type match: {urn.resource_type == state_urn.resource_type}")
+                    logger.debug(f"        account_locator match: {urn.account_locator == state_urn.account_locator}")
+
     grant_on_all_resources = [
         r
         for r in manifest.resources
