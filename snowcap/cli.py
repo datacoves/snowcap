@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import shutil
 from pathlib import Path
@@ -192,6 +193,9 @@ def use_account_usage_option():
 def plan(config_path, json_output, output_file, vars: dict, sync_resources, exclude_resources, scope, database, schema, use_account_usage, debug):
     """Compare a resource config to the current state of Snowflake"""
 
+    if debug:
+        logging.basicConfig(level=logging.DEBUG, format="%(levelname)s - %(name)s - %(message)s")
+
     if not config_path:
         raise click.UsageError("--config is required")
 
@@ -253,6 +257,9 @@ def plan(config_path, json_output, output_file, vars: dict, sync_resources, excl
 @debug_option()
 def apply(config_path, plan_file, vars, sync_resources, exclude_resources, scope, database, schema, dry_run, use_account_usage, debug):
     """Apply a resource config to a Snowflake account"""
+
+    if debug:
+        logging.basicConfig(level=logging.DEBUG, format="%(levelname)s - %(name)s - %(message)s")
 
     if config_path and plan_file:
         raise click.UsageError("Cannot specify both --config and --plan.")
