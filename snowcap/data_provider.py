@@ -3782,7 +3782,7 @@ def list_tag_masking_policy_references(session: SnowflakeConnection) -> list[FQN
                 TAG_DATABASE,
                 TAG_SCHEMA,
                 TAG_NAME,
-                POLICY_DATABASE,
+                POLICY_DB,
                 POLICY_SCHEMA,
                 POLICY_NAME
             FROM SNOWFLAKE.ACCOUNT_USAGE.POLICY_REFERENCES
@@ -3796,7 +3796,7 @@ def list_tag_masking_policy_references(session: SnowflakeConnection) -> list[FQN
         for row in result:
             # Build the masking policy FQN string (lowercase to match config format)
             # Note: str(ResourceName) returns uppercase, so we lowercase the whole thing
-            policy_db = str(resource_name_from_snowflake_metadata(row["POLICY_DATABASE"])).lower()
+            policy_db = str(resource_name_from_snowflake_metadata(row["POLICY_DB"])).lower()
             policy_schema = str(resource_name_from_snowflake_metadata(row["POLICY_SCHEMA"])).lower()
             policy_name = str(resource_name_from_snowflake_metadata(row["POLICY_NAME"])).lower()
             masking_policy_fqn = f"{policy_db}.{policy_schema}.{policy_name}"
@@ -3814,7 +3814,7 @@ def list_tag_masking_policy_references(session: SnowflakeConnection) -> list[FQN
             logger.warning("Cannot list tag masking policy references: missing IMPORTED PRIVILEGES on SNOWFLAKE database")
             return []
         elif err.errno in (UNSUPPORTED_FEATURE, INVALID_COLUMN_ERR):
-            # INVALID_COLUMN_ERR (904) occurs when POLICY_DATABASE/POLICY_SCHEMA/POLICY_NAME columns
+            # INVALID_COLUMN_ERR (904) occurs when POLICY_DB/POLICY_SCHEMA/POLICY_NAME columns
             # don't exist in POLICY_REFERENCES view (account edition/configuration dependent)
             logger.warning(f"Cannot list tag masking policy references: unsupported feature or missing columns (errno={err.errno})")
             return []
@@ -3844,14 +3844,14 @@ def fetch_tag_masking_policy_reference(session: SnowflakeConnection, fqn: FQN) -
                 TAG_DATABASE,
                 TAG_SCHEMA,
                 TAG_NAME,
-                POLICY_DATABASE,
+                POLICY_DB,
                 POLICY_SCHEMA,
                 POLICY_NAME
             FROM SNOWFLAKE.ACCOUNT_USAGE.POLICY_REFERENCES
             WHERE TAG_NAME IS NOT NULL
               AND POLICY_KIND = 'MASKING_POLICY'
               AND CONCAT(TAG_DATABASE, '.', TAG_SCHEMA, '.', TAG_NAME) = '{tag_name}'
-              AND CONCAT(POLICY_DATABASE, '.', POLICY_SCHEMA, '.', POLICY_NAME) = '{masking_policy_name_upper}'
+              AND CONCAT(POLICY_DB, '.', POLICY_SCHEMA, '.', POLICY_NAME) = '{masking_policy_name_upper}'
             LIMIT 1
             """,
             cacheable=True,
@@ -3866,7 +3866,7 @@ def fetch_tag_masking_policy_reference(session: SnowflakeConnection, fqn: FQN) -
         tag_db = str(resource_name_from_snowflake_metadata(row["TAG_DATABASE"])).lower()
         tag_schema = str(resource_name_from_snowflake_metadata(row["TAG_SCHEMA"])).lower()
         tag_name_normalized = str(resource_name_from_snowflake_metadata(row["TAG_NAME"])).lower()
-        policy_db = str(resource_name_from_snowflake_metadata(row["POLICY_DATABASE"])).lower()
+        policy_db = str(resource_name_from_snowflake_metadata(row["POLICY_DB"])).lower()
         policy_schema = str(resource_name_from_snowflake_metadata(row["POLICY_SCHEMA"])).lower()
         policy_name = str(resource_name_from_snowflake_metadata(row["POLICY_NAME"])).lower()
         return {
@@ -3878,7 +3878,7 @@ def fetch_tag_masking_policy_reference(session: SnowflakeConnection, fqn: FQN) -
             logger.warning("Cannot fetch tag masking policy reference: missing IMPORTED PRIVILEGES on SNOWFLAKE database")
             return None
         elif err.errno in (UNSUPPORTED_FEATURE, INVALID_COLUMN_ERR):
-            # INVALID_COLUMN_ERR (904) occurs when POLICY_DATABASE/POLICY_SCHEMA/POLICY_NAME columns
+            # INVALID_COLUMN_ERR (904) occurs when POLICY_DB/POLICY_SCHEMA/POLICY_NAME columns
             # don't exist in POLICY_REFERENCES view (account edition/configuration dependent)
             return None
         else:
