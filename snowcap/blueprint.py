@@ -1627,6 +1627,25 @@ class Blueprint:
          Once we've determined those things, we can compare the list of required roles and privileges
          against what we have access to in the session and the role tree."""
 
+        def print_apply_summary(plan: Plan, phase: str = "start"):
+            """Print a summary of what will be or was applied."""
+            # Colors
+            cyan = "\033[96m"
+            blue = "\033[94m"
+            green = "\033[92m"
+            reset = "\033[0m"
+
+            create_count = len([c for c in plan if isinstance(c, CreateResource)])
+            update_count = len([c for c in plan if isinstance(c, UpdateResource)])
+            transfer_count = len([c for c in plan if isinstance(c, TransferOwnership)])
+            drop_count = len([c for c in plan if isinstance(c, DropResource)])
+
+            if phase == "start":
+                print(f"\n{cyan}»{reset} {blue}snowcap apply{reset}")
+                print(f"{cyan}»{reset} Applying: {green}{create_count}{reset} to create, {update_count} to update, {transfer_count} to transfer, {drop_count} to drop.\n")
+            else:
+                print(f"\n{cyan}»{reset} {green}Applied:{reset} {create_count} created, {update_count} updated, {transfer_count} transferred, {drop_count} dropped.\n")
+
         def execute_commands_in_parallel(commands):
             """Execute a list of SQL commands in parallel using a thread pool."""
             with ThreadPoolExecutor(max_workers=self._config.threads) as executor:
@@ -1679,6 +1698,12 @@ class Blueprint:
         if plan is None:
             plan = self.plan(session)
 
+        # Print summary of what will be applied
+        print_apply_summary(plan, "start")
+
+        if not plan:
+            return
+
         session_ctx = data_provider.fetch_session(session)
         _raise_if_plan_would_drop_session_user(session_ctx, plan)
 
@@ -1699,6 +1724,9 @@ class Blueprint:
 
         # Process destructive changes
         process_commands(destructive_commands, roles_set, session_ctx["available_roles"])
+
+        # Print completion summary
+        print_apply_summary(plan, "end")
 
     def _add(self, resource: Resource):
         if self._finalized:

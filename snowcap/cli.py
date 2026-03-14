@@ -254,12 +254,15 @@ def plan(config_path, json_output, output_file, vars: dict, sync_resources, excl
 @schema_option()
 @click.option("--dry-run", is_flag=True, help="When dry run is true, Snowcap will not make any changes to Snowflake")
 @use_account_usage_option()
+@click.option("--verbose", "-v", is_flag=True, help="Show SQL commands being executed")
 @debug_option()
-def apply(config_path, plan_file, vars, sync_resources, exclude_resources, scope, database, schema, dry_run, use_account_usage, debug):
+def apply(config_path, plan_file, vars, sync_resources, exclude_resources, scope, database, schema, dry_run, use_account_usage, verbose, debug):
     """Apply a resource config to a Snowflake account"""
 
     if debug:
         logging.basicConfig(level=logging.DEBUG, format="%(levelname)s - %(name)s - %(message)s")
+    elif verbose:
+        logging.basicConfig(level=logging.DEBUG, format="%(message)s")
 
     if config_path and plan_file:
         raise click.UsageError("Cannot specify both --config and --plan.")
