@@ -2717,6 +2717,7 @@ def fetch_row_access_policy(session: SnowflakeConnection, fqn: FQN):
         "name": data["name"],
         "owner": _get_owner_identifier(data),
         "args": _parse_signature(properties["signature"]),
+        "returns": "BOOLEAN",  # Row access policies always return BOOLEAN
         "body": properties["body"],
         "comment": data["comment"] or None,
     }
