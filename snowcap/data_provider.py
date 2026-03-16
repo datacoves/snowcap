@@ -182,11 +182,13 @@ def _fetch_grant_to_role(
     privilege: str,
     role_type: ResourceType = ResourceType.ROLE,
 ):
-    grants = (
-        _show_future_grants_to_role(session, role, cacheable=True)
-        if grant_type == GrantType.FUTURE
-        else _show_grants_to_role(session, role, role_type=role_type, cacheable=True)
-    )
+    if grant_type == GrantType.FUTURE:
+        if role_type == ResourceType.DATABASE_ROLE:
+            grants = _show_future_grants_to_database_role(session, str(role), cacheable=True)
+        else:
+            grants = _show_future_grants_to_role(session, role, cacheable=True)
+    else:
+        grants = _show_grants_to_role(session, role, role_type=role_type, cacheable=True)
     for grant in grants:
         name = "ACCOUNT" if grant["granted_on"] == "ACCOUNT" else grant["name"]
         # Use ResourceName for comparison to handle quoted identifiers correctly
