@@ -1028,10 +1028,11 @@ class TestDropGrant:
             "on_type": "DATABASE",
             "on": "MY_DB",
             "to": "MY_ROLE",
+            "to_type": "ROLE",
             "grant_type": GrantType.OBJECT,
         }
         result = drop_grant(urn, data)
-        assert "REVOKE USAGE ON DATABASE MY_DB FROM MY_ROLE" in result
+        assert "REVOKE USAGE ON DATABASE MY_DB FROM ROLE MY_ROLE" in result
 
     def test_revoke_ownership_raises(self):
         """Test that revoking OWNERSHIP raises NotImplementedError."""
@@ -1055,10 +1056,11 @@ class TestDropGrant:
             "on": "MY_DB.MY_SCHEMA",
             "items_type": "TABLE",
             "to": "MY_ROLE",
+            "to_type": "ROLE",
             "grant_type": GrantType.FUTURE,
         }
         result = drop_grant(urn, data)
-        assert "REVOKE SELECT ON FUTURE TABLES" in result
+        assert "REVOKE SELECT ON FUTURE TABLES IN SCHEMA MY_DB.MY_SCHEMA FROM ROLE MY_ROLE" in result
 
     def test_revoke_all_grant(self):
         """Test revoking GRANT ON ALL."""
@@ -1073,6 +1075,35 @@ class TestDropGrant:
         }
         result = drop_grant(urn, data)
         assert "REVOKE SELECT ON ALL TABLE" in result
+
+    def test_revoke_future_grant_from_database_role(self):
+        """Test revoking future grant from database role."""
+        urn = make_urn(ResourceType.GRANT, "GRANT")
+        data = {
+            "priv": "SELECT",
+            "on_type": "SCHEMA",
+            "on": "MY_DB.MY_SCHEMA",
+            "items_type": "TABLE",
+            "to": "MY_DB.MY_DB_ROLE",
+            "to_type": "DATABASE ROLE",
+            "grant_type": GrantType.FUTURE,
+        }
+        result = drop_grant(urn, data)
+        assert "REVOKE SELECT ON FUTURE TABLES IN SCHEMA MY_DB.MY_SCHEMA FROM DATABASE ROLE MY_DB.MY_DB_ROLE" in result
+
+    def test_revoke_basic_from_database_role(self):
+        """Test basic revoke from database role."""
+        urn = make_urn(ResourceType.GRANT, "GRANT")
+        data = {
+            "priv": "USAGE",
+            "on_type": "SCHEMA",
+            "on": "MY_DB.MY_SCHEMA",
+            "to": "MY_DB.MY_DB_ROLE",
+            "to_type": "DATABASE ROLE",
+            "grant_type": GrantType.OBJECT,
+        }
+        result = drop_grant(urn, data)
+        assert "REVOKE USAGE ON SCHEMA MY_DB.MY_SCHEMA FROM DATABASE ROLE MY_DB.MY_DB_ROLE" in result
 
 
 class TestDropProcedure:

@@ -542,6 +542,7 @@ def drop_grant(urn: URN, data: dict, **kwargs):
             data["on_type"],
             data["on"],
             "FROM",
+            data["to_type"],
             data["to"],
         )
     elif data["grant_type"] == GrantType.ALL:
@@ -562,6 +563,7 @@ def drop_grant(urn: URN, data: dict, **kwargs):
             data["on_type"],
             data["on"] if data["on_type"] != "ACCOUNT" else "",
             "FROM",
+            data["to_type"],
             data["to"],
             # "CASCADE" if cascade else "RESTRICT",
         )
