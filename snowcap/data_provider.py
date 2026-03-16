@@ -620,6 +620,35 @@ def _show_future_grants_to_role(
     return grants
 
 
+def _show_future_grants_to_database_role(
+    session: SnowflakeConnection, database_role: str, cacheable: bool = False
+) -> list[dict[str, Any]]:
+    """
+    Fetch future grants for a database role.
+
+    Args:
+        session: Snowflake connection
+        database_role: Fully qualified database role name (e.g., "DB_NAME.ROLE_NAME")
+        cacheable: Whether to cache the result
+
+    Returns:
+        List of future grant dicts with same structure as _show_future_grants_to_role(),
+        plus 'granted_on' field inferred from the name pattern.
+    """
+    grants = execute(
+        session,
+        f"SHOW FUTURE GRANTS TO DATABASE ROLE {database_role}",
+        cacheable=cacheable,
+        empty_response_codes=[DOES_NOT_EXIST_ERR],
+    )
+    for grant in grants:
+        # Infer granted_on from the name pattern
+        # Database-level: "DB_NAME.<SCHEMA>" (2 parts)
+        # Schema-level: "DB_NAME.SCHEMA_NAME.<TABLE>" (3 parts)
+        grant["granted_on"] = "DATABASE" if len(grant["name"].split(".")) == 2 else "SCHEMA"
+    return grants
+
+
 def use_secondary_roles(session: SnowflakeConnection, all: bool = False):
     """
     Set the secondary roles for the current session.
@@ -1189,6 +1218,48 @@ def _fetch_future_grants_for_all_roles(
     total_grants = sum(len(g) for g in future_grants_by_role.values())
     logger.debug(f"Fetched {total_grants} future grants for {len(role_names)} roles using SHOW FUTURE GRANTS")
     return future_grants_by_role
+
+
+def _fetch_future_grants_for_all_database_roles(
+    session: SnowflakeConnection, database_role_fqns: list[FQN]
+) -> dict[str, list[dict[str, Any]]]:
+    """
+    Fetch future grants for all specified database roles using SHOW FUTURE GRANTS commands.
+
+    Note: Future grants are NOT available in SNOWFLAKE.ACCOUNT_USAGE views.
+    They represent templates for privileges that will be applied when new objects
+    are created, not actual granted privileges. Therefore, SHOW FUTURE GRANTS
+    commands must be used.
+
+    Args:
+        session: Snowflake connection
+        database_role_fqns: List of FQN objects for database roles (with database and name)
+
+    Returns:
+        Dictionary mapping fully qualified database role names (e.g., "DB.ROLE") to their
+        list of future grant dicts. Each future grant dict has keys matching
+        _show_future_grants_to_database_role() output.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    future_grants_by_db_role: dict[str, list[dict[str, Any]]] = {}
+
+    def fetch_for_db_role(db_role_fqn: FQN) -> tuple[str, list[dict[str, Any]]]:
+        fq_name = f"{db_role_fqn.database}.{db_role_fqn.name}"
+        grants = _show_future_grants_to_database_role(session, fq_name, cacheable=True)
+        return fq_name, grants
+
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(fetch_for_db_role, fqn): fqn for fqn in database_role_fqns}
+        for future in as_completed(futures):
+            db_role_name_str, grants = future.result()
+            future_grants_by_db_role[db_role_name_str] = grants
+
+    total_grants = sum(len(g) for g in future_grants_by_db_role.values())
+    logger.debug(
+        f"Fetched {total_grants} future grants for {len(database_role_fqns)} database roles using SHOW FUTURE GRANTS"
+    )
+    return future_grants_by_db_role
 
 
 # ------------------------------
@@ -3269,6 +3340,7 @@ def list_grants(
     use_account_usage: bool = False,
     include_future_grants: bool = True,
     future_grant_roles: Optional[set] = None,
+    future_grant_database_roles: Optional[set] = None,
 ) -> list[FQN]:
     grants: list[FQN] = []
 
@@ -3280,6 +3352,25 @@ def list_grants(
         for role in roles_result
         if resource_name_from_snowflake_metadata(role["name"]) not in SYSTEM_ROLES
     ]
+
+    # Database roles are lazily fetched only when needed:
+    # - When ACCOUNT_USAGE is unavailable/disabled (for SHOW grants fallback)
+    # - When fetching future grants to database roles
+    database_role_fqns: Optional[list[FQN]] = None
+    database_role_name_set: Optional[set[str]] = None
+
+    def get_database_roles() -> list[FQN]:
+        nonlocal database_role_fqns
+        if database_role_fqns is None:
+            database_role_fqns = list_database_roles(session)
+        return database_role_fqns
+
+    def get_database_role_name_set() -> set[str]:
+        nonlocal database_role_name_set
+        if database_role_name_set is None:
+            fqns = get_database_roles()
+            database_role_name_set = {f"{fqn.database}.{fqn.name}".upper() for fqn in fqns}
+        return database_role_name_set
 
     # Determine whether to use ACCOUNT_USAGE or SHOW queries
     use_au = _should_use_account_usage(session, use_account_usage)
@@ -3297,11 +3388,21 @@ def list_grants(
             role_name_set = {str(rn) for rn in role_names}
 
             for data in all_grants:
-                # Only process grants to non-system roles (ROLE type, not DATABASE ROLE)
-                if data["granted_to"] != "ROLE":
-                    continue
+                granted_to = data["granted_to"]
                 grantee = data["grantee_name"]
-                if grantee not in role_name_set:
+
+                # Process grants to account roles
+                if granted_to == "ROLE":
+                    if grantee not in role_name_set:
+                        continue
+                    to_prefix = "role"
+                # Process grants to database roles
+                elif granted_to == "DATABASE ROLE":
+                    if grantee.upper() not in get_database_role_name_set():
+                        continue
+                    to_prefix = "database_role"
+                else:
+                    # Skip other grantee types (e.g., USER)
                     continue
 
                 # Skip role grants (hierarchy handled by list_role_grants)
@@ -3320,7 +3421,7 @@ def list_grants(
                 if data["granted_on"] == "ACCOUNT":
                     name = "ACCOUNT"
                 on = f"{data['granted_on'].lower()}/{name}"
-                to = f"role/{grantee}"
+                to = f"{to_prefix}/{grantee}"
                 grants.append(
                     FQN(
                         name=ResourceName("GRANT"),
@@ -3336,7 +3437,7 @@ def list_grants(
 
     if not au_succeeded:
         logger.debug("list_grants: using SHOW GRANTS per role (ACCOUNT_USAGE disabled or unavailable)")
-        # Fall back to per-role SHOW queries
+        # Fall back to per-role SHOW queries for account roles
         for role_name in role_names:
             grant_data = _show_grants_to_role(
                 session, role_name, role_type=ResourceType.ROLE, cacheable=True, use_account_usage=False
@@ -3358,6 +3459,46 @@ def list_grants(
                     name = "ACCOUNT"
                 on = f"{data['granted_on'].lower()}/{name}"
                 to = f"role/{role_name}"
+                grants.append(
+                    FQN(
+                        name=ResourceName("GRANT"),
+                        params={
+                            "grant_type": "OBJECT",
+                            "priv": data["privilege"],
+                            "on": on,
+                            "to": to,
+                        },
+                    )
+                )
+
+        # Also fetch grants for database roles using SHOW GRANTS TO DATABASE ROLE
+        for db_role_fqn in get_database_roles():
+            fq_db_role_name = f"{db_role_fqn.database}.{db_role_fqn.name}"
+            grant_data = _show_grants_to_role(
+                session,
+                ResourceName(fq_db_role_name),
+                role_type=ResourceType.DATABASE_ROLE,
+                cacheable=True,
+                use_account_usage=False,
+            )
+            for data in grant_data:
+                # Skip database role grants (hierarchy handled by list_database_role_grants)
+                if data["granted_on"] == "DATABASE ROLE":
+                    continue
+
+                # Snowcap Grants don't support OWNERSHIP privilege
+                if data["privilege"] == "OWNERSHIP":
+                    continue
+
+                # Skip undocumented privs
+                if data["privilege"] in ["CREATE CORTEX SEARCH SERVICE", "CANCEL QUERY"]:
+                    continue
+
+                name = data["name"]
+                if data["granted_on"] == "ACCOUNT":
+                    name = "ACCOUNT"
+                on = f"{data['granted_on'].lower()}/{name}"
+                to = f"database_role/{fq_db_role_name}"
                 grants.append(
                     FQN(
                         name=ResourceName("GRANT"),
@@ -3401,6 +3542,44 @@ def list_grants(
                         },
                     )
                 )
+
+        # Fetch future grants for database roles
+        if future_grant_database_roles:
+            db_roles_to_query = [
+                fqn
+                for fqn in get_database_roles()
+                if f"{fqn.database}.{fqn.name}".upper() in future_grant_database_roles
+            ]
+            logger.debug(
+                f"list_grants: fetching future grants for {len(db_roles_to_query)} database roles (filtered by manifest)"
+            )
+        else:
+            db_roles_to_query = get_database_roles()
+            if db_roles_to_query:
+                logger.debug(
+                    f"list_grants: fetching future grants for {len(db_roles_to_query)} database roles"
+                )
+
+        if db_roles_to_query:
+            future_grants_by_db_role = _fetch_future_grants_for_all_database_roles(session, db_roles_to_query)
+            for db_role_fqn in db_roles_to_query:
+                fq_db_role_name = f"{db_role_fqn.database}.{db_role_fqn.name}"
+                grant_data = future_grants_by_db_role.get(fq_db_role_name, [])
+                for data in grant_data:
+                    on_type = data["granted_on"].lower()
+                    collection = data["name"]
+                    to = f"database_role/{fq_db_role_name}"
+                    grants.append(
+                        FQN(
+                            name=ResourceName("GRANT"),
+                            params={
+                                "grant_type": "FUTURE",
+                                "priv": data["privilege"],
+                                "on": f"{on_type}/{collection}",
+                                "to": to,
+                            },
+                        )
+                    )
     else:
         logger.debug("list_grants: skipping future grants (none in manifest)")
 

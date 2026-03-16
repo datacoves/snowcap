@@ -1,7 +1,7 @@
 import pytest
 
 from snowcap import resources as res
-from snowcap.enums import ResourceType
+from snowcap.enums import GrantType, ResourceType
 from snowcap.privs import all_privs_for_resource_type
 from snowcap.identifiers import URN
 from snowcap.resource_name import ResourceName
@@ -172,6 +172,63 @@ def test_grant_database_role_to_system_role():
     grant = res.DatabaseRoleGrant(database_role=child, to_role="SYSADMIN")
     assert grant.database_role.name == "child"
     assert grant.to.name == "SYSADMIN"
+
+
+# =============================================================================
+# Grants TO database roles tests
+# =============================================================================
+
+
+def test_grant_to_database_role_string():
+    """Test grant TO a database role using string notation."""
+    grant = res.Grant(
+        priv="SELECT",
+        on_table="somedb.someschema.sometable",
+        to="somedb.mydbrole"  # Database role inferred from dot notation
+    )
+    assert grant.to_type == ResourceType.DATABASE_ROLE
+    assert grant.to.name == "MYDBROLE"
+    assert "TO DATABASE ROLE SOMEDB.MYDBROLE" in grant.create_sql()
+
+
+def test_grant_to_database_role_object():
+    """Test grant TO a database role using DatabaseRole object."""
+    db_role = res.DatabaseRole(name="mydbrole", database="somedb")
+    grant = res.Grant(
+        priv="SELECT",
+        on_table="somedb.someschema.sometable",
+        to=db_role
+    )
+    assert grant.to_type == ResourceType.DATABASE_ROLE
+    assert grant.to.name == "MYDBROLE"
+    assert "TO DATABASE ROLE SOMEDB.MYDBROLE" in grant.create_sql()
+
+
+def test_future_grant_to_database_role():
+    """Test future grant TO a database role."""
+    grant = res.Grant(
+        priv="SELECT",
+        on="FUTURE TABLES IN SCHEMA somedb.someschema",
+        to="somedb.mydbrole"
+    )
+    assert grant.to_type == ResourceType.DATABASE_ROLE
+    assert grant.grant_type == GrantType.FUTURE
+    sql = grant.create_sql()
+    assert "GRANT SELECT ON FUTURE TABLES IN SCHEMA SOMEDB.SOMESCHEMA TO DATABASE ROLE SOMEDB.MYDBROLE" == sql
+
+
+def test_future_grant_to_database_role_object():
+    """Test future grant TO a database role using DatabaseRole object."""
+    db_role = res.DatabaseRole(name="mydbrole", database="somedb")
+    grant = res.Grant(
+        priv="CREATE VIEW",
+        on=["FUTURE", "SCHEMAS", res.Database(name="somedb")],
+        to=db_role
+    )
+    assert grant.to_type == ResourceType.DATABASE_ROLE
+    assert grant.grant_type == GrantType.FUTURE
+    sql = grant.create_sql()
+    assert "GRANT CREATE VIEW ON FUTURE SCHEMAS IN DATABASE SOMEDB TO DATABASE ROLE SOMEDB.MYDBROLE" == sql
 
 
 # =============================================================================
