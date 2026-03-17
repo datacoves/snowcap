@@ -1762,11 +1762,17 @@ class Blueprint:
                 destructive_commands.append(command)
         roles_set = set(roles_list)
 
+        # Suppress SQL execution logs during apply (plan details already shown above)
+        logging.getLogger("snowcap").setLevel(logging.WARNING)
+
         # Process additive changes
         process_commands(additive_commands, roles_set, session_ctx["available_roles"])
 
         # Process destructive changes
         process_commands(destructive_commands, roles_set, session_ctx["available_roles"])
+
+        # Restore logging level
+        logging.getLogger("snowcap").setLevel(logging.INFO)
 
         # Print completion summary
         print_apply_summary(plan, "end")
