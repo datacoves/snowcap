@@ -1741,6 +1741,9 @@ class Blueprint:
         # Print summary of what will be applied
         print_apply_summary(plan, "start")
 
+        # Print plan details
+        print_plan(plan)
+
         if not plan:
             return
 
