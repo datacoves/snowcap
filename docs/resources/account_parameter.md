@@ -41,4 +41,6 @@ account_parameter = AccountParameter(
 * `name` (string, required) - The name of the account parameter. See the [Snowflake Parameters Reference](https://docs.snowflake.com/en/sql-reference/parameters) for valid parameter names.
 * `value` (Any, required) - The value to set for the account parameter.
 
+**Note:** Requires ACCOUNTADMIN role. This privilege cannot be granted to other roles. See [Snowflake Permissions](../snowflake-permissions.md#resources-that-require-accountadmin) for details.
+
 

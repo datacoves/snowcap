@@ -68,4 +68,6 @@ failover_group = FailoverGroup(
 * `replication_schedule` (string) - The schedule for replication. Defaults to None.
 * `owner` (string or [Role](role.md)) - The owner role of the failover group. Defaults to "ACCOUNTADMIN".
 
+**Note:** Requires ACCOUNTADMIN role. This privilege cannot be granted to other roles. See [Snowflake Permissions](../snowflake-permissions.md#resources-that-require-accountadmin) for details.
+
 

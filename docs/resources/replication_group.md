@@ -48,4 +48,6 @@ replication_group = ReplicationGroup(
 * `replication_schedule` (string) - The replication schedule.
 * `owner` (string or [Role](role.md)) - The owner of the replication group. Defaults to "SYSADMIN".
 
+**Note:** Requires ACCOUNTADMIN role. This privilege cannot be granted to other roles. See [Snowflake Permissions](../snowflake-permissions.md#resources-that-require-accountadmin) for details.
+
 

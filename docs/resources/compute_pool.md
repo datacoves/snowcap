@@ -57,4 +57,6 @@ compute_pool = ComputePool(
 * `auto_suspend_secs` (int) - The number of seconds of inactivity after which the compute pool should automatically suspend. Defaults to 3600.
 * `comment` (string) - An optional comment about the compute pool.
 
+**Note:** Requires CREATE COMPUTE POOL privilege on the account. See [Snowflake Permissions](../snowflake-permissions.md#step-2-additional-privileges) for setup instructions.
+
 

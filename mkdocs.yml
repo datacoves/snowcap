@@ -45,6 +45,8 @@ plugins:
           - index.md
         Getting Started:
           - getting-started.md
+        Snowflake Permissions:
+          - snowflake-permissions.md
         Role-Based Access Control:
           - role-based-access-control.md
         YAML Configuration:
@@ -91,6 +93,7 @@ nav:
   - Overview: index.md
   - Why Snowcap: why-snowcap.md
   - Getting Started: getting-started.md
+  - Snowflake Permissions: snowflake-permissions.md
   - Role-Based Access Control: role-based-access-control.md
   - Tag-Based Masking Policies: masking-policies.md
   - Row Access Policies: row-access-policies.md
