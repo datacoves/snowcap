@@ -24,6 +24,9 @@ Snowcap replaces tools like Terraform, Schemachange, or Permifrost.
 
 Deploy any Snowflake resource, including users, roles, schemas, databases, integrations, pipes, stages, functions, stored procedures, and more. Convert adhoc, bug-prone SQL management scripts into simple, repeatable configuration.
 
+!!! warning "Use with care"
+    Snowcap is a powerful tool that can create, modify, and drop resources across your entire Snowflake account. Always run `snowcap plan` to review changes before applying. Test thoroughly in a sandbox or development account before running against production. Snowcap is provided "as is" under the [Apache 2.0 license](https://github.com/datacoves/snowcap/blob/main/LICENSE) with no warranties.
+
 ## Snowcap is for
 
 * DevOps engineers looking to automate and manage Snowflake infrastructure.
@@ -50,10 +53,15 @@ Deploy any Snowflake resource, including users, roles, schemas, databases, integ
 ## Contents
 
 * [Getting Started](getting-started.md) - Installation, authentication, and first config
+* [Snowflake Permissions](snowflake-permissions.md) - Service account setup for CI/CD
 * [Role-Based Access Control](role-based-access-control.md) - Best practices for managing permissions
+* [Tag-Based Masking Policies](masking-policies.md) - Column-level security with tags
+* [Row Access Policies](row-access-policies.md) - Row-level security
 * [YAML Configuration](yaml-configuration.md) - Variables, loops, and scope
+* [Secrets and Variables](secrets-and-variables.md) - Environment variables and templating
 * [GitHub Action](snowcap-github-action.md) - Automate deployments with CI/CD
 * [Export Existing Resources](export.md) - Generate config from your current Snowflake setup
+* [Command Line Interface](cli.md) - CLI commands and options
 
 ### Advanced Usage
 
