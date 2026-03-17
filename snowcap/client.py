@@ -129,11 +129,8 @@ def execute(
         cur.execute(sql_text)
         result = cur.fetchall()
         runtime = time.time() - start
-        # Log execution details - use debug for routine queries, info for slow ones
-        if is_slow_query:
-            logger.info(f"{session_header}    \033[94m({len(result)} rows, {runtime:.2f}s)\033[0m")
-        else:
-            logger.debug(f"{session_header}    \033[94m({len(result)} rows, {runtime:.2f}s)\033[0m")
+        # Log execution details
+        logger.info(f"{session_header}    \033[94m({len(result)} rows, {runtime:.2f}s)\033[0m")
         if cacheable:
             cache_key = (session.role, sql_text)
             with _EXECUTION_CACHE_LOCK:
@@ -148,7 +145,7 @@ def execute(
     except ProgrammingError as err:
         if empty_response_codes and err.errno in empty_response_codes:
             runtime = time.time() - start
-            logger.debug(f"{session_header}    \033[94m(empty, {runtime:.2f}s)\033[0m")
+            logger.info(f"{session_header}    \033[94m(empty, {runtime:.2f}s)\033[0m")
             if cacheable:
                 cache_key = (session.role, sql_text)
                 with _EXECUTION_CACHE_LOCK:
