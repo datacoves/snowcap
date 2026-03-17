@@ -1738,10 +1738,7 @@ class Blueprint:
         if plan is None:
             plan = self.plan(session)
 
-        # Print summary of what will be applied
-        print_apply_summary(plan, "start")
-
-        # Print plan details
+        # Print plan details (includes summary counts)
         print_plan(plan)
 
         if not plan:
