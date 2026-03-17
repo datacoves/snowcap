@@ -208,6 +208,8 @@ def plan(
 
     if debug:
         logging.basicConfig(level=logging.DEBUG, format="%(levelname)s - %(name)s - %(message)s")
+    else:
+        logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     if not config_path:
         raise click.UsageError("--config is required")
@@ -289,6 +291,8 @@ def apply(
         logging.basicConfig(level=logging.DEBUG, format="%(levelname)s - %(name)s - %(message)s")
     elif verbose:
         logging.basicConfig(level=logging.DEBUG, format="%(message)s")
+    else:
+        logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     if config_path and plan_file:
         raise click.UsageError("Cannot specify both --config and --plan.")

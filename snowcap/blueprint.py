@@ -232,10 +232,13 @@ def manifest_has_future_grants(manifest: "Manifest") -> bool:
 
 def manifest_future_grant_roles(manifest: "Manifest") -> set:
     """
-    Return the set of role names that have future grants in the manifest.
+    Return the set of account role names that have future grants in the manifest.
 
     This is used to optimize SHOW FUTURE GRANTS by only querying roles
     that actually have future grants defined in the manifest.
+
+    Note: This only returns account roles (not database roles).
+    Use manifest_future_grant_database_roles() for database roles.
     """
     roles = set()
     for urn in manifest.urns:
@@ -247,13 +250,44 @@ def manifest_future_grant_roles(manifest: "Manifest") -> set:
                 # The "to" field contains the role name (FQN string)
                 to = item.data.get("to", "")
                 if to:
-                    # Handle both formats: "role/SOME_ROLE" or just "SOME_ROLE"
+                    # Handle both formats: "role/SOME_ROLE" or "database_role/DB.ROLE"
                     if "/" in to:
-                        role_name = to.split("/", 1)[1]
+                        prefix, role_name = to.split("/", 1)
+                        # Only include account roles, not database roles
+                        if prefix.lower() == "database_role":
+                            continue
                     else:
                         role_name = to
                     roles.add(role_name.upper())
     return roles
+
+
+def manifest_future_grant_database_roles(manifest: "Manifest") -> set:
+    """
+    Return the set of database role names that have future grants in the manifest.
+
+    This is used to optimize SHOW FUTURE GRANTS TO DATABASE ROLE by only querying
+    database roles that actually have future grants defined in the manifest.
+
+    Returns:
+        Set of fully qualified database role names (e.g., "DB.ROLE") in uppercase.
+    """
+    database_roles = set()
+    for urn in manifest.urns:
+        if urn.resource_type != ResourceType.GRANT:
+            continue
+        item = manifest[urn]
+        if isinstance(item, ManifestResource):
+            if item.data.get("grant_type") == "FUTURE":
+                # The "to" field contains the role name (FQN string)
+                to = item.data.get("to", "")
+                if to:
+                    # Handle format: "database_role/DB.ROLE"
+                    if "/" in to:
+                        prefix, role_name = to.split("/", 1)
+                        if prefix.lower() == "database_role":
+                            database_roles.add(role_name.upper())
+    return database_roles
 
 
 @dataclass
@@ -1151,6 +1185,7 @@ class Blueprint:
             # Pre-compute whether manifest has future grants (for GRANT sync optimization)
             has_future_grants = manifest_has_future_grants(manifest)
             future_grant_roles = manifest_future_grant_roles(manifest) if has_future_grants else set()
+            future_grant_database_roles = manifest_future_grant_database_roles(manifest) if has_future_grants else set()
             for resource_type in self._config.sync_resources:
                 # Pass include_future_grants=False for grants if manifest has no future grants
                 # Also pass future_grant_roles to only query roles that have future grants
@@ -1158,6 +1193,7 @@ class Blueprint:
                 if resource_type == ResourceType.GRANT:
                     list_kwargs["include_future_grants"] = has_future_grants
                     list_kwargs["future_grant_roles"] = future_grant_roles
+                    list_kwargs["future_grant_database_roles"] = future_grant_database_roles
                 for fqn in data_provider.list_resource(session, resource_label_for_type(resource_type), **list_kwargs):
                     if self._config.scope == BlueprintScope.DATABASE and fqn.database != self._config.database:
                         continue
@@ -1702,8 +1738,8 @@ class Blueprint:
         if plan is None:
             plan = self.plan(session)
 
-        # Print summary of what will be applied
-        print_apply_summary(plan, "start")
+        # Print plan details (includes summary counts)
+        print_plan(plan)
 
         if not plan:
             return
@@ -1723,11 +1759,17 @@ class Blueprint:
                 destructive_commands.append(command)
         roles_set = set(roles_list)
 
+        # Suppress SQL execution logs during apply (plan details already shown above)
+        logging.getLogger("snowcap").setLevel(logging.WARNING)
+
         # Process additive changes
         process_commands(additive_commands, roles_set, session_ctx["available_roles"])
 
         # Process destructive changes
         process_commands(destructive_commands, roles_set, session_ctx["available_roles"])
+
+        # Restore logging level
+        logging.getLogger("snowcap").setLevel(logging.INFO)
 
         # Print completion summary
         print_apply_summary(plan, "end")
