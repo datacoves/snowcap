@@ -32,22 +32,23 @@ Snowcap is the power tools. Datacoves is the workshop.
 
 Snowcap replaces Terraform, Schemachange, or Permifrost with a single, purpose-built tool for Snowflake.
 
-| Feature | Snowcap | Terraform | Permifrost |
-|---------|---------|-----------|------------|
-| Snowflake-native | Yes | No | Yes |
-| State file | No | Yes | No |
-| YAML + Python | Yes | HCL only | YAML only |
-| Speed | 50-90% faster | Baseline | Medium |
-| All resource types | Yes | Most | Roles/grants only |
-| `for_each` templating | Yes | Yes | No |
-| Export existing resources | Yes | Import only | No |
+| Feature | Snowcap | Terraform | SnowDDL | Permifrost |
+|---------|---------|-----------|---------|------------|
+| Snowflake-native | ✅ | ❌ | ✅ | ✅ |
+| No state file | ✅ | ❌ | ✅ | ✅ |
+| YAML + Python | ✅ | HCL only | YAML only | YAML only |
+| Speed | 50%+ faster | Baseline | Fast | Slow |
+| 60+ resource types | ✅ | Most | Most | Grants only |
+| Templating / loops | ✅ | ✅ | Limited | ❌ |
+| Export existing resources | ✅ | Import only | ❌ | ❌ |
+| Actively maintained | ✅ Datacoves | ✅ Snowflake | ⚠️ Single maintainer | ⚠️ Infrequent |
 
 ## Key Features
 
 - **Declarative** — Generates the right SQL to make your config match your account
 - **Comprehensive** — 60+ Snowflake resource types supported
 - **Flexible** — Write configuration in YAML or Python
-- **Fast** — 50-90% faster than Terraform
+- **Fast** — 50%+ faster than Terraform and Permifrost
 - **Migration-friendly** — Export existing resources with the CLI
 
 ## Quick Start
