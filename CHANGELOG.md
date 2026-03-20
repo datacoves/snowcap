@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to snowcap will be documented in this file.
+For releases after 1.0.0, see [GitHub Releases](https://github.com/datacoves/snowcap/releases).
 
 ## [1.0.0] - 2025-02-14
 
