@@ -13,6 +13,7 @@ jobs:
       uses: actions/checkout@v4
       with:
           persist-credentials: false
+          fetch-depth: 0
     - name: current_version
       run: echo "current_version=$(grep '# version' version.md | cut -d ' ' -f3)" >> $GITHUB_ENV
     - name: FragileTech/bump-version
@@ -25,11 +26,20 @@ jobs:
         commit_email: support+snowcap@datacoves.com
         login: datacoves-sa
         token: "${{ secrets.BOT_TOKEN }}"
+    - name: Generate release notes from commits
+      id: notes
+      run: |
+        PREV_TAG="v${{ env.current_version }}"
+        echo "Generating notes since $PREV_TAG"
+        NOTES=$(git log "$PREV_TAG"..HEAD --pretty=format:"## %s%n%n%b" --grep="Bump version" --invert-grep | sed '/^$/N;/^\n$/d')
+        echo "notes<<EOF" >> $GITHUB_OUTPUT
+        echo "$NOTES" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
       with:
         tag_name: "v${{ steps.bump.outputs.next_version }}"
         name: "v${{ steps.bump.outputs.next_version }}"
-        generate_release_notes: true
+        body: ${{ steps.notes.outputs.notes }}
       env:
         GITHUB_TOKEN: ${{ secrets.BOT_TOKEN }}
