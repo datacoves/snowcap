@@ -86,9 +86,11 @@ snowcap apply --config snowcap.yml
 Full documentation, examples, and resource reference at **[snowcap.datacoves.com](https://snowcap.datacoves.com)**
 
 - [Getting Started](https://snowcap.datacoves.com/getting-started/)
-- [YAML Configuration](https://snowcap.datacoves.com/yaml-configuration/)
-- [Role-Based Access Control](https://snowcap.datacoves.com/role-based-access-control/)
-- [Resource Reference](https://snowcap.datacoves.com/resources/database/)
+- [Why Snowcap?](https://snowcap.datacoves.com/why-snowcap/)
+
+## Background
+
+Snowcap is a fork of [Titan Core](https://github.com/Titan-Systems/titan). The original project appeared unmaintained, so Datacoves forked it to continue active development, fix bugs, and add new features. We're grateful to the Titan Systems team for creating and open-sourcing the original project under the Apache 2.0 license.
 
 ## Support
 

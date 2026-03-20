@@ -6,6 +6,8 @@ jobs:
   bump-version:
     name: Bump package version
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
     - name: actions/checkout
       uses: actions/checkout@v4
@@ -14,6 +16,7 @@ jobs:
     - name: current_version
       run: echo "current_version=$(grep '# version' version.md | cut -d ' ' -f3)" >> $GITHUB_ENV
     - name: FragileTech/bump-version
+      id: bump
       uses: FragileTech/bump-version@main
       with:
         current_version: "${{ env.current_version }}"
@@ -22,3 +25,11 @@ jobs:
         commit_email: support+snowcap@datacoves.com
         login: datacoves-sa
         token: "${{ secrets.BOT_TOKEN }}"
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: "v${{ steps.bump.outputs.next_version }}"
+        name: "v${{ steps.bump.outputs.next_version }}"
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.BOT_TOKEN }}
