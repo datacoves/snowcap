@@ -686,6 +686,64 @@ class TestTag:
         )
         assert tag._data.allowed_values == ["value1", "value2"]
 
+    def test_tag_with_propagate(self):
+        """Test Tag with propagate option."""
+        from snowcap.enums import TagPropagation
+
+        tag = res.Tag(
+            name="test_tag",
+            database="test_db",
+            schema="test_schema",
+            propagate="ON_DEPENDENCY_AND_DATA_MOVEMENT",
+        )
+        assert tag._data.propagate == TagPropagation.ON_DEPENDENCY_AND_DATA_MOVEMENT
+
+    def test_tag_with_propagate_and_on_conflict(self):
+        """Test Tag with propagate and on_conflict options."""
+        from snowcap.enums import TagPropagation
+
+        tag = res.Tag(
+            name="test_tag",
+            database="test_db",
+            schema="test_schema",
+            propagate="ON_DATA_MOVEMENT",
+            on_conflict="ALLOWED_VALUES_SEQUENCE",
+        )
+        assert tag._data.propagate == TagPropagation.ON_DATA_MOVEMENT
+        assert tag._data.on_conflict == "ALLOWED_VALUES_SEQUENCE"
+
+    def test_tag_with_propagate_and_custom_on_conflict(self):
+        """Test Tag with propagate and custom on_conflict string."""
+        from snowcap.enums import TagPropagation
+
+        tag = res.Tag(
+            name="test_tag",
+            database="test_db",
+            schema="test_schema",
+            propagate="ON_DEPENDENCY",
+            on_conflict="CONFLICT",
+        )
+        assert tag._data.propagate == TagPropagation.ON_DEPENDENCY
+        assert tag._data.on_conflict == "CONFLICT"
+
+    def test_tag_with_all_properties(self):
+        """Test Tag with all properties including propagate."""
+        from snowcap.enums import TagPropagation
+
+        tag = res.Tag(
+            name="test_tag",
+            database="test_db",
+            schema="test_schema",
+            allowed_values=["a", "b"],
+            propagate="ON_DEPENDENCY_AND_DATA_MOVEMENT",
+            on_conflict="ALLOWED_VALUES_SEQUENCE",
+            comment="Test tag with propagation",
+        )
+        assert tag._data.allowed_values == ["a", "b"]
+        assert tag._data.propagate == TagPropagation.ON_DEPENDENCY_AND_DATA_MOVEMENT
+        assert tag._data.on_conflict == "ALLOWED_VALUES_SEQUENCE"
+        assert tag._data.comment == "Test tag with propagation"
+
 
 class TestStream:
     """Tests for Stream resources."""

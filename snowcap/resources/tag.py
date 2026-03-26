@@ -1,9 +1,9 @@
 from dataclasses import dataclass
 from typing import Optional
 
-from ..enums import AccountEdition, ResourceType
+from ..enums import AccountEdition, ResourceType, TagPropagation
 from ..identifiers import FQN, parse_FQN
-from ..props import Props, StringListProp, StringProp
+from ..props import Props, StringListProp, StringProp, EnumProp, TagOnConflictProp
 from ..resource_name import ResourceName
 from ..resource_tags import ResourceTags
 from ..role_ref import RoleRef
@@ -17,6 +17,8 @@ class _Tag(ResourceSpec):
     owner: RoleRef = "SYSADMIN"
     comment: str = None
     allowed_values: list = None
+    propagate: TagPropagation = None
+    on_conflict: str = None
 
     def __post_init__(self):
         super().__post_init__()
@@ -35,6 +37,10 @@ class Tag(NamedResource, Resource):
     Fields:
         name (string, required): The name of the tag.
         allowed_values (list): A list of allowed values for the tag.
+        propagate (string): Configures automatic tag propagation. Values:
+            ON_DEPENDENCY_AND_DATA_MOVEMENT, ON_DEPENDENCY, ON_DATA_MOVEMENT.
+        on_conflict (string): Behavior when propagated tag values conflict.
+            Use ALLOWED_VALUES_SEQUENCE or a custom string.
         comment (string): A comment or description for the tag.
 
     Python:
@@ -44,6 +50,14 @@ class Tag(NamedResource, Resource):
             name="cost_center",
             allowed_values=["finance", "engineering", "sales"],
             comment="This is a sample tag",
+        )
+
+        # With auto-propagation
+        tag = Tag(
+            name="auto_pii",
+            allowed_values=["sensitive", "highly_sensitive"],
+            propagate="ON_DEPENDENCY_AND_DATA_MOVEMENT",
+            on_conflict="ALLOWED_VALUES_SEQUENCE",
         )
         ```
 
@@ -57,6 +71,14 @@ class Tag(NamedResource, Resource):
               - finance
               - engineering
               - sales
+
+          # With auto-propagation
+          - name: auto_pii
+            allowed_values:
+              - sensitive
+              - highly_sensitive
+            propagate: ON_DEPENDENCY_AND_DATA_MOVEMENT
+            on_conflict: ALLOWED_VALUES_SEQUENCE
         ```
     """
 
@@ -64,6 +86,8 @@ class Tag(NamedResource, Resource):
     resource_type = ResourceType.TAG
     props = Props(
         allowed_values=StringListProp("allowed_values", eq=False, parens=False),
+        propagate=EnumProp("propagate", TagPropagation),
+        on_conflict=TagOnConflictProp(),
         comment=StringProp("comment"),
     )
     scope = SchemaScope()
@@ -75,6 +99,8 @@ class Tag(NamedResource, Resource):
         owner: str = "SYSADMIN",
         comment: str = None,
         allowed_values: list = None,
+        propagate: str = None,
+        on_conflict: str = None,
         **kwargs,
     ):
         super().__init__(name, **kwargs)
@@ -83,6 +109,8 @@ class Tag(NamedResource, Resource):
             owner=owner,
             comment=comment,
             allowed_values=allowed_values,
+            propagate=propagate,
+            on_conflict=on_conflict,
         )
 
 

@@ -93,9 +93,11 @@ Define tags that represent your data classifications, along with a role to grant
 tags:
   - name: governance.tags.pii
     comment: Personally Identifiable Information
+    propagate: ON_DATA_MOVEMENT
 
   - name: governance.tags.confidential
     comment: Confidential business data
+    propagate: ON_DATA_MOVEMENT
 
 roles:
   - name: z_tag__apply__pii
@@ -110,6 +112,13 @@ grants:
     on: tag governance.tags.confidential
     to: z_tag__apply__confidential
 ```
+
+!!! tip "Automatic tag propagation"
+    Setting `propagate: ON_DATA_MOVEMENT` ensures that when data flows from tagged columns
+    to new tables or views (e.g., via CTAS or INSERT...SELECT), the tags are automatically
+    propagated. This means downstream objects inherit the masking protection without manual
+    re-tagging. For masking tags, the `on_conflict` parameter is optional since the tag value
+    doesn't affect masking behavior—only the tag's presence matters.
 
 ### Step 3: Create Unmask Roles
 
