@@ -399,3 +399,9 @@ class GrantType(ParseableEnum):
     OBJECT = "OBJECT"
     FUTURE = "FUTURE"
     ALL = "ALL"
+
+
+class TagPropagation(ParseableEnum):
+    ON_DEPENDENCY_AND_DATA_MOVEMENT = "ON_DEPENDENCY_AND_DATA_MOVEMENT"
+    ON_DEPENDENCY = "ON_DEPENDENCY"
+    ON_DATA_MOVEMENT = "ON_DATA_MOVEMENT"

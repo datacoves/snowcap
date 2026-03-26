@@ -678,3 +678,27 @@ class FromProp(Prop):
         if value.startswith("@"):
             return f"FROM {value}"
         return f"FROM '{value}'"
+
+
+class TagOnConflictProp(Prop):
+    """
+    ON_CONFLICT = { '<string>' | ALLOWED_VALUES_SEQUENCE }
+    Renders ALLOWED_VALUES_SEQUENCE as keyword, other values as quoted strings.
+    """
+
+    def __init__(self):
+        value_expr = Keywords("ALLOWED_VALUES_SEQUENCE") | pp.sgl_quoted_string
+        super().__init__("on_conflict", value_expr)
+
+    def typecheck(self, prop_value):
+        # Strip quotes if present (for quoted string values)
+        if isinstance(prop_value, str):
+            return prop_value.strip("'")
+        return prop_value
+
+    def render(self, value):
+        if value is None:
+            return ""
+        if value.upper() == "ALLOWED_VALUES_SEQUENCE":
+            return "ON_CONFLICT = ALLOWED_VALUES_SEQUENCE"
+        return f"ON_CONFLICT = {quote_value(value)}"
