@@ -2673,6 +2673,8 @@ def fetch_tag(session: SnowflakeConnection, fqn: FQN):
         "owner": _get_owner_identifier(data),
         "comment": data["comment"] or None,
         "allowed_values": json.loads(data["allowed_values"]) if data["allowed_values"] else None,
+        "propagate": data.get("propagate") or None,
+        "on_conflict": data.get("on_conflict") or None,
     }
 
 
