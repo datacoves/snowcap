@@ -26,6 +26,8 @@ jobs:
         commit_email: support+snowcap@datacoves.com
         login: datacoves-sa
         token: "${{ secrets.BOT_TOKEN }}"
+    - name: Read new version from version.md
+      run: echo "next_version=$(grep '# version' version.md | cut -d ' ' -f3)" >> $GITHUB_ENV
     - name: Generate release notes from commits
       id: notes
       run: |
@@ -38,8 +40,8 @@ jobs:
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: "v${{ steps.bump.outputs.next_version }}"
-        name: "v${{ steps.bump.outputs.next_version }}"
+        tag_name: "v${{ env.next_version }}"
+        name: "v${{ env.next_version }}"
         body: ${{ steps.notes.outputs.notes }}
       env:
         GITHUB_TOKEN: ${{ secrets.BOT_TOKEN }}
