@@ -277,11 +277,97 @@ snowcap/
 └── apply.sh
 ```
 
-## Applying Tags to Columns with dbt
+## Applying Tags to Columns
 
-Once your tags and masking policies are deployed with Snowcap, you need to apply tags to columns. The recommended approach is to use dbt to tag columns during the build process.
+Once your tags and masking policies are deployed with Snowcap, you need to apply tags to columns. There are three approaches:
 
-### Option 1: Snowcap Macros
+1. **At load time** - Apply tags immediately after loading data (e.g., with dlt)
+2. **At transformation time** - Apply tags during dbt model builds via post-hooks
+3. **Manual** - Apply tags directly via SQL for one-off needs
+
+### Option 1: During Data Load (dlt)
+
+If you're using [dlt](https://dlthub.com/) to load data into Snowflake, you can apply tags immediately after the load completes. This ensures sensitive columns are protected from the moment data lands in Snowflake.
+
+Create a utility function to apply tags:
+
+```python
+# load/dlt/utils/datacoves_utils.py
+def apply_pii_tag(pipeline, table: str, columns: list[str]):
+    """Apply the GOVERNANCE.TAGS.PII tag to specified columns after loading.
+
+    Args:
+        pipeline: A dlt pipeline instance with a Snowflake destination.
+        table: Table name containing the columns to tag.
+        columns: List of column names to apply the PII tag to.
+    """
+    with pipeline.sql_client() as client:
+        for col in columns:
+            client.execute_sql(
+                f"ALTER TABLE {pipeline.dataset_name}.{table} "
+                f"ALTER COLUMN {col} SET TAG GOVERNANCE.TAGS.PII = 'true'"
+            )
+    print(f"PII tag applied to {table}: {', '.join(columns)}")
+```
+
+Then call it after your pipeline runs:
+
+```python
+# load/dlt/loans_data.py
+import dlt
+from utils.datacoves_utils import apply_pii_tag
+
+@dlt.resource(write_disposition="replace")
+def personal_loans():
+    # ... load logic
+    yield df
+
+if __name__ == "__main__":
+    pipeline = dlt.pipeline(
+        pipeline_name="loans",
+        destination=dlt.destinations.snowflake(destination_name="datacoves_snowflake"),
+        dataset_name="loans"
+    )
+
+    load_info = pipeline.run(personal_loans())
+    print(load_info)
+
+    # Apply PII tags to sensitive columns immediately after load
+    apply_pii_tag(pipeline, "personal_loans", ["addr_state", "annual_inc"])
+```
+
+!!! tip "When to use load-time tagging"
+    Use this approach when:
+
+    - You want columns protected immediately upon load
+    - The sensitive columns in the source are known
+    - Users have access to the loaded data (not just raw/staging layers)
+
+#### Grant permissions to the loader role
+
+The role that runs dlt needs access to the governance database/schema and the `APPLY` privilege on the tag. Grant these to your loader role:
+
+```yaml
+# resources/roles__functional.yml
+role_grants:
+  - to_role: loader
+    roles:
+      # Access to governance database and schemas where tags are defined
+      - z_db__governance
+      - z_schemas__db__governance
+
+      # Permission to apply the PII tag
+      - z_tag__apply__pii
+```
+
+!!! note "Loader role cannot see masked data"
+    The loader role applies tags but typically should **not** have the `z_unmask__pii` role. This means the loader cannot read the sensitive data it just loaded—it can only write and tag it. This is intentional: the loader doesn't need to see the data, just move it securely into Snowflake.
+
+### Option 2: During Transformation (dbt)
+
+The most common approach is to apply tags during dbt model builds using post-hooks. This works well when your transformation layer is the primary interface for data consumers.
+
+#### Snowcap Macros
 
 Snowcap can generate dbt macros that apply Snowflake tags to tables and columns based on `meta` configuration in your schema.yml files.
 
@@ -371,7 +457,7 @@ role_grants:
       - z_tag__apply__pii
 ```
 
-### Option 2: Manual Tag Application
+### Option 3: Manual Tag Application
 
 For one-off tagging or small deployments, apply tags directly in Snowflake:
 
