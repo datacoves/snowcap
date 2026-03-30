@@ -1,6 +1,6 @@
 <svg width="140" height="32" viewBox="0 0 140 32" xmlns="http://www.w3.org/2000/svg">
-  <!-- Mountain body (accent blue for light mode - contrasts with dark navy header) -->
-  <polygon points="16,4 28,28 4,28" fill="#3496E0"/>
+  <!-- Mountain body (dark navy for dark mode - contrasts with light blue header) -->
+  <polygon points="16,4 28,28 4,28" fill="#00044A"/>
   <!-- Snow cap (white/light on top) -->
   <polygon points="16,4 22,14 16,11 10,14" fill="#E8F4FE"/>
   <polygon points="16,4 19,10 16,8 13,10" fill="#ffffff"/>

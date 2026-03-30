@@ -1,16 +1,20 @@
 /* Light/dark mode image switching */
-.light-mode-only {
-  display: inline;
+.light-mode-only,
+img.light-mode-only {
+  display: inline !important;
 }
-.dark-mode-only {
-  display: none;
+.dark-mode-only,
+img.dark-mode-only {
+  display: none !important;
 }
 
-[data-md-color-scheme="slate"] .light-mode-only {
-  display: none;
+[data-md-color-scheme="slate"] .light-mode-only,
+[data-md-color-scheme="slate"] img.light-mode-only {
+  display: none !important;
 }
-[data-md-color-scheme="slate"] .dark-mode-only {
-  display: inline;
+[data-md-color-scheme="slate"] .dark-mode-only,
+[data-md-color-scheme="slate"] img.dark-mode-only {
+  display: inline !important;
 }
 
 /* Datacoves brand colors */
@@ -69,4 +73,21 @@
 .md-typeset .snowflake > .admonition-title::before,
 .md-typeset .snowflake > summary::before {
   background-color: #29b5e8;
+}
+
+/* Announcement bar styling */
+.md-banner {
+  background-color: #FFD101;
+  color: #00044A;
+}
+
+.md-banner a,
+.md-banner a:visited,
+.md-banner a:active,
+.md-banner a:focus {
+  color: #00044A;
+}
+
+.md-banner a:hover {
+  color: #3496E0;
 }

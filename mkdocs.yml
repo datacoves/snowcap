@@ -7,7 +7,6 @@ repo_name: datacoves/snowcap
 theme:
   name: material
   custom_dir: docs/overrides
-  logo: images/snowcap-header-logo.svg
   favicon: images/favicon.png
   palette:
     - media: "(prefers-color-scheme: light)"
@@ -32,6 +31,9 @@ theme:
     - content.code.copy
 
 extra:
+  analytics:
+    provider: google
+    property: G-WFBP8GG4YV
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/datacoves/snowcap
