@@ -411,9 +411,9 @@ class TestAllPrivsForResourceType:
 class TestSystemRoleForPriv:
     """Tests for the system_role_for_priv() function."""
 
-    def test_create_database_returns_accountadmin(self):
-        """system_role_for_priv returns ACCOUNTADMIN for CREATE DATABASE."""
-        assert system_role_for_priv("CREATE DATABASE") == "ACCOUNTADMIN"
+    def test_create_database_returns_sysadmin(self):
+        """system_role_for_priv returns SYSADMIN for CREATE DATABASE."""
+        assert system_role_for_priv("CREATE DATABASE") == "SYSADMIN"
 
     def test_create_role_returns_useradmin(self):
         """system_role_for_priv returns USERADMIN for CREATE ROLE."""
@@ -595,9 +595,9 @@ class TestCreatePrivForResourceTypeMapping:
 class TestGlobalPrivDefaultOwners:
     """Tests for the GLOBAL_PRIV_DEFAULT_OWNERS mapping."""
 
-    def test_create_database_owner_is_accountadmin(self):
-        """CREATE DATABASE privilege is owned by ACCOUNTADMIN."""
-        assert GLOBAL_PRIV_DEFAULT_OWNERS[AccountPriv.CREATE_DATABASE] == "ACCOUNTADMIN"
+    def test_create_database_owner_is_sysadmin(self):
+        """CREATE DATABASE privilege is owned by SYSADMIN."""
+        assert GLOBAL_PRIV_DEFAULT_OWNERS[AccountPriv.CREATE_DATABASE] == "SYSADMIN"
 
     def test_create_role_owner_is_useradmin(self):
         """CREATE ROLE privilege is owned by USERADMIN."""
