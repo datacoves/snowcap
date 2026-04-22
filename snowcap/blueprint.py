@@ -1708,29 +1708,30 @@ class Blueprint:
                         raise
 
         def process_commands(commands, roles, available_roles):
+            # Check for missing roles upfront
+            missing_roles = roles - set(available_roles)
+            if missing_roles:
+                missing_list = ", ".join(sorted(missing_roles))
+                raise MissingPrivilegeException(
+                    f"The following roles are required but not available to your user: {missing_list}\n"
+                    f"  Grant the missing roles to your user:\n"
+                    + "\n".join(f"    GRANT ROLE {role} TO USER your_user;" for role in sorted(missing_roles))
+                )
+
             # Map changes to their levels (default to 0 if not in self._levels)
             levels = {c["change"].urn: self._levels.get(c["change"].urn, 0) for c in commands}
             max_level = max(levels.values()) if levels else 0
 
-            roles_dynamically_added = set()
-            # Execute additive changes by level
+            # Execute changes by level
             for level in range(max_level + 1):
                 commands_at_level = [c for c in commands if levels.get(c["change"].urn, 0) == level]
                 for role in roles:
-                    # Execute additive changes in current level by role
+                    # Execute changes in current level by role
                     commands_at_role_level = [c for c in commands_at_level if c["role"] == role]
                     if commands_at_role_level:
                         logger.debug(f"Executing level {level} role {role} with {len(commands_at_role_level)} changes")
-                        needs_new_role = role not in available_roles
-                        if needs_new_role:
-                            execute(session, f"GRANT ROLE {role} TO USER {session_ctx['user']}")
-                            roles_dynamically_added.add(role)
                         execute(session, f"USE ROLE {role}")
                         execute_commands_in_parallel(commands_at_role_level)
-
-            # Revoke dynamically added roles
-            for role in roles_dynamically_added:
-                execute(session, f"REVOKE ROLE {role} FROM USER {session_ctx['user']}")
 
         # TODO: cursor setup, including query tag
 
