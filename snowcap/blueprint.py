@@ -1708,8 +1708,8 @@ class Blueprint:
                         raise
 
         def process_commands(commands, roles, available_roles):
-            # Check for missing roles upfront
-            missing_roles = roles - set(available_roles)
+            # Check for missing roles upfront (filter out empty/invalid roles)
+            missing_roles = {r for r in roles if str(r)} - set(available_roles)
             if missing_roles:
                 missing_list = ", ".join(sorted(str(r) for r in missing_roles))
                 raise MissingPrivilegeException(
