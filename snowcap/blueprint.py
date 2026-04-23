@@ -1711,11 +1711,11 @@ class Blueprint:
             # Check for missing roles upfront
             missing_roles = roles - set(available_roles)
             if missing_roles:
-                missing_list = ", ".join(sorted(missing_roles))
+                missing_list = ", ".join(sorted(str(r) for r in missing_roles))
                 raise MissingPrivilegeException(
                     f"The following roles are required but not available to your user: {missing_list}\n"
                     f"  Grant the missing roles to your user:\n"
-                    + "\n".join(f"    GRANT ROLE {role} TO USER your_user;" for role in sorted(missing_roles))
+                    + "\n".join(f"    GRANT ROLE {role} TO USER your_user;" for role in sorted(missing_roles, key=str))
                 )
 
             # Map changes to their levels (default to 0 if not in self._levels)
