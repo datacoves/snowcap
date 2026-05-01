@@ -15,8 +15,18 @@ from snowcap.identifiers import parse_URN
 from snowcap.resource_name import ResourceName
 
 
-def flatten_sql_commands(sql_commands: list[dict]) -> list[str]:
-    """Flatten compile_plan_to_sql output to a list of SQL strings for testing."""
+def flatten_sql_commands(sql_commands_result) -> list[str]:
+    """Flatten compile_plan_to_sql output to a list of SQL strings for testing.
+
+    Args:
+        sql_commands_result: Either a list[dict] (legacy) or a tuple of (list[dict], available_roles)
+    """
+    # Handle both old and new return formats from compile_plan_to_sql
+    if isinstance(sql_commands_result, tuple):
+        sql_commands = sql_commands_result[0]
+    else:
+        sql_commands = sql_commands_result
+
     result = ["USE SECONDARY ROLES ALL"]
     last_role = None
     for cmd in sql_commands:
