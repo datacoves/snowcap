@@ -91,6 +91,7 @@ def execute(
     session_header = f"[{session.user}:{session.role}] > {sql_text}"
 
     # Thread-safe cache check with pending query deduplication
+    cache_key: tuple[str, str] | None = None
     if cacheable:
         cache_key = (session.role, sql_text)
         with _EXECUTION_CACHE_LOCK:
@@ -125,7 +126,6 @@ def execute(
         logger.info(f"{session_header}    \033[93m(running...)\033[0m")
 
     start = time.time()
-    cache_key = (session.role, sql_text) if cacheable else None
     try:
         cur.execute(sql_text)
         result = cur.fetchall()
