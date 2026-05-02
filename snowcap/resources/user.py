@@ -79,7 +79,8 @@ class _User(ResourceSpec):
             if self.login_name is None or self.login_name == "":
                 self.login_name = ResourceName(str(self.name).upper())
             if self.display_name is None:
-                self.display_name = self.name._name
+                # Snowflake stores display_name as uppercase for unquoted identifiers
+                self.display_name = self.name._name.upper()
             if self.must_change_password is None:
                 self.must_change_password = False
 

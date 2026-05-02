@@ -1748,7 +1748,7 @@ class Blueprint:
         session_ctx = data_provider.fetch_session(session)
         _raise_if_plan_would_drop_session_user(session_ctx, plan)
 
-        sql_commands_per_change = compile_plan_to_sql(session_ctx, plan)
+        sql_commands_per_change, available_roles = compile_plan_to_sql(session_ctx, plan)
         roles_list: list[Any] = []
         additive_commands = []
         destructive_commands = []
@@ -1763,11 +1763,11 @@ class Blueprint:
         # Suppress SQL execution logs during apply (plan details already shown above)
         logging.getLogger("snowcap").setLevel(logging.WARNING)
 
-        # Process additive changes
-        process_commands(additive_commands, roles_set, session_ctx["available_roles"])
+        # Process additive changes (use available_roles which includes roles being created)
+        process_commands(additive_commands, roles_set, available_roles)
 
         # Process destructive changes
-        process_commands(destructive_commands, roles_set, session_ctx["available_roles"])
+        process_commands(destructive_commands, roles_set, available_roles)
 
         # Restore logging level
         logging.getLogger("snowcap").setLevel(logging.INFO)
@@ -1998,8 +1998,15 @@ def sql_commands_for_change(
     return execution_role, [cmd for cmd in all_cmds if cmd is not None]
 
 
-def compile_plan_to_sql(session_ctx: SessionContext, plan: Plan) -> list[dict]:
-    """Compile the plan into a list of SQL command lists, one per change."""
+def compile_plan_to_sql(
+    session_ctx: SessionContext, plan: Plan
+) -> tuple[list[dict], list[ResourceName]]:
+    """Compile the plan into a list of SQL command lists, one per change.
+
+    Returns:
+        A tuple of (sql_commands_per_change, available_roles) where available_roles
+        includes any roles being created in this plan.
+    """
     sql_commands_per_change = []
     available_roles = session_ctx["available_roles"].copy()
     default_role = session_ctx["role"]
@@ -2013,7 +2020,7 @@ def compile_plan_to_sql(session_ctx: SessionContext, plan: Plan) -> list[dict]:
     for change in plan:
         role, commands = sql_commands_for_change(change, available_roles, default_role)
         sql_commands_per_change.append({"role": role, "commands": commands, "change": change})
-    return sql_commands_per_change
+    return sql_commands_per_change, available_roles
 
 
 def compute_levels(resource_set: Set[URN], references: Set[tuple[URN, URN]]) -> dict[URN, int]:
@@ -2143,9 +2150,12 @@ def diff(remote_state: State, manifest: Manifest) -> list:
         for field_name in lhs.keys():
             lhs_value = lhs[field_name]
             rhs_value = rhs[field_name]
-            # Skip fields where manifest value is None - means "use Snowflake default/inherit"
-            if rhs_value is None:
+            # Skip fields where manifest value is None or empty string - means "use Snowflake default/inherit"
+            if rhs_value is None or rhs_value == "":
                 continue
+            # Normalize empty strings to None for comparison (Snowflake returns None for unset fields)
+            if lhs_value == "":
+                lhs_value = None
             if lhs_value != rhs_value:
                 delta[field_name] = rhs_value
         return delta

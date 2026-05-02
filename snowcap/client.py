@@ -91,6 +91,7 @@ def execute(
     session_header = f"[{session.user}:{session.role}] > {sql_text}"
 
     # Thread-safe cache check with pending query deduplication
+    cache_key: tuple[str, str] | None = None
     if cacheable:
         cache_key = (session.role, sql_text)
         with _EXECUTION_CACHE_LOCK:
@@ -132,40 +133,31 @@ def execute(
         # Log execution details
         logger.info(f"{session_header}    \033[94m({len(result)} rows, {runtime:.2f}s)\033[0m")
         if cacheable:
-            cache_key = (session.role, sql_text)
             with _EXECUTION_CACHE_LOCK:
                 if session.role not in _EXECUTION_CACHE:
                     _EXECUTION_CACHE[session.role] = {}
                 _EXECUTION_CACHE[session.role][sql_text] = result
-                # Signal waiting threads and cleanup
-                if cache_key in _PENDING_QUERIES:
-                    _PENDING_QUERIES[cache_key].set()
-                    del _PENDING_QUERIES[cache_key]
         return result
     except ProgrammingError as err:
         if empty_response_codes and err.errno in empty_response_codes:
             runtime = time.time() - start
             logger.info(f"{session_header}    \033[94m(empty, {runtime:.2f}s)\033[0m")
             if cacheable:
-                cache_key = (session.role, sql_text)
                 with _EXECUTION_CACHE_LOCK:
                     if session.role not in _EXECUTION_CACHE:
                         _EXECUTION_CACHE[session.role] = {}
                     _EXECUTION_CACHE[session.role][sql_text] = []
-                    # Signal waiting threads and cleanup
-                    if cache_key in _PENDING_QUERIES:
-                        _PENDING_QUERIES[cache_key].set()
-                        del _PENDING_QUERIES[cache_key]
             return []
-        # On error, also cleanup pending query marker
-        if cacheable:
-            cache_key = (session.role, sql_text)
+        logger.error(f"{session_header}    \033[31m(err {err.errno}, {time.time() - start:.2f}s)\033[0m")
+        raise ProgrammingError(f"{err} on {sql_text}", errno=err.errno) from err
+    finally:
+        # Always signal waiting threads and cleanup pending query marker
+        # This must happen regardless of success, failure, or exception type
+        if cache_key is not None:
             with _EXECUTION_CACHE_LOCK:
                 if cache_key in _PENDING_QUERIES:
                     _PENDING_QUERIES[cache_key].set()
                     del _PENDING_QUERIES[cache_key]
-        logger.error(f"{session_header}    \033[31m(err {err.errno}, {time.time() - start:.2f}s)\033[0m")
-        raise ProgrammingError(f"{err} on {sql_text}", errno=err.errno) from err
 
 
 def execute_in_parallel(
