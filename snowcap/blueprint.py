@@ -2030,12 +2030,17 @@ def compile_plan_to_sql(
     sql_commands_per_change = []
     available_roles = session_ctx["available_roles"].copy()
     default_role = session_ctx["role"]
+    current_user = ResourceName(session_ctx["user"])
     for change in plan:
         if isinstance(change, CreateResource):
             if change.urn.resource_type == ResourceType.ROLE:
                 available_roles.append(ResourceName(change.after["name"]))
             elif change.urn.resource_type == ResourceType.ROLE_GRANT:
-                if change.after["to_role"] in available_roles:
+                # Handle role grants to another role that we already have
+                if change.after.get("to_role") and change.after["to_role"] in available_roles:
+                    available_roles.append(ResourceName(change.after["role"]))
+                # Handle role grants to the current user
+                elif change.after.get("to_user") and ResourceName(change.after["to_user"]) == current_user:
                     available_roles.append(ResourceName(change.after["role"]))
     for change in plan:
         role, commands = sql_commands_for_change(change, available_roles, default_role)
