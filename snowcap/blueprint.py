@@ -1711,11 +1711,31 @@ class Blueprint:
             # Check for missing roles upfront (filter out empty/invalid roles)
             missing_roles = {r for r in roles if str(r)} - set(available_roles)
             if missing_roles:
-                missing_list = ", ".join(sorted(str(r) for r in missing_roles))
+                # Build a mapping of missing role -> changes that require it
+                role_to_changes: dict[str, list[str]] = {}
+                for cmd in commands:
+                    role = cmd["role"]
+                    if role in missing_roles:
+                        role_str = str(role)
+                        if role_str not in role_to_changes:
+                            role_to_changes[role_str] = []
+                        change = cmd["change"]
+                        role_to_changes[role_str].append(f"{change.urn.fqn}")
+
+                # Build detailed error message
+                details = []
+                for role in sorted(role_to_changes.keys()):
+                    changes = role_to_changes[role]
+                    if len(changes) == 1:
+                        details.append(f"  - {role}: required for {changes[0]}")
+                    else:
+                        details.append(f"  - {role}: required for {len(changes)} changes including {changes[0]}")
+
                 raise MissingPrivilegeException(
-                    f"The following roles are required but not available to your user: {missing_list}\n"
-                    f"  Grant the missing roles to your user:\n"
-                    + "\n".join(f"    GRANT ROLE {role} TO USER your_user;" for role in sorted(missing_roles, key=str))
+                    f"The following roles are required but not available to your user:\n"
+                    + "\n".join(details)
+                    + "\n\n  Grant the missing roles to your user:\n"
+                    + "\n".join(f"    GRANT ROLE {role} TO USER your_user;" for role in sorted(role_to_changes.keys()))
                 )
 
             # Map changes to their levels (default to 0 if not in self._levels)
