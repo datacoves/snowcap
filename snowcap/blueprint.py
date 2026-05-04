@@ -1711,11 +1711,31 @@ class Blueprint:
             # Check for missing roles upfront (filter out empty/invalid roles)
             missing_roles = {r for r in roles if str(r)} - set(available_roles)
             if missing_roles:
-                missing_list = ", ".join(sorted(str(r) for r in missing_roles))
+                # Build a mapping of missing role -> changes that require it
+                role_to_changes: dict[str, list[str]] = {}
+                for cmd in commands:
+                    role = cmd["role"]
+                    if role in missing_roles:
+                        role_str = str(role)
+                        if role_str not in role_to_changes:
+                            role_to_changes[role_str] = []
+                        change = cmd["change"]
+                        role_to_changes[role_str].append(f"{change.urn.fqn}")
+
+                # Build detailed error message
+                details = []
+                for role in sorted(role_to_changes.keys()):
+                    changes = role_to_changes[role]
+                    if len(changes) == 1:
+                        details.append(f"  - {role}: required for {changes[0]}")
+                    else:
+                        details.append(f"  - {role}: required for {len(changes)} changes including {changes[0]}")
+
                 raise MissingPrivilegeException(
-                    f"The following roles are required but not available to your user: {missing_list}\n"
-                    f"  Grant the missing roles to your user:\n"
-                    + "\n".join(f"    GRANT ROLE {role} TO USER your_user;" for role in sorted(missing_roles, key=str))
+                    "The following roles are required but not available to your user:\n"
+                    + "\n".join(details)
+                    + "\n\n  Grant the missing roles to your user:\n"
+                    + "\n".join(f"    GRANT ROLE {role} TO USER your_user;" for role in sorted(role_to_changes.keys()))
                 )
 
             # Map changes to their levels (default to 0 if not in self._levels)
@@ -2010,12 +2030,17 @@ def compile_plan_to_sql(
     sql_commands_per_change = []
     available_roles = session_ctx["available_roles"].copy()
     default_role = session_ctx["role"]
+    current_user = ResourceName(session_ctx.get("user", "")) if session_ctx.get("user") else None
     for change in plan:
         if isinstance(change, CreateResource):
             if change.urn.resource_type == ResourceType.ROLE:
                 available_roles.append(ResourceName(change.after["name"]))
             elif change.urn.resource_type == ResourceType.ROLE_GRANT:
-                if change.after["to_role"] in available_roles:
+                # Handle role grants to another role that we already have
+                if change.after.get("to_role") and change.after["to_role"] in available_roles:
+                    available_roles.append(ResourceName(change.after["role"]))
+                # Handle role grants to the current user
+                elif current_user and change.after.get("to_user") and ResourceName(change.after["to_user"]) == current_user:
                     available_roles.append(ResourceName(change.after["role"]))
     for change in plan:
         role, commands = sql_commands_for_change(change, available_roles, default_role)
