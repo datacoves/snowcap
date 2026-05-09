@@ -360,6 +360,7 @@ class IcebergRestCatalogIntegration(NamedResource, Resource):
                 oauth_token_uri=StringProp("oauth_token_uri"),
                 oauth_client_id=StringProp("oauth_client_id"),
                 oauth_client_secret=StringProp("oauth_client_secret"),
+                oauth_allowed_scopes=StringProp("oauth_allowed_scopes"),
                 bearer_token=StringProp("bearer_token"),
             ),
         ),
