@@ -1,9 +1,9 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .resource import Resource, ResourceSpec, NamedResource
 from .role import Role
 from ..enums import ParseableEnum, ResourceType
-from ..props import Props, EnumProp, StringProp, BoolProp
+from ..props import Props, EnumProp, StringProp, BoolProp, IntProp, PropSet
 from ..resource_name import ResourceName
 from ..scope import AccountScope
 
@@ -11,6 +11,24 @@ from ..scope import AccountScope
 class CatalogSource(ParseableEnum):
     GLUE = "GLUE"
     OBJECT_STORE = "OBJECT_STORE"
+    ICEBERG_REST = "ICEBERG_REST"
+
+
+class CatalogApiType(ParseableEnum):
+    AWS_GLUE = "AWS_GLUE"
+    AWS_API_GATEWAY = "AWS_API_GATEWAY"
+    PUBLIC = "PUBLIC"
+
+
+class AccessDelegationMode(ParseableEnum):
+    VENDED_CREDENTIALS = "VENDED_CREDENTIALS"
+
+
+class RestAuthenticationType(ParseableEnum):
+    SIGV4 = "SIGV4"
+    OAUTH = "OAUTH"
+    BEARER = "BEARER"
+    NONE = "NONE"
 
 
 class CatalogTableFormat(ParseableEnum):
@@ -212,9 +230,178 @@ class ObjectStoreCatalogIntegration(NamedResource, Resource):
         )
 
 
+@dataclass(unsafe_hash=True)
+class _IcebergRestCatalogIntegration(ResourceSpec):
+    name: ResourceName
+    # rest_config / rest_authentication contain auto-populated fields when
+    # fetched (Snowflake echoes WAREHOUSE = CATALOG_NAME when not explicitly
+    # set, etc.) so we mark them non-fetchable: YAML is authoritative. Same
+    # precedent as Stage.encryption.
+    rest_config: dict = field(default=None, metadata={"fetchable": False})
+    rest_authentication: dict = field(default=None, metadata={"fetchable": False})
+    catalog_namespace: str = None
+    enabled: bool = True
+    refresh_interval_seconds: int = None
+    catalog_source: CatalogSource = CatalogSource.ICEBERG_REST
+    table_format: CatalogTableFormat = CatalogTableFormat.ICEBERG
+    owner: Role = "ACCOUNTADMIN"
+    comment: str = None
+
+    def __post_init__(self):
+        super().__post_init__()
+        if self.catalog_source not in [CatalogSource.ICEBERG_REST]:
+            raise ValueError(f"Invalid catalog source: {self.catalog_source}")
+        if self.table_format not in [CatalogTableFormat.ICEBERG]:
+            raise ValueError(f"Invalid table format: {self.table_format}")
+        if not self.rest_config:
+            raise ValueError("rest_config is required for IcebergRestCatalogIntegration")
+        if "catalog_uri" not in self.rest_config:
+            raise ValueError("rest_config.catalog_uri is required")
+        if not self.rest_authentication:
+            raise ValueError("rest_authentication is required for IcebergRestCatalogIntegration")
+        if "type" not in self.rest_authentication:
+            raise ValueError("rest_authentication.type is required (e.g., SIGV4, OAUTH, BEARER, NONE)")
+
+
+class IcebergRestCatalogIntegration(NamedResource, Resource):
+    """
+    Description:
+        Manages an Apache Iceberg REST catalog integration in Snowflake. This is the
+        right choice for AWS S3 Tables (federated catalogs reachable via the Glue
+        Iceberg REST endpoint) and any other Iceberg REST-compatible catalog.
+
+    Snowflake Docs:
+        https://docs.snowflake.com/en/sql-reference/sql/create-catalog-integration-rest
+
+    Fields:
+        name (string, required): The name of the catalog integration.
+        rest_config (dict, required): Iceberg REST configuration. Required keys:
+            ``catalog_uri``. Common keys: ``catalog_api_type`` (AWS_GLUE,
+            AWS_API_GATEWAY, PUBLIC), ``catalog_name``, ``warehouse``, ``prefix``,
+            ``access_delegation_mode`` (VENDED_CREDENTIALS).
+        rest_authentication (dict, required): Authentication block. Required key:
+            ``type`` (SIGV4, OAUTH, BEARER, NONE). For SIGV4 against AWS, also set
+            ``sigv4_iam_role`` (and optionally ``sigv4_signing_region``,
+            ``sigv4_external_id``). For OAUTH set ``oauth_token_uri``,
+            ``oauth_client_id``, ``oauth_client_secret``, optionally
+            ``oauth_allowed_scopes``. For BEARER set ``bearer_token``.
+        catalog_namespace (string): The default namespace for tables that reference
+            this catalog integration (e.g., a Glue database / S3 Tables namespace).
+        enabled (bool): Whether the catalog integration is enabled. Defaults to True.
+        refresh_interval_seconds (int): Optional metadata refresh interval.
+        table_format (string): The table format. Only ICEBERG is supported.
+        owner (string or Role): The owner role. Defaults to ``ACCOUNTADMIN``.
+        comment (string): Optional comment.
+
+    Python:
+
+        ```python
+        catalog = IcebergRestCatalogIntegration(
+            name="ci_s3_tables_dev",
+            catalog_namespace="my_namespace",
+            rest_config={
+                "catalog_uri": "https://glue.us-east-1.amazonaws.com/iceberg",
+                "catalog_api_type": "AWS_GLUE",
+                "catalog_name": "123456789012:s3tablescatalog/my_table_bucket",
+                "access_delegation_mode": "VENDED_CREDENTIALS",
+            },
+            rest_authentication={
+                "type": "SIGV4",
+                "sigv4_iam_role": "arn:aws:iam::123456789012:role/snowflake-s3-tables-read",
+                "sigv4_signing_region": "us-east-1",
+            },
+            enabled=True,
+        )
+        ```
+
+    Yaml:
+
+        ```yaml
+        catalog_integrations:
+          - name: ci_s3_tables_dev
+            catalog_source: ICEBERG_REST
+            catalog_namespace: my_namespace
+            rest_config:
+              catalog_uri: https://glue.us-east-1.amazonaws.com/iceberg
+              catalog_api_type: AWS_GLUE
+              catalog_name: '123456789012:s3tablescatalog/my_table_bucket'
+              access_delegation_mode: VENDED_CREDENTIALS
+            rest_authentication:
+              type: SIGV4
+              sigv4_iam_role: arn:aws:iam::123456789012:role/snowflake-s3-tables-read
+              sigv4_signing_region: us-east-1
+            enabled: true
+        ```
+    """
+
+    resource_type = ResourceType.CATALOG_INTEGRATION
+    props = Props(
+        catalog_source=EnumProp("catalog_source", CatalogSource),
+        table_format=EnumProp("table_format", CatalogTableFormat),
+        catalog_namespace=StringProp("catalog_namespace"),
+        rest_config=PropSet(
+            "rest_config",
+            Props(
+                catalog_uri=StringProp("catalog_uri"),
+                catalog_api_type=EnumProp("catalog_api_type", CatalogApiType),
+                catalog_name=StringProp("catalog_name"),
+                warehouse=StringProp("warehouse"),
+                prefix=StringProp("prefix"),
+                access_delegation_mode=EnumProp("access_delegation_mode", AccessDelegationMode),
+            ),
+        ),
+        rest_authentication=PropSet(
+            "rest_authentication",
+            Props(
+                type=EnumProp("type", RestAuthenticationType),
+                sigv4_iam_role=StringProp("sigv4_iam_role"),
+                sigv4_signing_region=StringProp("sigv4_signing_region"),
+                sigv4_external_id=StringProp("sigv4_external_id"),
+                oauth_token_uri=StringProp("oauth_token_uri"),
+                oauth_client_id=StringProp("oauth_client_id"),
+                oauth_client_secret=StringProp("oauth_client_secret"),
+                bearer_token=StringProp("bearer_token"),
+            ),
+        ),
+        enabled=BoolProp("enabled"),
+        refresh_interval_seconds=IntProp("refresh_interval_seconds"),
+        comment=StringProp("comment"),
+    )
+    scope = AccountScope()
+    spec = _IcebergRestCatalogIntegration
+
+    def __init__(
+        self,
+        name: str,
+        rest_config: dict,
+        rest_authentication: dict,
+        catalog_namespace: str = None,
+        enabled: bool = True,
+        refresh_interval_seconds: int = None,
+        table_format: CatalogTableFormat = CatalogTableFormat.ICEBERG,
+        owner: str = "ACCOUNTADMIN",
+        comment: str = None,
+        **kwargs,
+    ):
+        kwargs.pop("catalog_source", None)
+        super().__init__(name, **kwargs)
+        self._data: _IcebergRestCatalogIntegration = _IcebergRestCatalogIntegration(
+            name=self._name,
+            rest_config=rest_config,
+            rest_authentication=rest_authentication,
+            catalog_namespace=catalog_namespace,
+            enabled=enabled,
+            refresh_interval_seconds=refresh_interval_seconds,
+            table_format=table_format,
+            owner=owner,
+            comment=comment,
+        )
+
+
 CatalogIntegrationMap = {
     CatalogSource.GLUE: GlueCatalogIntegration,
     CatalogSource.OBJECT_STORE: ObjectStoreCatalogIntegration,
+    CatalogSource.ICEBERG_REST: IcebergRestCatalogIntegration,
 }
 
 

@@ -1410,8 +1410,61 @@ def fetch_catalog_integration(session: SnowflakeConnection, fqn: FQN):
             "owner": owner,
             "comment": data["comment"] or None,
         }
+    elif properties["catalog_source"] == "ICEBERG_REST":
+        # REST_CONFIG / REST_AUTHENTICATION come back from DESC as EnumMap-typed
+        # values. They're declared non-fetchable on the dataclass (YAML is the
+        # source of truth), but we still parse them so consumers introspecting
+        # the fetched state can see what's there.
+        return {
+            "name": _quote_snowflake_identifier(data["name"]),
+            "catalog_source": properties["catalog_source"],
+            "table_format": properties["table_format"],
+            "catalog_namespace": properties.get("catalog_namespace"),
+            "rest_config": _parse_enum_map(properties.get("rest_config")),
+            "rest_authentication": _parse_enum_map(properties.get("rest_authentication")),
+            "enabled": properties["enabled"],
+            "refresh_interval_seconds": properties.get("refresh_interval_seconds"),
+            "owner": owner,
+            "comment": data["comment"] or None,
+        }
     else:
         raise Exception(f"Unsupported catalog integration: {properties['catalog_source']}")
+
+
+def _parse_enum_map(value):
+    """Parse Snowflake DESC EnumMap values like '{KEY=VAL, KEY=VAL}' into a dict.
+
+    Values may contain '=' (e.g., URLs, base64) so we split each key=value pair
+    on the first '=' only. Empty/None inputs return None. 'null' values map to
+    None to match Snowflake's representation.
+    """
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return value
+    if not isinstance(value, str):
+        return value
+    body = value.strip()
+    if not body.startswith("{") or not body.endswith("}"):
+        return value
+    body = body[1:-1].strip()
+    if not body:
+        return {}
+    out = {}
+    # Snowflake separates pairs with ", " — values don't contain literal ", " so
+    # this is safe enough; falls back to single-pair if no comma. Drop null
+    # values so the parsed dict only contains explicitly-set fields (Snowflake
+    # echoes optional fields as null when unset).
+    for pair in body.split(", "):
+        if "=" not in pair:
+            continue
+        k, v = pair.split("=", 1)
+        k = k.strip().lower()
+        v = v.strip()
+        if v == "null" or v == "":
+            continue
+        out[k] = v
+    return out
 
 
 def fetch_columns(session: SnowflakeConnection, resource_type: str, fqn: FQN):

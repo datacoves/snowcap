@@ -4,7 +4,11 @@ from .aggregation_policy import AggregationPolicy
 from .alert import Alert
 from .api_integration import APIIntegration
 from .authentication_policy import AuthenticationPolicy
-from .catalog_integration import GlueCatalogIntegration, ObjectStoreCatalogIntegration
+from .catalog_integration import (
+    GlueCatalogIntegration,
+    IcebergRestCatalogIntegration,
+    ObjectStoreCatalogIntegration,
+)
 from .column import Column
 from .compute_pool import ComputePool
 from .database import Database
@@ -102,6 +106,7 @@ __all__ = [
     "GlueCatalogIntegration",
     "Grant",
     "HybridTable",
+    "IcebergRestCatalogIntegration",
     "ImageRepository",
     "InternalStage",
     "JavascriptUDF",
