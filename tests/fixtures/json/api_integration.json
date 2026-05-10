@@ -4,6 +4,9 @@
     "api_provider": "AWS_API_GATEWAY",
     "api_key": "api-987654321",
     "api_aws_role_arn": "arn:aws:iam::123456789012:role/my_cloud_account_role",
+    "azure_tenant_id": null,
+    "azure_ad_application_id": null,
+    "google_audience": null,
     "api_allowed_prefixes": [
         "https://xyz.execute-api.us-west-2.amazonaws.com/production"
     ],

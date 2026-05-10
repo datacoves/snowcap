@@ -1070,6 +1070,42 @@ class TestAPIIntegration:
         assert api.name == "test_api"
         assert api.resource_type == ResourceType.API_INTEGRATION
 
+    def test_api_integration_git_https_no_aws_role(self):
+        """Non-AWS api_provider (GIT_HTTPS_API) doesn't require api_aws_role_arn."""
+        api = res.APIIntegration(
+            name="github_int",
+            api_provider="GIT_HTTPS_API",
+            api_allowed_prefixes=["https://github.com/some-org/"],
+            enabled=True,
+        )
+        assert api._data.api_aws_role_arn is None
+        assert api._data.api_provider.value == "GIT_HTTPS_API"
+
+    def test_api_integration_azure(self):
+        """AZURE_API_MANAGEMENT provider uses azure_tenant_id + azure_ad_application_id."""
+        api = res.APIIntegration(
+            name="azure_int",
+            api_provider="AZURE_API_MANAGEMENT",
+            azure_tenant_id="11111111-1111-1111-1111-111111111111",
+            azure_ad_application_id="22222222-2222-2222-2222-222222222222",
+            api_allowed_prefixes=["https://example.azure-api.net/"],
+            enabled=True,
+        )
+        assert api._data.azure_tenant_id is not None
+        assert api._data.api_aws_role_arn is None
+
+    def test_api_integration_google(self):
+        """GOOGLE_API_GATEWAY provider uses google_audience."""
+        api = res.APIIntegration(
+            name="gcp_int",
+            api_provider="GOOGLE_API_GATEWAY",
+            google_audience="some-audience-arn",
+            api_allowed_prefixes=["https://example.run.app/"],
+            enabled=True,
+        )
+        assert api._data.google_audience == "some-audience-arn"
+        assert api._data.api_aws_role_arn is None
+
 
 class TestGenericIntegrationGrants:
     """Tests for ResourceType.INTEGRATION (umbrella) grants."""

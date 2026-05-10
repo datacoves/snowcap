@@ -1335,13 +1335,22 @@ def fetch_api_integration(session: SnowflakeConnection, fqn: FQN):
     properties = _desc_type2_result_to_dict(desc_result, lower_properties=True)
     owner = _fetch_owner(session, "INTEGRATION", fqn)
 
+    # Different api_provider values return different DESC properties:
+    #   AWS_API_GATEWAY family  -> api_aws_role_arn
+    #   AZURE_API_MANAGEMENT    -> azure_tenant_id, azure_ad_application_id
+    #   GOOGLE_API_GATEWAY      -> google_audience
+    #   GIT_HTTPS_API           -> none of the above
+    # Use .get() so missing fields fall back to None instead of crashing.
     return {
         "name": _quote_snowflake_identifier(data["name"]),
         "api_provider": properties["api_provider"],
-        "api_aws_role_arn": properties["api_aws_role_arn"],
+        "api_aws_role_arn": properties.get("api_aws_role_arn") or None,
+        "azure_tenant_id": properties.get("azure_tenant_id") or None,
+        "azure_ad_application_id": properties.get("azure_ad_application_id") or None,
+        "google_audience": properties.get("google_audience") or None,
         "enabled": properties["enabled"],
-        "api_allowed_prefixes": properties["api_allowed_prefixes"],
-        "api_blocked_prefixes": properties["api_blocked_prefixes"],
+        "api_allowed_prefixes": properties.get("api_allowed_prefixes"),
+        "api_blocked_prefixes": properties.get("api_blocked_prefixes"),
         "owner": owner,
         "comment": data["comment"] or None,
     }
