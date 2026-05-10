@@ -909,6 +909,36 @@ class TestSecret:
         assert secret.name == "test_secret"
 
 
+class TestGitRepository:
+    """Tests for GitRepository resource."""
+
+    def test_git_repository_minimal(self):
+        """Test GitRepository with minimal required properties."""
+        repo = res.GitRepository(
+            name="test_repo",
+            database="test_db",
+            schema="test_schema",
+            origin="https://github.com/some-org/some-repo.git",
+            api_integration="my_api_integration",
+        )
+        assert repo.name == "test_repo"
+        assert repo.resource_type == ResourceType.GIT_REPOSITORY
+
+    def test_git_repository_with_credentials(self):
+        """Test GitRepository with optional git_credentials secret."""
+        repo = res.GitRepository(
+            name="test_repo",
+            database="test_db",
+            schema="test_schema",
+            origin="https://github.com/some-org/some-repo.git",
+            api_integration="my_api_integration",
+            git_credentials="my_secret",
+            comment="A private repo",
+        )
+        assert repo._data.git_credentials == "my_secret"
+        assert repo._data.comment == "A private repo"
+
+
 class TestPasswordPolicy:
     """Tests for PasswordPolicy resource."""
 

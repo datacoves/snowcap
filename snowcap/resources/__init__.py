@@ -16,6 +16,7 @@ from .external_volume import ExternalVolume
 from .failover_group import FailoverGroup
 from .file_format import CSVFileFormat, JSONFileFormat, ParquetFileFormat
 from .function import JavascriptUDF, PythonUDF
+from .git_repository import GitRepository
 from .grant import DatabaseRoleGrant, Grant, RoleGrant
 from .hybrid_table import HybridTable
 from .iceberg_table import SnowflakeIcebergTable
@@ -99,6 +100,7 @@ __all__ = [
     "GCPOutboundNotificationIntegration",
     "GCSStorageIntegration",
     "GenericSecret",
+    "GitRepository",
     "GlueCatalogIntegration",
     "Grant",
     "HybridTable",

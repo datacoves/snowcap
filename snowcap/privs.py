@@ -278,6 +278,12 @@ class SecretPriv(Priv):
     USAGE = "USAGE"
 
 
+class GitRepositoryPriv(Priv):
+    OWNERSHIP = "OWNERSHIP"
+    READ = "READ"
+    WRITE = "WRITE"
+
+
 class SequencePriv(Priv):
     ALL = "ALL"
     OWNERSHIP = "OWNERSHIP"
@@ -389,7 +395,7 @@ PRIVS_FOR_RESOURCE_TYPE: dict[ResourceType, Optional[type[Priv]]] = {
     ResourceType.FAILOVER_GROUP: FailoverGroupPriv,
     ResourceType.FILE_FORMAT: FileFormatPriv,
     ResourceType.FUNCTION: FunctionPriv,
-    ResourceType.GIT_REPOSITORY: None,
+    ResourceType.GIT_REPOSITORY: GitRepositoryPriv,
     ResourceType.GRANT: None,
     ResourceType.HYBRID_TABLE: None,
     ResourceType.ICEBERG_TABLE: IcebergTablePriv,
@@ -445,6 +451,7 @@ CREATE_PRIV_FOR_RESOURCE_TYPE: dict[ResourceType, ParseableEnum] = {
     ResourceType.FAILOVER_GROUP: AccountPriv.CREATE_FAILOVER_GROUP,
     ResourceType.FILE_FORMAT: SchemaPriv.CREATE_FILE_FORMAT,
     ResourceType.FUNCTION: SchemaPriv.CREATE_FUNCTION,
+    ResourceType.GIT_REPOSITORY: SchemaPriv.CREATE_GIT_REPOSITORY,
     # ResourceType.GRANT: AccountPriv.CREATE_GRANT,
     ResourceType.MATERIALIZED_VIEW: SchemaPriv.CREATE_MATERIALIZED_VIEW,
     ResourceType.NETWORK_POLICY: AccountPriv.CREATE_NETWORK_POLICY,

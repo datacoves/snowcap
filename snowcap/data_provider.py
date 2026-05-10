@@ -2348,6 +2348,23 @@ def fetch_schema(session: SnowflakeConnection, fqn: FQN, include_params: bool = 
     }
 
 
+def fetch_git_repository(session: SnowflakeConnection, fqn: FQN):
+    show_result = _show_resources(session, "GIT REPOSITORIES", fqn)
+    if len(show_result) == 0:
+        return None
+    if len(show_result) > 1:
+        raise Exception(f"Found multiple git repositories matching {fqn}")
+    data = show_result[0]
+    return {
+        "name": _quote_snowflake_identifier(data["name"]),
+        "origin": data["origin"],
+        "api_integration": data["api_integration"],
+        "git_credentials": data.get("git_credentials") or None,
+        "comment": data["comment"] or None,
+        "owner": _get_owner_identifier(data),
+    }
+
+
 def fetch_secret(session: SnowflakeConnection, fqn: FQN):
     show_result = _show_resources(session, "SECRETS", fqn)
     if len(show_result) == 0:
@@ -3828,6 +3845,10 @@ def list_schemas(session: SnowflakeConnection, database=None) -> list[FQN]:
         if err.errno == OBJECT_DOES_NOT_EXIST_ERR:
             return []
         raise
+
+
+def list_git_repositories(session: SnowflakeConnection) -> list[FQN]:
+    return list_schema_scoped_resource(session, "GIT REPOSITORIES")
 
 
 def list_secrets(session: SnowflakeConnection) -> list[FQN]:

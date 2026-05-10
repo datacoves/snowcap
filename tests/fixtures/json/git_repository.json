@@ -1,0 +1,8 @@
+{
+    "name": "my_git_repository",
+    "origin": "https://github.com/some-org/some-repo.git",
+    "api_integration": "my_api_integration",
+    "git_credentials": "my_git_secret",
+    "comment": "Example git repository",
+    "owner": "SYSADMIN"
+}
