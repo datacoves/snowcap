@@ -1595,6 +1595,34 @@ def fetch_event_table(session: SnowflakeConnection, fqn: FQN):
     }
 
 
+def fetch_integration(session: SnowflakeConnection, fqn: FQN):
+    """
+    Fetch any integration regardless of concrete subtype.
+
+    Backs the generic `ResourceType.INTEGRATION` registered in RESOURCE_SCOPES so
+    that grants like `on: integration <fqn>` parse and resolve (Snowflake's
+    `GRANT USAGE ON INTEGRATION <name>` syntax accepts any subtype; this fetcher
+    returns the minimum SHOW INTEGRATIONS metadata so the grant's required-ref
+    check succeeds).
+    """
+    show_result = execute(session, "SHOW INTEGRATIONS", cacheable=True)
+    show_result = _filter_result(show_result, name=fqn.name)
+    if len(show_result) == 0:
+        return None
+    if len(show_result) > 1:
+        raise Exception(f"Found multiple integrations matching {fqn}")
+    data = show_result[0]
+    owner = _fetch_owner(session, "INTEGRATION", fqn)
+    return {
+        "name": _quote_snowflake_identifier(data["name"]),
+        "type": data["type"],
+        "category": data["category"],
+        "enabled": data["enabled"] == "true",
+        "comment": data["comment"] or None,
+        "owner": owner,
+    }
+
+
 def fetch_external_access_integration(session: SnowflakeConnection, fqn: FQN):
     integrations = _show_resources(session, "EXTERNAL ACCESS INTEGRATIONS", fqn)
     if len(integrations) == 0:
@@ -3326,6 +3354,17 @@ def list_database_role_grants(
 
 def list_dynamic_tables(session: SnowflakeConnection) -> list[FQN]:
     return list_schema_scoped_resource(session, "DYNAMIC TABLES")
+
+
+def list_integrations(session: SnowflakeConnection) -> list[FQN]:
+    """List every integration in the account (any subtype).
+
+    Backs the generic `ResourceType.INTEGRATION` (umbrella). Concrete subtypes
+    (API/CATALOG/EXTERNAL_ACCESS/NOTIFICATION/SECURITY/STORAGE) still have their
+    own list_*_integrations functions for typed manifests.
+    """
+    show_result = execute(session, "SHOW INTEGRATIONS", cacheable=True)
+    return [FQN(name=resource_name_from_snowflake_metadata(row["name"])) for row in show_result]
 
 
 def list_external_access_integrations(session: SnowflakeConnection) -> list[FQN]:

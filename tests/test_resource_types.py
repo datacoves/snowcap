@@ -1071,6 +1071,30 @@ class TestAPIIntegration:
         assert api.resource_type == ResourceType.API_INTEGRATION
 
 
+class TestGenericIntegrationGrants:
+    """Tests for ResourceType.INTEGRATION (umbrella) grants."""
+
+    def test_generic_integration_grant_parses(self):
+        """`on: integration <fqn>` parses to ResourceType.INTEGRATION (no longer KeyError)."""
+        grant = res.Grant(priv="USAGE", on="integration SOME_INTEGRATION", to="somerole")
+        assert grant._data.on_type == ResourceType.INTEGRATION
+        assert grant._data.on == "SOME_INTEGRATION"
+
+    def test_generic_integration_list_grant_expands(self):
+        """List form of generic integration grants works with the on:list expansion."""
+        grant = res.Grant(
+            priv="USAGE",
+            on=["integration A", "integration B"],
+            to="somerole",
+        )
+        assert grant._data.on_type == ResourceType.INTEGRATION
+        assert grant.rest_of_ons == ["integration B"]
+        rest = grant.process_shortcuts()
+        assert len(rest) == 1
+        assert rest[0]._data.on_type == ResourceType.INTEGRATION
+        assert rest[0]._data.on == "B"
+
+
 class TestShare:
     """Tests for Share resource."""
 

@@ -279,6 +279,14 @@ class ResourceSpec:
 
 RESOURCE_SCOPES = {
     ResourceType.ACCOUNT: OrganizationScope(),
+    # Generic INTEGRATION — umbrella for API/CATALOG/EXTERNAL_ACCESS/NOTIFICATION/
+    # SECURITY/STORAGE integrations. Snowflake's `GRANT USAGE ON INTEGRATION <name>`
+    # syntax accepts any subtype; users naturally write `on: integration <fqn>` in
+    # snowcap YAML, so we register an AccountScope here to let those grants parse.
+    # We don't expose a concrete `Integration` resource class — declarative
+    # management still goes through the specific subtypes (APIIntegration,
+    # CatalogIntegration, etc.).
+    ResourceType.INTEGRATION: AccountScope(),
 }
 
 
