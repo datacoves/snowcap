@@ -547,3 +547,74 @@ class TestRoleGrantsWithRolesList:
         blueprint_config = collect_blueprint_config(config)
         # 1 + 2 + 2 = 5 grants total
         assert len(blueprint_config.resources) == 5
+
+
+class TestGrantOnList:
+    """Tests for `on:` list expansion (multiple grants from one entry)."""
+
+    def test_on_list_of_plain_objects_expands_to_multiple_grants(self):
+        """Test: on: [warehouse FOO, warehouse BAR] expands to 2 grants."""
+        grant = res.Grant(
+            priv="USAGE",
+            on=["warehouse FOO", "warehouse BAR"],
+            to="somerole",
+        )
+        assert grant.priv == "USAGE"
+        assert grant.on == "FOO"
+        assert grant.on_type == ResourceType.WAREHOUSE
+        assert grant.rest_of_ons == ["warehouse BAR"]
+        additional = grant.process_shortcuts()
+        assert len(additional) == 1
+        assert additional[0].on == "BAR"
+        assert additional[0].on_type == ResourceType.WAREHOUSE
+
+    def test_on_list_of_mixed_resource_types(self):
+        """Test: on: [warehouse FOO, database BAR] expands to 2 grants of different types."""
+        grant = res.Grant(
+            priv="USAGE",
+            on=["warehouse FOO", "database BAR"],
+            to="somerole",
+        )
+        assert grant.on == "FOO"
+        assert grant.on_type == ResourceType.WAREHOUSE
+        additional = grant.process_shortcuts()
+        assert len(additional) == 1
+        assert additional[0].on == "BAR"
+        assert additional[0].on_type == ResourceType.DATABASE
+
+    def test_on_list_of_multiword_types(self):
+        """Test: on: list of multi-word resource types (git repository) expands."""
+        grant = res.Grant(
+            priv="READ",
+            on=["git repository D.S.A", "git repository D.S.B"],
+            to="somerole",
+        )
+        assert grant.on_type == ResourceType.GIT_REPOSITORY
+        additional = grant.process_shortcuts()
+        assert len(additional) == 1
+        assert additional[0].on_type == ResourceType.GIT_REPOSITORY
+        assert additional[0].on == "D.S.B"
+
+    def test_on_list_4_element_grant_type_form_unchanged(self):
+        """Test: existing on: [FUTURE/ALL, items, object_type, object] form still
+        parses as a single grant (not expanded into multiple)."""
+        grant = res.Grant(
+            priv="SELECT",
+            on=["FUTURE", "TABLES", "SCHEMA", "D.S"],
+            to="somerole",
+        )
+        assert grant.rest_of_ons == []
+        assert grant.on == "D.S"
+        assert grant.on_type == ResourceType.SCHEMA
+
+    def test_on_list_of_all_future_grants_still_expands(self):
+        """Test: on: [all schemas in DB X, future schemas in DB X] still expands
+        (existing behavior preserved)."""
+        grant = res.Grant(
+            priv="USAGE",
+            on=["all schemas in database raw_prd", "future schemas in database raw_prd"],
+            to="somerole",
+        )
+        assert grant.rest_of_ons == ["future schemas in database raw_prd"]
+        additional = grant.process_shortcuts()
+        assert len(additional) == 1

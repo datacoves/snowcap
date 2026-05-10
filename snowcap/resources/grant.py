@@ -183,15 +183,27 @@ class Grant(Resource):
             else:
                 raise ValueError("You must specify at least one privilege")
         if isinstance(on, list):
-            has_many_ons = True
+            # A list of `on:` items is one of two things:
+            #
+            # (1) A single grant whose target is described by a multi-element
+            #     spec, like ["FUTURE", "TABLES", "SCHEMA", "db.schema"] or
+            #     ["ALL", "TABLES", Schema(name=...)].
+            # (2) Multiple grants — one per item — where each item is a
+            #     complete `on` spec (e.g. ["warehouse FOO", "warehouse BAR"]
+            #     or ["all schemas in database X", "future schemas in database X"]).
+            #
+            # Heuristic: form (1) starts with the keyword FUTURE or ALL as its
+            # first element. Anything else is form (2).
+            first = on[0]
+            first_is_grant_type_keyword = (
+                isinstance(first, str)
+                and first.upper() in (GrantType.FUTURE, GrantType.ALL)
+            )
             for item in on:
-                if isinstance(item, str):
-                    if item.upper().find(GrantType.FUTURE) == -1 and item.upper().find(GrantType.ALL) == -1:
-                        has_many_ons = False
-                        break
-                elif isinstance(item, list):
+                if isinstance(item, list):
                     if item[0].upper() not in (GrantType.FUTURE, GrantType.ALL):
                         raise ValueError("You must specify a valid Grant Type when specifying a list of grants")
+            has_many_ons = not first_is_grant_type_keyword
             if has_many_ons:
                 self.rest_of_ons = on[1:]
                 on = on[0]
