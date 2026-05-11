@@ -30,7 +30,7 @@ connection_params = {
     "password": os.environ.get("SNOWFLAKE_PASSWORD"),
 }
 
-_EXECUTION_CACHE = {}
+_EXECUTION_CACHE: dict[str, Any] = {}
 _EXECUTION_CACHE_LOCK = threading.Lock()
 # Track queries currently being executed to prevent duplicate execution
 _PENDING_QUERIES: dict[tuple[str, str], threading.Event] = {}
