@@ -183,15 +183,27 @@ class Grant(Resource):
             else:
                 raise ValueError("You must specify at least one privilege")
         if isinstance(on, list):
-            has_many_ons = True
+            # A list of `on:` items is one of two things:
+            #
+            # (1) A single grant whose target is described by a multi-element
+            #     spec, like ["FUTURE", "TABLES", "SCHEMA", "db.schema"] or
+            #     ["ALL", "TABLES", Schema(name=...)].
+            # (2) Multiple grants — one per item — where each item is a
+            #     complete `on` spec (e.g. ["warehouse FOO", "warehouse BAR"]
+            #     or ["all schemas in database X", "future schemas in database X"]).
+            #
+            # Heuristic: form (1) starts with the keyword FUTURE or ALL as its
+            # first element. Anything else is form (2).
+            first = on[0]
+            first_is_grant_type_keyword = (
+                isinstance(first, str)
+                and first.upper() in (GrantType.FUTURE, GrantType.ALL)
+            )
             for item in on:
-                if isinstance(item, str):
-                    if item.upper().find(GrantType.FUTURE) == -1 and item.upper().find(GrantType.ALL) == -1:
-                        has_many_ons = False
-                        break
-                elif isinstance(item, list):
+                if isinstance(item, list):
                     if item[0].upper() not in (GrantType.FUTURE, GrantType.ALL):
                         raise ValueError("You must specify a valid Grant Type when specifying a list of grants")
+            has_many_ons = not first_is_grant_type_keyword
             if has_many_ons:
                 self.rest_of_ons = on[1:]
                 on = on[0]
@@ -256,16 +268,41 @@ class Grant(Resource):
                     # Split the string while preserving case for the FQN part
                     # "SCHEMA db.schema" -> ["SCHEMA", "db.schema"]
                     # "FUTURE TABLES IN SCHEMA db.schema" -> ["FUTURE", "TABLES", "SCHEMA", "db.schema"]
+                    # "GIT REPOSITORY db.schema.repo" -> ["GIT REPOSITORY", "db.schema.repo"]
+                    # Multi-word resource types (GIT REPOSITORY, API INTEGRATION,
+                    # NETWORK RULE, IMAGE REPOSITORY, etc.) are matched by looking
+                    # ahead to consume consecutive words.
+                    resource_type_values = {e.value for e in ResourceType}
+                    multi_word_types = sorted(
+                        (v for v in resource_type_values if " " in v),
+                        key=lambda v: -len(v.split()),
+                    )
                     parts = on.split(" ")
                     on_items = []
-                    for i, part in enumerate(parts):
+                    i = 0
+                    while i < len(parts):
+                        part = parts[i]
                         if part.upper() == "IN":
+                            i += 1
                             continue
-                        # Uppercase only keyword parts (SCHEMA, TABLE, FUTURE, ALL, etc.)
-                        # but preserve case for the last item which is the FQN
-                        # Note: we normalize underscores to spaces to match ResourceType values
+                        # Try to match a multi-word resource type first
+                        # (e.g. "git repository" or "external access integration")
+                        matched_multi = None
+                        for mw in multi_word_types:
+                            mw_words = mw.split()
+                            if i + len(mw_words) <= len(parts):
+                                candidate = " ".join(parts[i : i + len(mw_words)]).upper()
+                                if candidate == mw:
+                                    matched_multi = mw
+                                    break
+                        if matched_multi is not None:
+                            on_items.append(matched_multi)
+                            i += len(matched_multi.split())
+                            continue
+                        # Single-word matches: ResourceType values or
+                        # GrantType.FUTURE / GrantType.ALL keywords
                         part_normalized = part.upper().replace("_", " ")
-                        if part_normalized in [e.value for e in ResourceType] or part.upper() in [
+                        if part_normalized in resource_type_values or part.upper() in [
                             GrantType.FUTURE,
                             GrantType.ALL,
                         ]:
@@ -273,6 +310,7 @@ class Grant(Resource):
                         elif part:
                             # This is likely the FQN - preserve case
                             on_items.append(part)
+                        i += 1
                 if len(on_items) < 2:
                     raise ValueError("You must specify at least three parameters: [grant_type, items_type, object]")
                 elif on_items[0].upper() in [e.value for e in ResourceType]:

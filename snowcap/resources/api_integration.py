@@ -9,20 +9,34 @@ from .role import Role
 
 
 class ApiProvider(ParseableEnum):
+    # AWS API Gateway flavors
     AWS_API_GATEWAY = "AWS_API_GATEWAY"
     AWS_PRIVATE_API_GATEWAY = "AWS_PRIVATE_API_GATEWAY"
     AWS_GOV_API_GATEWAY = "AWS_GOV_API_GATEWAY"
     AWS_GOV_PRIVATE_API_GATEWAY = "AWS_GOV_PRIVATE_API_GATEWAY"
+    # Azure / Google
+    AZURE_API_MANAGEMENT = "AZURE_API_MANAGEMENT"
+    GOOGLE_API_GATEWAY = "GOOGLE_API_GATEWAY"
+    # Git integration (used by CREATE GIT REPOSITORY via api_integration=...)
+    GIT_HTTPS_API = "GIT_HTTPS_API"
 
 
 @dataclass(unsafe_hash=True)
 class _APIIntegration(ResourceSpec):
     name: ResourceName
     api_provider: ApiProvider
-    api_aws_role_arn: str
     enabled: bool
     api_allowed_prefixes: list[str]
     api_blocked_prefixes: list[str] = None
+    # AWS-only: AWS IAM role used by Snowflake to call the gateway.
+    # Other providers (GIT_HTTPS_API, AZURE_API_MANAGEMENT, GOOGLE_API_GATEWAY)
+    # don't use this field.
+    api_aws_role_arn: str = None
+    # Azure-only: tenant ID + AD application ID.
+    azure_tenant_id: str = None
+    azure_ad_application_id: str = None
+    # Google-only: GCP audience.
+    google_audience: str = None
     api_key: str = field(default=None, metadata={"fetchable": False})
     owner: Role = "ACCOUNTADMIN"
     comment: str = None
@@ -81,6 +95,9 @@ class APIIntegration(NamedResource, Resource):
     props = Props(
         api_provider=EnumProp("api_provider", ApiProvider),
         api_aws_role_arn=StringProp("api_aws_role_arn"),
+        azure_tenant_id=StringProp("azure_tenant_id"),
+        azure_ad_application_id=StringProp("azure_ad_application_id"),
+        google_audience=StringProp("google_audience"),
         api_key=StringProp("api_key"),
         api_allowed_prefixes=StringListProp("api_allowed_prefixes", parens=True),
         api_blocked_prefixes=StringListProp("api_blocked_prefixes", parens=True),
@@ -94,10 +111,17 @@ class APIIntegration(NamedResource, Resource):
         self,
         name: str,
         api_provider: ApiProvider,
-        api_aws_role_arn: str,
-        enabled: bool,
-        api_allowed_prefixes: list[str],
+        # NB: api_aws_role_arn was previously a required positional arg.
+        # It is now optional (default None) so non-AWS api_provider values
+        # (GIT_HTTPS_API, AZURE_API_MANAGEMENT, GOOGLE_API_GATEWAY) can omit
+        # it. Positional order preserved to keep existing callers working.
+        api_aws_role_arn: str = None,
+        enabled: bool = True,
+        api_allowed_prefixes: list[str] = None,
         api_blocked_prefixes: list[str] = None,
+        azure_tenant_id: str = None,
+        azure_ad_application_id: str = None,
+        google_audience: str = None,
         api_key: str = None,
         owner: str = "ACCOUNTADMIN",
         comment: str = None,
@@ -108,6 +132,9 @@ class APIIntegration(NamedResource, Resource):
             name=self._name,
             api_provider=api_provider,
             api_aws_role_arn=api_aws_role_arn,
+            azure_tenant_id=azure_tenant_id,
+            azure_ad_application_id=azure_ad_application_id,
+            google_audience=google_audience,
             api_key=api_key,
             api_allowed_prefixes=api_allowed_prefixes,
             api_blocked_prefixes=api_blocked_prefixes,

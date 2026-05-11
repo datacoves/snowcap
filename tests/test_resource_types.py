@@ -909,6 +909,36 @@ class TestSecret:
         assert secret.name == "test_secret"
 
 
+class TestGitRepository:
+    """Tests for GitRepository resource."""
+
+    def test_git_repository_minimal(self):
+        """Test GitRepository with minimal required properties."""
+        repo = res.GitRepository(
+            name="test_repo",
+            database="test_db",
+            schema="test_schema",
+            origin="https://github.com/some-org/some-repo.git",
+            api_integration="my_api_integration",
+        )
+        assert repo.name == "test_repo"
+        assert repo.resource_type == ResourceType.GIT_REPOSITORY
+
+    def test_git_repository_with_credentials(self):
+        """Test GitRepository with optional git_credentials secret."""
+        repo = res.GitRepository(
+            name="test_repo",
+            database="test_db",
+            schema="test_schema",
+            origin="https://github.com/some-org/some-repo.git",
+            api_integration="my_api_integration",
+            git_credentials="my_secret",
+            comment="A private repo",
+        )
+        assert repo._data.git_credentials == "my_secret"
+        assert repo._data.comment == "A private repo"
+
+
 class TestPasswordPolicy:
     """Tests for PasswordPolicy resource."""
 
@@ -1039,6 +1069,66 @@ class TestAPIIntegration:
         )
         assert api.name == "test_api"
         assert api.resource_type == ResourceType.API_INTEGRATION
+
+    def test_api_integration_git_https_no_aws_role(self):
+        """Non-AWS api_provider (GIT_HTTPS_API) doesn't require api_aws_role_arn."""
+        api = res.APIIntegration(
+            name="github_int",
+            api_provider="GIT_HTTPS_API",
+            api_allowed_prefixes=["https://github.com/some-org/"],
+            enabled=True,
+        )
+        assert api._data.api_aws_role_arn is None
+        assert api._data.api_provider.value == "GIT_HTTPS_API"
+
+    def test_api_integration_azure(self):
+        """AZURE_API_MANAGEMENT provider uses azure_tenant_id + azure_ad_application_id."""
+        api = res.APIIntegration(
+            name="azure_int",
+            api_provider="AZURE_API_MANAGEMENT",
+            azure_tenant_id="11111111-1111-1111-1111-111111111111",
+            azure_ad_application_id="22222222-2222-2222-2222-222222222222",
+            api_allowed_prefixes=["https://example.azure-api.net/"],
+            enabled=True,
+        )
+        assert api._data.azure_tenant_id is not None
+        assert api._data.api_aws_role_arn is None
+
+    def test_api_integration_google(self):
+        """GOOGLE_API_GATEWAY provider uses google_audience."""
+        api = res.APIIntegration(
+            name="gcp_int",
+            api_provider="GOOGLE_API_GATEWAY",
+            google_audience="some-audience-arn",
+            api_allowed_prefixes=["https://example.run.app/"],
+            enabled=True,
+        )
+        assert api._data.google_audience == "some-audience-arn"
+        assert api._data.api_aws_role_arn is None
+
+
+class TestGenericIntegrationGrants:
+    """Tests for ResourceType.INTEGRATION (umbrella) grants."""
+
+    def test_generic_integration_grant_parses(self):
+        """`on: integration <fqn>` parses to ResourceType.INTEGRATION (no longer KeyError)."""
+        grant = res.Grant(priv="USAGE", on="integration SOME_INTEGRATION", to="somerole")
+        assert grant._data.on_type == ResourceType.INTEGRATION
+        assert grant._data.on == "SOME_INTEGRATION"
+
+    def test_generic_integration_list_grant_expands(self):
+        """List form of generic integration grants works with the on:list expansion."""
+        grant = res.Grant(
+            priv="USAGE",
+            on=["integration A", "integration B"],
+            to="somerole",
+        )
+        assert grant._data.on_type == ResourceType.INTEGRATION
+        assert grant.rest_of_ons == ["integration B"]
+        rest = grant.process_shortcuts()
+        assert len(rest) == 1
+        assert rest[0]._data.on_type == ResourceType.INTEGRATION
+        assert rest[0]._data.on == "B"
 
 
 class TestShare:

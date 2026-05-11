@@ -300,6 +300,34 @@ def test_fetch_api_integration(cursor, suffix, marked_for_cleanup):
     assert result == data
 
 
+def test_fetch_git_repository(cursor, suffix, marked_for_cleanup):
+    api_integration = res.APIIntegration(
+        name=f"API_INTEGRATION_FOR_GIT_REPO_{suffix}",
+        api_provider="AWS_API_GATEWAY",
+        api_aws_role_arn="arn:aws:iam::123456789012:role/MyRole",
+        api_allowed_prefixes=["https://github.com/"],
+        comment="API integration for git repo test",
+        enabled=True,
+        owner=TEST_ROLE,
+    )
+    create(cursor, api_integration)
+    marked_for_cleanup.append(api_integration)
+
+    repo = res.GitRepository(
+        name=f"GIT_REPOSITORY_EXAMPLE_{suffix}",
+        origin="https://github.com/some-org/some-repo.git",
+        api_integration=api_integration.name,
+        comment="Example git repository (public)",
+        owner=TEST_ROLE,
+    )
+    create(cursor, repo)
+    marked_for_cleanup.append(repo)
+
+    result = safe_fetch(cursor, repo.urn)
+    assert result is not None
+    assert_resource_dicts_eq_ignore_nulls_and_unfetchable(repo.spec, result, repo.to_dict())
+
+
 def test_fetch_password_secret(cursor, suffix, marked_for_cleanup):
     secret = res.PasswordSecret(
         name=f"PASSWORD_SECRET_EXAMPLE_{suffix}",

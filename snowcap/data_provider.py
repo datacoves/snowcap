@@ -1335,13 +1335,22 @@ def fetch_api_integration(session: SnowflakeConnection, fqn: FQN):
     properties = _desc_type2_result_to_dict(desc_result, lower_properties=True)
     owner = _fetch_owner(session, "INTEGRATION", fqn)
 
+    # Different api_provider values return different DESC properties:
+    #   AWS_API_GATEWAY family  -> api_aws_role_arn
+    #   AZURE_API_MANAGEMENT    -> azure_tenant_id, azure_ad_application_id
+    #   GOOGLE_API_GATEWAY      -> google_audience
+    #   GIT_HTTPS_API           -> none of the above
+    # Use .get() so missing fields fall back to None instead of crashing.
     return {
         "name": _quote_snowflake_identifier(data["name"]),
         "api_provider": properties["api_provider"],
-        "api_aws_role_arn": properties["api_aws_role_arn"],
+        "api_aws_role_arn": properties.get("api_aws_role_arn") or None,
+        "azure_tenant_id": properties.get("azure_tenant_id") or None,
+        "azure_ad_application_id": properties.get("azure_ad_application_id") or None,
+        "google_audience": properties.get("google_audience") or None,
         "enabled": properties["enabled"],
-        "api_allowed_prefixes": properties["api_allowed_prefixes"],
-        "api_blocked_prefixes": properties["api_blocked_prefixes"],
+        "api_allowed_prefixes": properties.get("api_allowed_prefixes"),
+        "api_blocked_prefixes": properties.get("api_blocked_prefixes"),
         "owner": owner,
         "comment": data["comment"] or None,
     }
@@ -1592,6 +1601,34 @@ def fetch_event_table(session: SnowflakeConnection, fqn: FQN):
         "data_retention_time_in_days": int(data["retention_time"]),
         "change_tracking": data["change_tracking"] == "ON",
         "owner": _get_owner_identifier(data),
+    }
+
+
+def fetch_integration(session: SnowflakeConnection, fqn: FQN):
+    """
+    Fetch any integration regardless of concrete subtype.
+
+    Backs the generic `ResourceType.INTEGRATION` registered in RESOURCE_SCOPES so
+    that grants like `on: integration <fqn>` parse and resolve (Snowflake's
+    `GRANT USAGE ON INTEGRATION <name>` syntax accepts any subtype; this fetcher
+    returns the minimum SHOW INTEGRATIONS metadata so the grant's required-ref
+    check succeeds).
+    """
+    show_result = execute(session, "SHOW INTEGRATIONS", cacheable=True)
+    show_result = _filter_result(show_result, name=fqn.name)
+    if len(show_result) == 0:
+        return None
+    if len(show_result) > 1:
+        raise Exception(f"Found multiple integrations matching {fqn}")
+    data = show_result[0]
+    owner = _fetch_owner(session, "INTEGRATION", fqn)
+    return {
+        "name": _quote_snowflake_identifier(data["name"]),
+        "type": data["type"],
+        "category": data["category"],
+        "enabled": data["enabled"] == "true",
+        "comment": data["comment"] or None,
+        "owner": owner,
     }
 
 
@@ -2345,6 +2382,23 @@ def fetch_schema(session: SnowflakeConnection, fqn: FQN, include_params: bool = 
         "max_data_extension_time_in_days": max_data_extension,
         "default_ddl_collation": default_ddl_collation,
         "comment": data["comment"] or None,
+    }
+
+
+def fetch_git_repository(session: SnowflakeConnection, fqn: FQN):
+    show_result = _show_resources(session, "GIT REPOSITORIES", fqn)
+    if len(show_result) == 0:
+        return None
+    if len(show_result) > 1:
+        raise Exception(f"Found multiple git repositories matching {fqn}")
+    data = show_result[0]
+    return {
+        "name": _quote_snowflake_identifier(data["name"]),
+        "origin": data["origin"],
+        "api_integration": data["api_integration"],
+        "git_credentials": data.get("git_credentials") or None,
+        "comment": data["comment"] or None,
+        "owner": _get_owner_identifier(data),
     }
 
 
@@ -3311,6 +3365,17 @@ def list_dynamic_tables(session: SnowflakeConnection) -> list[FQN]:
     return list_schema_scoped_resource(session, "DYNAMIC TABLES")
 
 
+def list_integrations(session: SnowflakeConnection) -> list[FQN]:
+    """List every integration in the account (any subtype).
+
+    Backs the generic `ResourceType.INTEGRATION` (umbrella). Concrete subtypes
+    (API/CATALOG/EXTERNAL_ACCESS/NOTIFICATION/SECURITY/STORAGE) still have their
+    own list_*_integrations functions for typed manifests.
+    """
+    show_result = execute(session, "SHOW INTEGRATIONS", cacheable=True)
+    return [FQN(name=resource_name_from_snowflake_metadata(row["name"])) for row in show_result]
+
+
 def list_external_access_integrations(session: SnowflakeConnection) -> list[FQN]:
     return list_account_scoped_resource(session, "EXTERNAL ACCESS INTEGRATIONS")
 
@@ -3828,6 +3893,10 @@ def list_schemas(session: SnowflakeConnection, database=None) -> list[FQN]:
         if err.errno == OBJECT_DOES_NOT_EXIST_ERR:
             return []
         raise
+
+
+def list_git_repositories(session: SnowflakeConnection) -> list[FQN]:
+    return list_schema_scoped_resource(session, "GIT REPOSITORIES")
 
 
 def list_secrets(session: SnowflakeConnection) -> list[FQN]:

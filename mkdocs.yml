@@ -167,6 +167,8 @@ nav:
         - AzureStorageIntegration: resources/azure_storage_integration.md
         - GCSStorageIntegration: resources/gcs_storage_integration.md
         - S3StorageIntegration: resources/s3storage_integration.md
+    - Git:
+      - GitRepository: resources/git_repository.md
     - Orchestration:
       - Alert: resources/alert.md
       - Task: resources/task.md
