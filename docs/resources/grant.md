@@ -44,6 +44,21 @@ grants:
   - priv: USAGE
     on: warehouse some_warehouse
     to: some_role
+
+  # AI: account-level privilege for Cortex AI SQL functions
+  - priv: USE AI FUNCTIONS
+    on: ACCOUNT
+    to: cortex_user_role
+
+  # AI: USAGE on a Cortex Search Service to call SNOWFLAKE.CORTEX.SEARCH_PREVIEW
+  - priv: USAGE
+    on: cortex search service somedb.someschema.someservice
+    to: search_consumer_role
+
+  # AI: MONITOR on a Cortex Search Service to query observability logs
+  - priv: MONITOR
+    on: cortex search service somedb.someschema.someservice
+    to: search_observability_role
 ```
 
 #### Future Grants
