@@ -112,6 +112,13 @@ class DatabaseRolePriv(Priv):
     USAGE = "USAGE"
 
 
+class CortexSearchServicePriv(Priv):
+    ALL = "ALL"
+    MONITOR = "MONITOR"
+    OWNERSHIP = "OWNERSHIP"
+    USAGE = "USAGE"
+
+
 class DirectoryTablePriv(Priv):
     OWNERSHIP = "OWNERSHIP"
 
@@ -385,6 +392,7 @@ PRIVS_FOR_RESOURCE_TYPE: dict[ResourceType, Optional[type[Priv]]] = {
     ResourceType.CLASS: None,
     ResourceType.COLUMN: None,
     ResourceType.COMPUTE_POOL: None,
+    ResourceType.CORTEX_SEARCH_SERVICE: CortexSearchServicePriv,
     ResourceType.DATABASE_ROLE: DatabaseRolePriv,
     ResourceType.DATABASE: DatabasePriv,
     ResourceType.DIRECTORY_TABLE: DirectoryTablePriv,

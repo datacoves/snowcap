@@ -3483,7 +3483,7 @@ def list_grants(
                     continue
 
                 # Skip undocumented privs
-                if data["privilege"] in ["CREATE CORTEX SEARCH SERVICE", "CANCEL QUERY"]:
+                if data["privilege"] in ["CANCEL QUERY"]:
                     continue
 
                 name = data["name"]
@@ -3520,7 +3520,7 @@ def list_grants(
                     continue
 
                 # Skip undocumented privs
-                if data["privilege"] in ["CREATE CORTEX SEARCH SERVICE", "CANCEL QUERY"]:
+                if data["privilege"] in ["CANCEL QUERY"]:
                     continue
 
                 name = data["name"]
@@ -3560,7 +3560,7 @@ def list_grants(
                     continue
 
                 # Skip undocumented privs
-                if data["privilege"] in ["CREATE CORTEX SEARCH SERVICE", "CANCEL QUERY"]:
+                if data["privilege"] in ["CANCEL QUERY"]:
                     continue
 
                 name = data["name"]

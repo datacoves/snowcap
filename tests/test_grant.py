@@ -148,6 +148,32 @@ def test_grant_on_dynamic_tables():
     assert grant._data.on_type == ResourceType.DYNAMIC_TABLE
 
 
+def test_grant_on_cortex_search_service():
+    """USAGE/MONITOR on a CORTEX SEARCH SERVICE parses and renders correctly.
+
+    Cortex Search is a schema-scoped service. Grants like
+        GRANT USAGE ON CORTEX SEARCH SERVICE <db>.<schema>.<svc> TO ROLE r
+    let consuming roles query the service via SNOWFLAKE.CORTEX.SEARCH_PREVIEW;
+    MONITOR exposes get_ai_observability_events logs.
+    """
+    grant = res.Grant(
+        priv="USAGE",
+        on_cortex_search_service="somedb.someschema.someservice",
+        to="somerole",
+    )
+    assert grant._data.on == "SOMEDB.SOMESCHEMA.SOMESERVICE"
+    assert grant._data.on_type == ResourceType.CORTEX_SEARCH_SERVICE
+    assert "USAGE ON CORTEX SEARCH SERVICE" in grant.create_sql()
+
+    monitor_grant = res.Grant(
+        priv="MONITOR",
+        on_cortex_search_service="somedb.someschema.someservice",
+        to="somerole",
+    )
+    assert monitor_grant._data.on_type == ResourceType.CORTEX_SEARCH_SERVICE
+    assert "MONITOR ON CORTEX SEARCH SERVICE" in monitor_grant.create_sql()
+
+
 def test_grant_database_role_to_database_role():
     database = res.Database(name="somedb")
     parent = res.DatabaseRole(name="parent", database=database)
