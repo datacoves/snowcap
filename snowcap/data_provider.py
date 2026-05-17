@@ -1542,7 +1542,7 @@ def fetch_database_role_grant(session: SnowflakeConnection, fqn: FQN):
     if len(role_grants) > 1:
         raise Exception(f"Found multiple database role grants matching {fqn}")
 
-    data = show_result[0]
+    data = role_grants[0]
 
     to_role = None
     to_database_role = None

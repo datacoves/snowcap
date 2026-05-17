@@ -159,6 +159,10 @@ class TestAccountPriv:
         """AccountPriv has APPLY MASKING POLICY privilege."""
         assert AccountPriv.APPLY_MASKING_POLICY.value == "APPLY MASKING POLICY"
 
+    def test_use_ai_functions_privilege(self):
+        """AccountPriv has USE AI FUNCTIONS privilege (required for Cortex AI SQL functions)."""
+        assert AccountPriv.USE_AI_FUNCTIONS.value == "USE AI FUNCTIONS"
+
     def test_account_priv_count(self):
         """AccountPriv has expected number of privileges."""
         # Should have at least 40 account-level privileges
