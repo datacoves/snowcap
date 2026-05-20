@@ -1,0 +1,20 @@
+{
+    "name": "ICEBERGRESTCATALOGINT",
+    "catalog_source": "ICEBERG_REST",
+    "catalog_namespace": "some_namespace",
+    "table_format": "ICEBERG",
+    "rest_config": {
+        "catalog_uri": "https://glue.us-east-1.amazonaws.com/iceberg",
+        "catalog_api_type": "AWS_GLUE",
+        "catalog_name": "123456789012"
+    },
+    "rest_authentication": {
+        "type": "SIGV4",
+        "sigv4_iam_role": "arn:aws:iam::123456789012:role/SnowflakeAccess",
+        "sigv4_signing_region": "us-east-1"
+    },
+    "enabled": true,
+    "refresh_interval_seconds": null,
+    "owner": "ACCOUNTADMIN",
+    "comment": "This is a test Iceberg REST catalog integration"
+}

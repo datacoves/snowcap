@@ -126,6 +126,23 @@ def resource_fixtures() -> list:
             comment="Integration for AWS Glue with Snowflake.",
             owner=TEST_ROLE,
         ),
+        res.IcebergRestCatalogIntegration(
+            name="TEST_FETCH_ICEBERG_REST_CATALOG_INTEGRATION",
+            catalog_namespace="some_namespace",
+            rest_config={
+                "catalog_uri": "https://glue.us-east-1.amazonaws.com/iceberg",
+                "catalog_api_type": "AWS_GLUE",
+                "catalog_name": "123456789012",
+            },
+            rest_authentication={
+                "type": "SIGV4",
+                "sigv4_iam_role": "arn:aws:iam::123456789012:role/SnowflakeAccess",
+                "sigv4_signing_region": "us-east-1",
+            },
+            enabled=True,
+            comment="Iceberg REST catalog integration for AWS Glue.",
+            owner=TEST_ROLE,
+        ),
         res.ImageRepository(
             name="TEST_FETCH_IMAGE_REPOSITORY",
             owner=TEST_ROLE,
