@@ -287,6 +287,13 @@ RESOURCE_SCOPES = {
     # management still goes through the specific subtypes (APIIntegration,
     # CatalogIntegration, etc.).
     ResourceType.INTEGRATION: AccountScope(),
+    # CORTEX SEARCH SERVICE — Snowflake AI search service, schema-scoped.
+    # No concrete resource class yet (CREATE CORTEX SEARCH SERVICE involves an
+    # AS <query> body and embedding model config that warrants its own PR).
+    # Registering a SchemaScope here lets users write
+    # `priv: USAGE on cortex search service <db>.<schema>.<name>` in YAML to
+    # manage access to services they create out-of-band (e.g. via dbt or DDL).
+    ResourceType.CORTEX_SEARCH_SERVICE: SchemaScope(),
 }
 
 

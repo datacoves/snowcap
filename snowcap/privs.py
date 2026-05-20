@@ -84,6 +84,7 @@ class AccountPriv(Priv):
     OVERRIDE_SHARE_RESTRICTIONS = "OVERRIDE SHARE RESTRICTIONS"
     PURCHASE_DATA_EXCHANGE_LISTING = "PURCHASE DATA EXCHANGE LISTING"
     RESOLVE_ALL = "RESOLVE ALL"
+    USE_AI_FUNCTIONS = "USE AI FUNCTIONS"
 
 
 class AlertPriv(Priv):
@@ -107,6 +108,13 @@ class DatabasePriv(Priv):
 
 
 class DatabaseRolePriv(Priv):
+    OWNERSHIP = "OWNERSHIP"
+    USAGE = "USAGE"
+
+
+class CortexSearchServicePriv(Priv):
+    ALL = "ALL"
+    MONITOR = "MONITOR"
     OWNERSHIP = "OWNERSHIP"
     USAGE = "USAGE"
 
@@ -384,6 +392,7 @@ PRIVS_FOR_RESOURCE_TYPE: dict[ResourceType, Optional[type[Priv]]] = {
     ResourceType.CLASS: None,
     ResourceType.COLUMN: None,
     ResourceType.COMPUTE_POOL: None,
+    ResourceType.CORTEX_SEARCH_SERVICE: CortexSearchServicePriv,
     ResourceType.DATABASE_ROLE: DatabaseRolePriv,
     ResourceType.DATABASE: DatabasePriv,
     ResourceType.DIRECTORY_TABLE: DirectoryTablePriv,

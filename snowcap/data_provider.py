@@ -1542,7 +1542,7 @@ def fetch_database_role_grant(session: SnowflakeConnection, fqn: FQN):
     if len(role_grants) > 1:
         raise Exception(f"Found multiple database role grants matching {fqn}")
 
-    data = show_result[0]
+    data = role_grants[0]
 
     to_role = None
     to_database_role = None
@@ -3483,7 +3483,7 @@ def list_grants(
                     continue
 
                 # Skip undocumented privs
-                if data["privilege"] in ["CREATE CORTEX SEARCH SERVICE", "CANCEL QUERY"]:
+                if data["privilege"] in ["CANCEL QUERY"]:
                     continue
 
                 name = data["name"]
@@ -3520,7 +3520,7 @@ def list_grants(
                     continue
 
                 # Skip undocumented privs
-                if data["privilege"] in ["CREATE CORTEX SEARCH SERVICE", "CANCEL QUERY"]:
+                if data["privilege"] in ["CANCEL QUERY"]:
                     continue
 
                 name = data["name"]
@@ -3560,7 +3560,7 @@ def list_grants(
                     continue
 
                 # Skip undocumented privs
-                if data["privilege"] in ["CREATE CORTEX SEARCH SERVICE", "CANCEL QUERY"]:
+                if data["privilege"] in ["CANCEL QUERY"]:
                     continue
 
                 name = data["name"]

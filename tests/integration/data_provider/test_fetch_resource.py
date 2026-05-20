@@ -663,3 +663,45 @@ def test_fetch_grant_of_database_role(cursor, suffix, marked_for_cleanup):
     assert result == data
 
 
+def test_fetch_grant_of_database_role_multiple_grantees(cursor, suffix, marked_for_cleanup):
+    """Regression: a database role granted to multiple roles must fetch each grantee's
+    row independently. Prior to the fix in fetch_database_role_grant, every fetch
+    returned show_result[0] (the first SHOW GRANTS row) regardless of the URN's
+    requested grantee, so adding a second grantee in YAML produced a spurious
+    UPDATE diff (to_role: <first grantee> -> <new grantee>) instead of CREATE.
+    """
+    db_role = res.DatabaseRole(
+        name=f"TEST_FETCH_DRG_MULTI_{suffix}",
+        database="STATIC_DATABASE",
+        owner=TEST_ROLE,
+    )
+    create(cursor, db_role)
+    marked_for_cleanup.append(db_role)
+
+    role_a = res.Role(name=f"TEST_FETCH_DRG_MULTI_A_{suffix}", owner=TEST_ROLE)
+    role_b = res.Role(name=f"TEST_FETCH_DRG_MULTI_B_{suffix}", owner=TEST_ROLE)
+    create(cursor, role_a)
+    create(cursor, role_b)
+    marked_for_cleanup.append(role_a)
+    marked_for_cleanup.append(role_b)
+
+    grant_a = res.DatabaseRoleGrant(database_role=db_role, to_role=role_a)
+    grant_b = res.DatabaseRoleGrant(database_role=db_role, to_role=role_b)
+    create(cursor, grant_a)
+    create(cursor, grant_b)
+
+    result_a = safe_fetch(cursor, grant_a.urn)
+    result_b = safe_fetch(cursor, grant_b.urn)
+
+    assert result_a is not None
+    assert result_b is not None
+    # Each fetch must return its own grantee, not the first row from SHOW GRANTS.
+    assert result_a != result_b
+    assert clean_resource_data(res.DatabaseRoleGrant.spec, result_a) == clean_resource_data(
+        res.DatabaseRoleGrant.spec, grant_a.to_dict()
+    )
+    assert clean_resource_data(res.DatabaseRoleGrant.spec, result_b) == clean_resource_data(
+        res.DatabaseRoleGrant.spec, grant_b.to_dict()
+    )
+
+

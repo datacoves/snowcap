@@ -115,6 +115,8 @@ nav:
       - Role: resources/role.md
       - RoleGrant: resources/role_grant.md
       - User: resources/user.md
+    - AI:
+      - CortexSearchService: resources/cortex_search_service.md
     - Account & Monitoring:
       - AccountParameter: resources/account_parameter.md
       - EventTable: resources/event_table.md

@@ -7,6 +7,7 @@ from snowcap.privs import (
     Priv,
     AccountPriv,
     AlertPriv,
+    CortexSearchServicePriv,
     DatabasePriv,
     DatabaseRolePriv,
     DirectoryTablePriv,
@@ -158,6 +159,10 @@ class TestAccountPriv:
     def test_apply_masking_policy_privilege(self):
         """AccountPriv has APPLY MASKING POLICY privilege."""
         assert AccountPriv.APPLY_MASKING_POLICY.value == "APPLY MASKING POLICY"
+
+    def test_use_ai_functions_privilege(self):
+        """AccountPriv has USE AI FUNCTIONS privilege (required for Cortex AI SQL functions)."""
+        assert AccountPriv.USE_AI_FUNCTIONS.value == "USE AI FUNCTIONS"
 
     def test_account_priv_count(self):
         """AccountPriv has expected number of privileges."""
@@ -317,6 +322,29 @@ class TestStagePriv:
     def test_usage_privilege(self):
         """StagePriv has USAGE privilege."""
         assert StagePriv.USAGE.value == "USAGE"
+
+
+#############################################################################
+# CortexSearchServicePriv Tests
+#############################################################################
+
+
+class TestCortexSearchServicePriv:
+    """Tests for CortexSearchServicePriv enum values (Snowflake Cortex Search)."""
+
+    def test_all_privilege(self):
+        assert CortexSearchServicePriv.ALL.value == "ALL"
+
+    def test_usage_privilege(self):
+        """USAGE is the priv needed to query a Cortex Search Service."""
+        assert CortexSearchServicePriv.USAGE.value == "USAGE"
+
+    def test_monitor_privilege(self):
+        """MONITOR is the priv needed for AI observability / request logs."""
+        assert CortexSearchServicePriv.MONITOR.value == "MONITOR"
+
+    def test_ownership_privilege(self):
+        assert CortexSearchServicePriv.OWNERSHIP.value == "OWNERSHIP"
 
 
 #############################################################################
