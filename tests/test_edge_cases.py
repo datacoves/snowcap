@@ -643,10 +643,32 @@ class TestTypeCoercionEdgeCases:
         except TypeError:
             pass  # Strict typing rejects float for int field
 
-    def test_bool_string_not_coerced(self):
-        """Boolean string not auto-coerced to bool"""
+    def test_bool_string_coerced(self):
+        """Boolean strings ("true"/"false", any case) are coerced to bool.
+
+        Required for for_each templating: Jinja renders Python booleans as the
+        strings "True"/"False", so bool fields must accept the string form.
+        """
+        assert res.Warehouse(name="MY_WH_T", auto_resume="true")._data.auto_resume is True
+        assert res.Warehouse(name="MY_WH_TC", auto_resume="True")._data.auto_resume is True
+        assert res.Warehouse(name="MY_WH_F", auto_resume="false")._data.auto_resume is False
+        assert res.Warehouse(name="MY_WH_FC", auto_resume="False")._data.auto_resume is False
+
+    def test_invalid_bool_string_rejected(self):
+        """Strings that aren't 'true'/'false' (any case) still raise TypeError"""
+        for bad in ("yes", "1", "", "truthy"):
+            with pytest.raises(TypeError):
+                res.Warehouse(name="MY_WH", auto_resume=bad)
+
+    def test_bool_passthrough(self):
+        """Native bool values pass through unchanged"""
+        assert res.Warehouse(name="MY_WH_T", auto_resume=True)._data.auto_resume is True
+        assert res.Warehouse(name="MY_WH_F", auto_resume=False)._data.auto_resume is False
+
+    def test_int_not_coerced_to_bool(self):
+        """Raw ints aren't coerced to bool, even though 1/0 are truthy in Python"""
         with pytest.raises(TypeError):
-            res.Warehouse(name="MY_WH", auto_resume="true")
+            res.Warehouse(name="MY_WH", auto_resume=1)
 
     def test_list_of_wrong_type_rejected(self):
         """List containing wrong types is rejected"""

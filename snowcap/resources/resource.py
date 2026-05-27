@@ -183,6 +183,22 @@ def _coerce_resource_field(field_value, field_type):
             return float(field_value)
         else:
             raise TypeError
+    elif field_type is bool:
+        if isinstance(field_value, bool):
+            return field_value
+        elif isinstance(field_value, str):
+            # Accept both YAML-style ("true"/"false") and Jinja-rendered ("True"/"False")
+            # — Jinja stringifies Python bools as "True"/"False" when a template like
+            # "{{ each.value.auto_resume }}" expands inside a for_each.
+            field_value_lower = field_value.lower()
+            if field_value_lower == "true":
+                return True
+            elif field_value_lower == "false":
+                return False
+            else:
+                raise TypeError
+        else:
+            raise TypeError
     else:
         # Typecheck all other field types (str, int, etc.)
         if not isinstance(field_value, field_type):
