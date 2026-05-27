@@ -924,3 +924,44 @@ class TestForEachMultipleResourceTypes:
             elif name == "reporting_wh":
                 assert auto_suspend == 300
                 assert comment == "Reporting queries"
+
+    def test_for_each_warehouse_with_bool_properties(self):
+        """Bool fields rendered via for_each templating coerce from string.
+
+        Regression: Jinja stringifies Python booleans as "True"/"False" during
+        for_each expansion, so bool fields like auto_resume / initially_suspended
+        must accept the string form.
+        """
+        config = {
+            "vars": [
+                {
+                    "name": "warehouses",
+                    "type": "list",
+                    "default": [
+                        {"name": "wh_on", "auto_resume": True, "initially_suspended": True},
+                        {"name": "wh_off", "auto_resume": False, "initially_suspended": False},
+                    ],
+                }
+            ],
+            "warehouses": [
+                {
+                    "for_each": "var.warehouses",
+                    "name": "{{ each.value.name }}",
+                    "auto_resume": "{{ each.value.auto_resume }}",
+                    "initially_suspended": "{{ each.value.initially_suspended }}",
+                }
+            ],
+        }
+        blueprint_config = collect_blueprint_config(config)
+        assert len(blueprint_config.resources) == 2
+
+        for resource in blueprint_config.resources:
+            name = resource.urn.fqn.name
+            if name == "wh_on":
+                assert resource._data.auto_resume is True
+                assert resource._data.initially_suspended is True
+            elif name == "wh_off":
+                assert resource._data.auto_resume is False
+                assert resource._data.initially_suspended is False
+            else:
+                pytest.fail(f"Unexpected warehouse name: {name}")
