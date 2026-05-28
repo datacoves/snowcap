@@ -36,6 +36,7 @@ from snowcap.lifecycle import (
     update_scanner_package,
     update_schema,
     update_table,
+    update_tag_masking_policy_reference,
     update_task,
     update_iceberg_table,
     drop_resource,
@@ -86,6 +87,17 @@ def make_fqn(name, database=None, schema=None, arg_types=None):
 def make_urn(resource_type, name, database=None, schema=None, account_locator="ABC123"):
     """Helper to create URN objects."""
     fqn = make_fqn(name, database, schema)
+    return URN(resource_type=resource_type, fqn=fqn, account_locator=account_locator)
+
+
+def make_urn_with_params(resource_type, name, database=None, schema=None, params=None, account_locator="ABC123"):
+    """Helper to create URN objects with FQN params (e.g. for TagMaskingPolicyReference)."""
+    fqn = FQN(
+        name=ResourceName(name),
+        database=ResourceName(database) if database else None,
+        schema=ResourceName(schema) if schema else None,
+        params=params or {},
+    )
     return URN(resource_type=resource_type, fqn=fqn, account_locator=account_locator)
 
 
@@ -1247,3 +1259,73 @@ class TestDropTagMaskingPolicyReference:
         result = drop_tag_masking_policy_reference(urn, data)
         assert "ALTER TAG GOVERNANCE_DB.TAGS.SENSITIVE" in result
         assert "UNSET MASKING POLICY SECURITY_DB.POLICIES.MASK_SENSITIVE" in result
+
+
+class TestUpdateTagMaskingPolicyReference:
+    """
+    Tests for update_tag_masking_policy_reference.
+
+    The bug: update__default interpolates urn.fqn into DDL, but
+    TagMaskingPolicyReference.fqn is in URN query-string form
+    (TAG?masking_policy=POLICY), producing malformed SQL:
+
+        ALTER TAG MASKING POLICY REFERENCE GOVERNANCE.TAGS.HR_PII?masking_policy=... SET
+
+    Snowflake rejects this with error 001003 (42000).
+
+    The fix emits valid DDL by extracting the tag name via fqn_to_sql (which
+    strips FQN params) and the old policy from urn.fqn.params.
+    """
+
+    def test_emits_unset_with_valid_sql(self):
+        """UNSET statement must not contain the '?masking_policy=' query-string suffix."""
+        urn = make_urn_with_params(
+            ResourceType.TAG_MASKING_POLICY_REFERENCE,
+            name="HR_PII",
+            database="GOVERNANCE",
+            schema="TAGS",
+            params={"masking_policy": "GOVERNANCE.POLICIES.MASK_HR_PII_TIMESTAMP_NTZ"},
+        )
+        data = {"masking_policy_name": "GOVERNANCE.POLICIES.MASK_HR_PII_STRING"}
+        props = MockProps("")
+        result = update_tag_masking_policy_reference(urn, data, props)
+
+        assert "?" not in result, f"malformed SQL contains '?': {result!r}"
+        assert "UNSET MASKING POLICY" in result
+        assert "GOVERNANCE.TAGS.HR_PII" in result
+        assert "GOVERNANCE.POLICIES.MASK_HR_PII_TIMESTAMP_NTZ" in result
+
+    def test_uses_old_policy_from_urn_params_for_unset(self):
+        """UNSET must reference the OLD masking policy (from urn.fqn.params), not the new one."""
+        old_policy = "MY_DB.MY_SCHEMA.MASK_PII_V1"
+        new_policy = "MY_DB.MY_SCHEMA.MASK_PII_V2"
+        urn = make_urn_with_params(
+            ResourceType.TAG_MASKING_POLICY_REFERENCE,
+            name="PII",
+            database="MY_DB",
+            schema="MY_SCHEMA",
+            params={"masking_policy": old_policy},
+        )
+        data = {"masking_policy_name": new_policy}
+        props = MockProps("")
+        result = update_tag_masking_policy_reference(urn, data, props)
+
+        assert old_policy in result
+        assert new_policy not in result
+        assert "UNSET MASKING POLICY" in result
+
+    def test_update_dispatched_via_update_resource(self):
+        """update_resource dispatcher must route TAG_MASKING_POLICY_REFERENCE to the dedicated handler."""
+        urn = make_urn_with_params(
+            ResourceType.TAG_MASKING_POLICY_REFERENCE,
+            name="PII",
+            database="MY_DB",
+            schema="MY_SCHEMA",
+            params={"masking_policy": "MY_DB.MY_SCHEMA.MASK_OLD"},
+        )
+        data = {"masking_policy_name": "MY_DB.MY_SCHEMA.MASK_NEW"}
+        props = MockProps("")
+        result = update_resource(urn, data, props)
+
+        assert "?" not in result, f"dispatcher produced malformed SQL: {result!r}"
+        assert "UNSET MASKING POLICY" in result
