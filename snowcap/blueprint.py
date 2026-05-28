@@ -1991,6 +1991,8 @@ def sql_commands_for_change(
     elif isinstance(change, UpdateResource):
         props = Resource.props_for_resource_type(change.urn.resource_type, change.after)
         change_cmd = lifecycle.update_resource(change.urn, change.delta, props)
+        if change.urn.resource_type == ResourceType.TAG_MASKING_POLICY_REFERENCE:
+            after_change_cmd.append(lifecycle.create_tag_masking_policy_reference(change.urn, change.after, props))
     elif isinstance(change, DropResource):
         if transfer_owner:
             before_change_cmd.append(

@@ -369,6 +369,24 @@ def update_account_parameter(urn: URN, data: dict, props: Props) -> str:
     return create_account_parameter(urn, data, props)
 
 
+def update_tag_masking_policy_reference(urn: URN, data: dict, props: Props) -> str:
+    """
+    Return the UNSET statement for a tag masking policy binding change.
+
+    A masking policy binding update requires two steps:
+        1. ALTER TAG <tag> UNSET MASKING POLICY <old_policy>  ← this function
+        2. ALTER TAG <tag> SET MASKING POLICY <new_policy>    ← emitted as after_change_cmd
+           in blueprint.sql_commands_for_change
+
+    Using urn.fqn directly would produce malformed SQL because
+    TagMaskingPolicyReference encodes the masking policy name as a URN query-string
+    param (TAG?masking_policy=POLICY), not as a plain SQL identifier.
+    """
+    tag_sql = fqn_to_sql(urn.fqn)
+    old_masking_policy = urn.fqn.params.get("masking_policy", "")
+    return tidy_sql("ALTER TAG", tag_sql, "UNSET MASKING POLICY", old_masking_policy)
+
+
 def update_event_table(urn: URN, data: dict, props: Props) -> str:
     new_urn = URN(ResourceType.TABLE, urn.fqn, urn.account_locator)
     return update__default(new_urn, data, props)

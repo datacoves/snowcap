@@ -177,6 +177,16 @@ class _TagMaskingPolicyReference(ResourceSpec):
     tag_name: str
     masking_policy_name: str
 
+    def __post_init__(self):
+        super().__post_init__()
+        # Normalize unquoted identifiers to lowercase so manifest values compare
+        # equal to what the data provider returns from INFORMATION_SCHEMA, which
+        # always lowercases unquoted Snowflake identifier components.
+        if self.tag_name and not any(self.tag_name.startswith(q) for q in ('"',)):
+            self.tag_name = self.tag_name.lower()
+        if self.masking_policy_name and not any(self.masking_policy_name.startswith(q) for q in ('"',)):
+            self.masking_policy_name = self.masking_policy_name.lower()
+
 
 class TagMaskingPolicyReference(Resource):
     """
