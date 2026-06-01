@@ -338,22 +338,49 @@ def update_resource(urn: URN, data: dict, props: Props) -> str:
 
 
 def update__default(urn: URN, data: dict, props: Props) -> str:
-    attr, new_value = data.popitem()
-    attr = attr.lower()
-    if new_value is None:
-        return tidy_sql("ALTER", urn.resource_type, urn.fqn, "UNSET", attr)
-    elif attr == "name":
-        return tidy_sql("ALTER", urn.resource_type, urn.fqn, "RENAME TO", new_value)
-    elif attr == "owner":
-        raise NotImplementedError
-    else:
-        return tidy_sql(
-            "ALTER",
-            urn.resource_type,
-            urn.fqn,
-            "SET",
-            props.render({attr: new_value}),
+    # Render every field in the delta into a single ALTER statement.
+    # The previous implementation called `data.popitem()` and silently
+    # discarded all other fields, so multi-field deltas (e.g. rotating
+    # rsa_public_key + bumping comment on a USER in one apply) only
+    # updated whichever field popitem happened to return.
+    #
+    # Snowflake's ALTER ... SET p1 = v1, p2 = v2 syntax accepts multiple
+    # property assignments in one statement, and Props.render(data) already
+    # iterates all keys — so the SET case is the common one and combines
+    # cleanly. UNSET (value is None) must be a separate statement because
+    # Snowflake disallows mixing SET and UNSET in one ALTER. RENAME TO and
+    # owner remain as their own clauses (no Snowflake syntax exists to
+    # combine them with SET/UNSET in one statement).
+
+    if "name" in data and len(data) > 1:
+        raise NotImplementedError(
+            f"update__default cannot combine 'name' (RENAME TO) with other fields "
+            f"in one ALTER for {urn}; got delta keys {sorted(data.keys())!r}"
         )
+    if "owner" in data and len(data) > 1:
+        raise NotImplementedError(
+            f"update__default cannot combine 'owner' with other fields "
+            f"in one ALTER for {urn}; got delta keys {sorted(data.keys())!r}"
+        )
+    if "name" in data:
+        return tidy_sql("ALTER", urn.resource_type, urn.fqn, "RENAME TO", data["name"])
+    if "owner" in data:
+        raise NotImplementedError
+
+    unset_attrs = [attr.lower() for attr, v in data.items() if v is None]
+    set_data = {attr: v for attr, v in data.items() if v is not None}
+    if unset_attrs and set_data:
+        # Snowflake rejects mixing SET and UNSET in one ALTER. The caller's
+        # diff layer is expected to keep these in separate change records,
+        # so reaching here means something upstream batched them together.
+        raise NotImplementedError(
+            f"update__default cannot mix SET and UNSET attrs in one ALTER for {urn}; "
+            f"got SET={sorted(set_data.keys())!r} UNSET={sorted(unset_attrs)!r}"
+        )
+
+    if unset_attrs:
+        return tidy_sql("ALTER", urn.resource_type, urn.fqn, "UNSET", ", ".join(unset_attrs))
+    return tidy_sql("ALTER", urn.resource_type, urn.fqn, "SET", props.render(set_data))
 
 
 def update_masking_policy(urn: URN, data: dict, props: Props) -> str:
