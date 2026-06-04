@@ -33,6 +33,7 @@ from snowcap.data_provider import (
     remove_none_values,
     # Dispatcher functions
     fetch_resource,
+    fetch_warehouse,
     list_resource,
     list_account_scoped_resource,
     list_schema_scoped_resource,
@@ -639,6 +640,101 @@ class TestFetchResource:
 
         with pytest.raises(ProgrammingError):
             fetch_resource(mock_session, urn)
+
+
+def _warehouse_show_row(**overrides):
+    row = {
+        "name": "WH",
+        "owner": "SYSADMIN",
+        "owner_role_type": "ROLE",
+        "type": "STANDARD",
+        "size": "X-SMALL",
+        "auto_suspend": 600,
+        "auto_resume": "true",
+        "comment": "",
+        "resource_monitor": "null",
+    }
+    row.update(overrides)
+    return row
+
+
+class TestFetchWarehouse:
+    """Tests for fetch_warehouse normalization."""
+
+    @patch("snowcap.data_provider._show_resources")
+    def test_fetches_generation_and_resource_constraint(self, mock_show_resources):
+        mock_show_resources.return_value = [
+            _warehouse_show_row(
+                generation="2",
+                resource_constraint="STANDARD_GEN_2",
+                enable_query_acceleration="false",
+                query_acceleration_max_scale_factor="8",
+            )
+        ]
+        mock_session = MagicMock()
+
+        result = fetch_warehouse(mock_session, FQN(name=ResourceName("WH")), include_params=False)
+
+        assert result["generation"] == "2"
+        assert result["resource_constraint"] == "STANDARD_GEN_2"
+        assert result["enable_query_acceleration"] is False
+        assert result["query_acceleration_max_scale_factor"] == "8"
+
+    @patch("snowcap.data_provider._show_resources")
+    def test_derives_standard_constraint_from_generation(self, mock_show_resources):
+        mock_show_resources.return_value = [_warehouse_show_row(generation="2")]
+        mock_session = MagicMock()
+
+        result = fetch_warehouse(mock_session, FQN(name=ResourceName("WH")), include_params=False)
+
+        assert result["generation"] == "2"
+        assert result["resource_constraint"] == "STANDARD_GEN_2"
+
+    @patch("snowcap.data_provider._show_resources")
+    def test_derives_generation_from_standard_constraint(self, mock_show_resources):
+        mock_show_resources.return_value = [_warehouse_show_row(resource_constraint="STANDARD_GEN_1")]
+        mock_session = MagicMock()
+
+        result = fetch_warehouse(mock_session, FQN(name=ResourceName("WH")), include_params=False)
+
+        assert result["generation"] == "1"
+        assert result["resource_constraint"] == "STANDARD_GEN_1"
+
+    @patch("snowcap.data_provider._show_resources")
+    def test_treats_null_and_missing_generation_fields_as_none(self, mock_show_resources):
+        mock_show_resources.return_value = [
+            _warehouse_show_row(
+                generation="null",
+                resource_constraint="",
+                enable_query_acceleration="null",
+                query_acceleration_max_scale_factor="null",
+            )
+        ]
+        mock_session = MagicMock()
+
+        result = fetch_warehouse(mock_session, FQN(name=ResourceName("WH")), include_params=False)
+
+        assert result["generation"] is None
+        assert result["resource_constraint"] is None
+        assert result["enable_query_acceleration"] is None
+        assert result["query_acceleration_max_scale_factor"] is None
+
+    @patch("snowcap.data_provider._show_resources")
+    def test_preserves_snowpark_memory_constraint(self, mock_show_resources):
+        mock_show_resources.return_value = [
+            _warehouse_show_row(
+                type="SNOWPARK-OPTIMIZED",
+                size="X-SMALL",
+                resource_constraint="MEMORY_16X_x86",
+            )
+        ]
+        mock_session = MagicMock()
+
+        result = fetch_warehouse(mock_session, FQN(name=ResourceName("WH")), include_params=False)
+
+        assert result["warehouse_type"] == "SNOWPARK-OPTIMIZED"
+        assert result["generation"] is None
+        assert result["resource_constraint"] == "MEMORY_16X_X86"
 
 
 class TestListResource:

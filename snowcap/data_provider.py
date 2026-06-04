@@ -386,6 +386,17 @@ def options_result_to_list(options_result):
     return [option.strip(" ") for option in options_result.split(",")]
 
 
+def _normalize_snowflake_optional(value, upper: bool = False):
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = value.strip()
+        if value == "" or value.lower() == "null":
+            return None
+        return value.upper() if upper else value
+    return value
+
+
 def remove_none_values(d):
     new_dict = {}
     for k, v in d.items():
@@ -3149,26 +3160,39 @@ def fetch_warehouse(session: SnowflakeConnection, fqn: FQN, include_params: bool
         statement_queued_timeout = None
         statement_timeout = None
 
-    resource_monitor = None if data["resource_monitor"] == "null" else data["resource_monitor"]
+    resource_monitor = _normalize_snowflake_optional(data.get("resource_monitor"))
+    warehouse_type = _normalize_snowflake_optional(data["type"], upper=True)
+    generation = _normalize_snowflake_optional(data.get("generation"))
+    if generation is not None:
+        generation = str(generation)
+    resource_constraint = _normalize_snowflake_optional(data.get("resource_constraint"), upper=True)
+
+    if warehouse_type == "STANDARD":
+        if resource_constraint is None and generation in {"1", "2"}:
+            resource_constraint = f"STANDARD_GEN_{generation}"
+        elif generation is None and resource_constraint in {"STANDARD_GEN_1", "STANDARD_GEN_2"}:
+            generation = resource_constraint[-1]
 
     # Enterprise edition features
-    query_accel = data.get("enable_query_acceleration")
-    if query_accel:
-        query_accel = query_accel == "true"
-    else:
-        query_accel = False
+    query_accel = _normalize_snowflake_optional(data.get("enable_query_acceleration"))
+    if query_accel is not None:
+        query_accel = str(query_accel).lower() == "true"
 
     warehouse_dict = {
         "name": _quote_snowflake_identifier(data["name"]),
         "owner": _get_owner_identifier(data),
-        "warehouse_type": data["type"],
+        "warehouse_type": warehouse_type,
         "warehouse_size": str(WarehouseSize(data["size"])),
+        "generation": generation,
+        "resource_constraint": resource_constraint,
         "auto_suspend": data["auto_suspend"],
         "auto_resume": data["auto_resume"] == "true",
         "comment": data["comment"] or None,
         "resource_monitor": resource_monitor,
         "enable_query_acceleration": query_accel,
-        "query_acceleration_max_scale_factor": data.get("query_acceleration_max_scale_factor", None),
+        "query_acceleration_max_scale_factor": _normalize_snowflake_optional(
+            data.get("query_acceleration_max_scale_factor", None)
+        ),
         "max_cluster_count": data.get("max_cluster_count", None),
         "min_cluster_count": data.get("min_cluster_count", None),
         "scaling_policy": data.get("scaling_policy", None),

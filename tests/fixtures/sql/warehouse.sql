@@ -3,6 +3,8 @@ CREATE WAREHOUSE IF NOT EXISTS XSMALL_WH
     WITH
     WAREHOUSE_SIZE = 'XSMALL'
     WAREHOUSE_TYPE = 'STANDARD'
+    GENERATION = '2'
+    RESOURCE_CONSTRAINT = STANDARD_GEN_2
     AUTO_SUSPEND = 60
     AUTO_RESUME = FALSE
     initially_suspended = true
@@ -17,8 +19,8 @@ CREATE WAREHOUSE IF NOT EXISTS XSMALL_WH
 CREATE WAREHOUSE lowercase_wh
 warehouse_size = x6large
 warehouse_type = snowpark-optimized
+resource_constraint = memory_16x_x86
 scaling_policy = economy
 initially_suspended = true
 ;
-
 

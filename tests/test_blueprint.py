@@ -771,6 +771,39 @@ def test_blueprint_warehouse_scaling_policy_doesnt_render_in_standard_edition(se
     assert "scaling_policy" not in sql[2]
 
 
+def test_blueprint_warehouse_generation_and_resource_constraint_update(session_ctx):
+    wh_urn = parse_URN("urn::ABCD123:warehouse/WH")
+    remote_state = {
+        parse_URN("urn::ABCD123:account/ACCOUNT"): {},
+        wh_urn: res.Warehouse(
+            name="WH",
+            generation="1",
+            resource_constraint="STANDARD_GEN_1",
+        ).to_dict(),
+    }
+    blueprint = Blueprint(
+        resources=[
+            res.Warehouse(
+                name="WH",
+                generation="2",
+                resource_constraint="STANDARD_GEN_2",
+            )
+        ]
+    )
+    manifest = blueprint.generate_manifest(session_ctx)
+
+    plan = diff(remote_state, manifest)
+    assert len(plan) == 1
+    wh_change = plan[0]
+    assert wh_change.delta == {
+        "generation": "2",
+        "resource_constraint": "STANDARD_GEN_2",
+    }
+
+    sql = flatten_sql_commands(compile_plan_to_sql(session_ctx, plan))
+    assert "ALTER WAREHOUSE WH SET GENERATION = '2' RESOURCE_CONSTRAINT = STANDARD_GEN_2" in sql
+
+
 def test_blueprint_scope_config():
 
     bc = BlueprintConfig(
