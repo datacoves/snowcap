@@ -690,6 +690,51 @@ class TestUpdateDefault:
         with pytest.raises(NotImplementedError):
             update__default(urn, data, props)
 
+    def test_set_multiple_properties_in_one_statement(self):
+        """Regression: multi-field SET deltas must update all fields, not just one.
+
+        Previously update__default called data.popitem() and silently dropped
+        every field except the one popitem returned. This caused security-
+        sensitive rotations (e.g. rsa_public_key + comment on a user) to land
+        the comment but leave the old key in place, with the apply summary
+        still reporting "1 updated" and no error/warning.
+        """
+        urn = make_urn(ResourceType.USER, "MY_USER")
+        data = {"rsa_public_key": "MIIBNEW...", "comment": "rotated 2026-05-31"}
+        props = MockProps("RSA_PUBLIC_KEY = $$MIIBNEW...$$ COMMENT = $$rotated 2026-05-31$$")
+        result = update__default(urn, data, props)
+        assert result.startswith("ALTER USER MY_USER SET ")
+        assert "RSA_PUBLIC_KEY = $$MIIBNEW...$$" in result
+        assert "COMMENT = $$rotated 2026-05-31$$" in result
+        # Must be a single ALTER statement (no semicolons → no multi-statement
+        # risk with snowflake-connector-python's default MULTI_STATEMENT_COUNT=1).
+        assert result.count("ALTER ") == 1
+        assert ";" not in result
+
+    def test_unset_multiple_properties_in_one_statement(self):
+        """Multi-field UNSET deltas combine into one ALTER ... UNSET col1, col2."""
+        urn = make_urn(ResourceType.WAREHOUSE, "MY_WH")
+        data = {"comment": None, "tag": None}
+        props = MockProps("")
+        result = update__default(urn, data, props)
+        assert result == "ALTER WAREHOUSE MY_WH UNSET comment, tag"
+
+    def test_mixed_set_and_unset_raises(self):
+        """SET and UNSET cannot share an ALTER statement in Snowflake."""
+        urn = make_urn(ResourceType.WAREHOUSE, "MY_WH")
+        data = {"size": "LARGE", "comment": None}
+        props = MockProps("SIZE = 'LARGE'")
+        with pytest.raises(NotImplementedError, match="mix SET and UNSET"):
+            update__default(urn, data, props)
+
+    def test_rename_combined_with_other_fields_raises(self):
+        """RENAME TO has its own ALTER syntax and can't combine with SET."""
+        urn = make_urn(ResourceType.WAREHOUSE, "MY_WH")
+        data = {"name": "NEW_WH", "comment": "renamed"}
+        props = MockProps("")
+        with pytest.raises(NotImplementedError, match="'name'"):
+            update__default(urn, data, props)
+
 
 # ============================================================================
 # Test specialized update functions
