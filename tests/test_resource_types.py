@@ -217,6 +217,8 @@ class TestWarehouse:
             owner="SYSADMIN",
             warehouse_type="STANDARD",
             warehouse_size="MEDIUM",
+            generation="2",
+            resource_constraint="STANDARD_GEN_2",
             max_cluster_count=5,
             min_cluster_count=1,
             scaling_policy="ECONOMY",
@@ -231,6 +233,8 @@ class TestWarehouse:
             statement_timeout_in_seconds=3600,
         )
         assert wh._data.warehouse_size == WarehouseSize.MEDIUM
+        assert wh._data.generation == res.WarehouseGeneration.GEN2
+        assert wh._data.resource_constraint == res.WarehouseResourceConstraint.STANDARD_GEN_2
         assert wh._data.max_cluster_count == 5
         assert wh._data.auto_suspend == 300
         assert wh._data.initially_suspended is True
@@ -248,11 +252,63 @@ class TestWarehouse:
         assert wh._data.auto_suspend == 600
         assert wh._data.auto_resume is True
         assert wh._data.max_cluster_count == 1
+        assert wh._data.generation is None
+        assert wh._data.resource_constraint is None
+        assert wh._data.enable_query_acceleration is None
+        assert wh._data.query_acceleration_max_scale_factor is None
 
     def test_warehouse_size_enum_conversion(self):
         """Test Warehouse size enum conversion from string."""
         wh = res.Warehouse(name="test_wh", warehouse_size="LARGE")
         assert wh._data.warehouse_size == WarehouseSize.LARGE
+
+    def test_warehouse_generation_enum_conversion(self):
+        """Test Warehouse generation enum conversion from string."""
+        wh = res.Warehouse(name="test_wh", generation="2")
+        assert wh._data.generation == res.WarehouseGeneration.GEN2
+
+        wh = res.Warehouse(name="test_wh", generation="GEN1")
+        assert wh._data.generation == res.WarehouseGeneration.GEN1
+
+    def test_warehouse_resource_constraint_enum_conversion(self):
+        """Test Warehouse resource constraint enum conversion from string."""
+        wh = res.Warehouse(name="test_wh", resource_constraint="STANDARD_GEN_2")
+        assert wh._data.resource_constraint == res.WarehouseResourceConstraint.STANDARD_GEN_2
+
+        wh = res.Warehouse(
+            name="test_wh",
+            warehouse_type="SNOWPARK-OPTIMIZED",
+            resource_constraint="MEMORY_16X_X86",
+        )
+        assert wh._data.resource_constraint == res.WarehouseResourceConstraint.MEMORY_16X_X86
+
+    def test_warehouse_generation_requires_standard_type(self):
+        """Test generation is only valid for standard warehouses."""
+        with pytest.raises(ValueError, match="generation is only valid"):
+            res.Warehouse(name="test_wh", warehouse_type="SNOWPARK-OPTIMIZED", generation="2")
+
+    def test_warehouse_generation_and_resource_constraint_must_agree(self):
+        """Test generation and standard resource constraint compatibility."""
+        with pytest.raises(ValueError, match="must describe the same"):
+            res.Warehouse(name="test_wh", generation="2", resource_constraint="STANDARD_GEN_1")
+
+    def test_warehouse_gen2_rejects_x5large_and_x6large(self):
+        """Test unsupported Gen2 standard warehouse sizes."""
+        with pytest.raises(ValueError, match="do not support X5LARGE or X6LARGE"):
+            res.Warehouse(name="test_wh", warehouse_size="X5LARGE", generation="2")
+        with pytest.raises(ValueError, match="do not support X5LARGE or X6LARGE"):
+            res.Warehouse(name="test_wh", warehouse_size="X6LARGE", resource_constraint="STANDARD_GEN_2")
+
+    def test_warehouse_resource_constraint_must_match_warehouse_type(self):
+        """Test standard and Snowpark resource constraint families."""
+        with pytest.raises(ValueError, match="STANDARD warehouses only support"):
+            res.Warehouse(name="test_wh", resource_constraint="MEMORY_16X")
+        with pytest.raises(ValueError, match="SNOWPARK-OPTIMIZED warehouses only support"):
+            res.Warehouse(
+                name="test_wh",
+                warehouse_type="SNOWPARK-OPTIMIZED",
+                resource_constraint="STANDARD_GEN_2",
+            )
 
 
 class TestUser:

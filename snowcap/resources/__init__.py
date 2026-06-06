@@ -71,7 +71,7 @@ from .tag import Tag, TagMaskingPolicyReference, TagReference
 from .task import Task
 from .user import User
 from .view import View
-from .warehouse import Warehouse
+from .warehouse import Warehouse, WarehouseGeneration, WarehouseResourceConstraint
 
 __all__ = [
     "Account",
@@ -154,4 +154,6 @@ __all__ = [
     "View",
     "ViewStream",
     "Warehouse",
+    "WarehouseGeneration",
+    "WarehouseResourceConstraint",
 ]

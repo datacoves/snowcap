@@ -7,6 +7,7 @@ All tests use mocked URN, FQN, and Props objects - no Snowflake connection requi
 
 import pytest
 
+from snowcap import resources as res
 from snowcap.lifecycle import (
     fqn_to_sql,
     create_resource,
@@ -734,6 +735,16 @@ class TestUpdateDefault:
         props = MockProps("")
         with pytest.raises(NotImplementedError, match="'name'"):
             update__default(urn, data, props)
+
+    def test_multiple_warehouse_properties_combined_in_one_statement(self):
+        """Gen2 warehouse fields work with combined ALTER ... SET updates."""
+        urn = make_urn(ResourceType.WAREHOUSE, "MY_WH")
+        data = {
+            "resource_constraint": "STANDARD_GEN_2",
+            "generation": "2",
+        }
+        result = update__default(urn, data, res.Warehouse.props)
+        assert result == "ALTER WAREHOUSE MY_WH SET GENERATION = '2' RESOURCE_CONSTRAINT = STANDARD_GEN_2"
 
 
 # ============================================================================
