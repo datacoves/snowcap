@@ -11,6 +11,9 @@ uvx snowcap plan --config snowcap.yml
 uvx snowcap apply --config snowcap.yml
 ```
 
+!!! tip "Using uv throughout the docs"
+    Anywhere you see `snowcap <command>` in this documentation, you can use `uvx snowcap <command>` instead.
+
 ## Install from PyPI
 
 ```sh
