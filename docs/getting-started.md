@@ -2,6 +2,15 @@
 
 **Requirements:** Python 3.10 or higher
 
+## Run with uv (Recommended)
+
+If you have [uv](https://docs.astral.sh/uv/) installed, you can run snowcap directly without installation:
+
+```sh
+uvx snowcap plan --config snowcap.yml
+uvx snowcap apply --config snowcap.yml
+```
+
 ## Install from PyPI
 
 ```sh

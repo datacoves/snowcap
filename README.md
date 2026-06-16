@@ -53,6 +53,14 @@ Snowcap replaces Terraform, Schemachange, or Permifrost with a single, purpose-b
 
 ## Quick Start
 
+Run with [uv](https://docs.astral.sh/uv/) (no install needed):
+
+```sh
+uvx snowcap plan --config snowcap.yml
+```
+
+Or install from PyPI:
+
 ```sh
 pip install snowcap
 ```

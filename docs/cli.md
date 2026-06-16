@@ -4,6 +4,14 @@ Snowcap provides a CLI for managing Snowflake resources.
 
 ## Installation
 
+Run with [uv](https://docs.astral.sh/uv/) (no install needed):
+
+```bash
+uvx snowcap plan --config snowcap.yml
+```
+
+Or install from PyPI:
+
 ```bash
 pip install snowcap
 ```
