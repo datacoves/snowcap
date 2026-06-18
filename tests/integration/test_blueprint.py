@@ -637,6 +637,42 @@ def test_stage_read_write_privilege_execution_order(cursor, suffix, marked_for_c
     blueprint.apply(session, plan)
 
 
+def test_bulk_stage_read_write_privilege_execution_order(cursor, suffix, test_db, marked_for_cleanup):
+    """
+    Snowflake rejects WRITE on a stage unless READ is granted first/together.
+    This also covers bulk ALL/FUTURE stage grants: without the WRITE -> READ
+    dependency, same-level grants for a role run concurrently and WRITE can
+    reach Snowflake before READ, failing with a privilege order violation.
+
+    Apply READ/WRITE across all four ALL/FUTURE x DATABASE/SCHEMA scopes and
+    assert the apply succeeds (it raises pre-fix).
+    """
+    session = cursor.connection
+
+    role_name = f"BULK_STAGE_ACCESS_ROLE_{suffix}"
+    role = res.Role(name=role_name)
+
+    scopes = [
+        f"all stages in database {test_db}",
+        f"all stages in schema {test_db}.PUBLIC",
+        f"future stages in database {test_db}",
+        f"future stages in schema {test_db}.PUBLIC",
+    ]
+
+    grants = []
+    for scope in scopes:
+        grants.append(res.Grant(priv="READ", on=scope, to=role))
+        grants.append(res.Grant(priv="WRITE", on=scope, to=role))
+
+    blueprint = Blueprint(resources=[role, *grants])
+
+    marked_for_cleanup.append(role)
+
+    plan = blueprint.plan(session)
+    assert len(plan) == 1 + len(grants)
+    blueprint.apply(session, plan)
+
+
 def test_grant_database_role_to_database_role(cursor, suffix, marked_for_cleanup):
     session = cursor.connection
     bp = Blueprint()

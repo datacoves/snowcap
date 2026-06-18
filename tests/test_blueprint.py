@@ -442,6 +442,56 @@ def test_blueprint_reference_sorting(session_ctx, remote_state):
     assert db3_change.resource_cls == res.Database
 
 
+def test_blueprint_bulk_stage_read_write_ordering(session_ctx):
+    """
+    Bulk (ALL/FUTURE) stage grants must order READ before WRITE, just like
+    grants on a single named stage. _create_stage_privilege_refs should make
+    each WRITE grant depend on the matching READ grant over the same scope,
+    for every ALL/FUTURE x DATABASE/SCHEMA combination.
+    """
+    role = res.Role(name="R_RW")
+
+    # Every ALL/FUTURE x DATABASE/SCHEMA combination must order READ before
+    # WRITE, since _create_stage_privilege_refs keys on items_type == STAGE
+    # regardless of container type or grant type.
+    all_db_read = res.Grant(priv="READ", on="all stages in database DB", to=role)
+    all_db_write = res.Grant(priv="WRITE", on="all stages in database DB", to=role)
+    all_sc_read = res.Grant(priv="READ", on="all stages in schema DB.SC", to=role)
+    all_sc_write = res.Grant(priv="WRITE", on="all stages in schema DB.SC", to=role)
+    future_db_read = res.Grant(priv="READ", on="future stages in database DB", to=role)
+    future_db_write = res.Grant(priv="WRITE", on="future stages in database DB", to=role)
+    future_sc_read = res.Grant(priv="READ", on="future stages in schema DB.SC", to=role)
+    future_sc_write = res.Grant(priv="WRITE", on="future stages in schema DB.SC", to=role)
+
+    blueprint = Blueprint(
+        resources=[
+            role,
+            all_db_read,
+            all_db_write,
+            all_sc_read,
+            all_sc_write,
+            future_db_read,
+            future_db_write,
+            future_sc_read,
+            future_sc_write,
+        ]
+    )
+    blueprint._finalize(session_ctx)
+
+    # WRITE depends on READ -> READ is applied first, for each scope
+    assert all_db_read in all_db_write.refs
+    assert all_sc_read in all_sc_write.refs
+    assert future_db_read in future_db_write.refs
+    assert future_sc_read in future_sc_write.refs
+
+    # Scopes must not cross-link: a WRITE only depends on the READ over its
+    # exact same scope, not on READs from other container/grant-type scopes.
+    assert all_sc_read not in all_db_write.refs
+    assert future_db_read not in all_db_write.refs
+    assert future_sc_read not in future_db_write.refs
+    assert all_db_read not in future_sc_write.refs
+
+
 def test_blueprint_ownership_sorting(session_ctx, remote_state):
 
     role = res.Role(name="SOME_ROLE")
