@@ -4,17 +4,17 @@ Picking a tool to manage Snowflake permissions at scale is harder than it should
 
 ## The Contenders
 
-| | Snowcap | Terraform | SnowDDL | Permifrost |
-| --- | --- | --- | --- | --- |
-| **Snowflake-native** | :white_check_mark: | :x: | :white_check_mark: | :white_check_mark: |
-| **No state file** | :white_check_mark: | :x: | :white_check_mark: | :white_check_mark: |
-| **YAML + Python** | :white_check_mark: | HCL only | YAML only | YAML only |
-| **Speed** | 50%+ faster than alternatives | Baseline | Fast | Slow out of the box (serial) |
-| **Object creation** | :white_check_mark: 60+ resource types | :white_check_mark: Most types | :white_check_mark: Most types | :x: Grants only |
-| **Templating / loops** | :white_check_mark: | :white_check_mark: | Limited | :x: |
-| **Export existing resources** | :white_check_mark: | Import only | :x: | :x: |
-| **Actively maintained** | :white_check_mark: Datacoves-owned | :white_check_mark: Snowflake-owned | :warning: Single maintainer | :warning: Slow-moving, infrequent releases |
-| **Enterprise RBAC support** | :white_check_mark: | :white_check_mark: | Limited | :white_check_mark: |
+| | Snowcap | Snowflake DCM | Terraform | SnowDDL | Permifrost |
+| --- | --- | --- | --- | --- | --- |
+| **Snowflake-native** | :white_check_mark: | :white_check_mark: | :x: | :white_check_mark: | :white_check_mark: |
+| **No state file** | :white_check_mark: | :warning: in-account history | :x: | :white_check_mark: | :white_check_mark: |
+| **YAML + Python** | :white_check_mark: | :x: SQL only | HCL only | YAML only | YAML only |
+| **Speed** | 50%+ faster than alternatives | Runs in-account | Baseline | Fast | Slow out of the box (serial) |
+| **Object creation** | :white_check_mark: 60+ resource types | :white_check_mark: Most types | :white_check_mark: Most types | :white_check_mark: Most types | :x: Grants only |
+| **Templating / loops** | :white_check_mark: | :white_check_mark: Jinja | :white_check_mark: | Limited | :x: |
+| **Export existing resources** | :white_check_mark: | :x: | Import only | :x: | :x: |
+| **Actively maintained** | :white_check_mark: Datacoves-owned | :white_check_mark: Snowflake-owned | :white_check_mark: Snowflake-owned | :warning: Single maintainer | :warning: Slow-moving, infrequent releases |
+| **Enterprise RBAC support** | :white_check_mark: | :white_check_mark: | :white_check_mark: | Limited | :white_check_mark: |
 
 ## Why Not Terraform?
 
@@ -41,6 +41,18 @@ Permifrost only manages grants. It can't create a warehouse, a role, a schema, o
 It also hasn't kept up with Snowflake. Streamlit apps, dynamic tables, and iceberg tables have no support. There isn't even an open issue requesting them. The `references` privilege isn't there either. We submitted pull requests for parallelization and quoted identifier handling. Both were rejected. The project still ships the occasional release, but its scope hasn't grown in years, and enterprise Snowflake deployments have moved well past what it covers.
 
 Out of the box, Permifrost runs serially. Every query to Snowflake happens one at a time. At a large enough account, that translates to two hours or more for a single apply run. We parallelized our own fork to get that down, but it's still a workaround on top of an architecture that wasn't designed for this scale. Add a 7,000-line YAML file with no templating, and similar role structures for different regions or environments end up copy-pasted and slowly diverging. It works until it doesn't.
+
+## Why Not Snowflake DCM?
+
+DCM (Database Change Management) Projects are Snowflake's own declarative deployment feature, and of every option here it's the one most architecturally similar to Snowcap. Both are Snowflake-native, both are declarative—you describe the end state and the tool generates the SQL to get there—and neither relies on an external, drift-prone state file. If you're weighing the two, the differences come down to ownership, authoring experience, and onboarding.
+
+DCM is first-party, which is a real advantage: it's built into the platform and moves with Snowflake's roadmap. The flip side is that you're bound to that roadmap. DCM is newer and still maturing through preview, and when you hit a gap you wait for Snowflake to close it. Snowcap is open source and Datacoves-maintained, so when Snowflake ships something new, we can add support for it directly.
+
+Authoring is the other major difference. DCM expects SQL definition files built around the `DEFINE` statement plus a `manifest.yml`. Snowcap meets data engineers where they already are, in YAML or Python. Both tools can stamp out repeated resources from a list, but the mechanism differs: DCM uses raw Jinja `{% for %}` loops and macros inside the definition files, so you hand-write the control flow that emits the SQL. Snowcap exposes a declarative `for_each` on the resource itself, fed by `vars`—you say "apply this resource across this list" rather than writing the loop. Both are equally capable; Snowcap's is more constrained and more readable for the common "create N of these" case.
+
+DCM also keeps deployment artifacts and version history inside the account, in a DCM Project Object. That's useful for auditing, but it's still state that lives somewhere and has to be managed. Snowcap holds no state at all—it reads the live account on every run, so changes made outside the tool are simply picked up on the next plan.
+
+Finally, onboarding an existing account. DCM has no way to reverse-engineer what you already have, so adopting it on a brownfield account means writing definitions by hand. `snowcap export` generates config from your current account, so you start from where you are.
 
 ## What Snowcap Gets Right
 
