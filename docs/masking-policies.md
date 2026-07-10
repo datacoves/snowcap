@@ -51,6 +51,23 @@ With tag-based masking:
 - Add new tables with PII columns—just tag them, no policy changes needed
 - Change masking logic in one place, applies to all tagged columns
 
+## Recommended Approach
+
+The options below trade off against each other, so here is the default we recommend. Start here and deviate only when you have a specific reason.
+
+1. **Define governance objects with Snowcap.** Create the tags, the per-data-type masking policies, the tag-to-policy references, and the unmask roles as shown in Steps 1 through 6. This is the foundation for every option.
+
+2. **Tag known-sensitive raw data at load time** ([Option 1](#option-1-during-data-load-dlt)). Protect PII the moment it lands, before dbt or any analyst can read it. The loader role tags but does not get the unmask role, so it can move the data without seeing it.
+
+3. **In dbt, tag at creation time using contracts and constraints** ([Option 4](#option-4-at-creation-time-dbt-contracts-and-constraints)), not post-hooks. The tag is applied inside the `CREATE TABLE`, so there is no window where fresh PII sits unmasked and no partial-run failure that leaves a table untagged. Fall back to a post-hook ([Option 2](#option-2-during-transformation-dbt)) only for view columns produced by a transformation, which constraints cannot cover.
+
+4. **For schemas that are sensitive end to end, set the tag on the schema and go fail-closed** ([Default Masking at the Schema Level](#fail-closed-default-masking-at-the-schema-level)). New columns and new tables are then masked by default, and you allowlist reviewed non-sensitive columns instead of remembering to protect each sensitive one. Use column-level tagging for schemas that are only partly sensitive.
+
+5. **Set `DEFAULT_SECONDARY_ROLES = ()` for masked users.** Masking checks `IS_ROLE_IN_SESSION()`, and active secondary roles can bring an unmask role into session and silently defeat the policy. See [Verifying Masking Works](#verifying-masking-works).
+
+!!! tip "The short version"
+    Tag raw data at load, tag dbt tables at creation time (not in a post-hook), default whole sensitive schemas to fail-closed, and turn off secondary roles for masked users. The post-hook is a fallback for derived view columns, not the default.
+
 ## Role Naming Convention
 
 !!! info "Recommended, not required"
@@ -279,11 +296,14 @@ snowcap/
 
 ## Applying Tags to Columns
 
-Once your tags and masking policies are deployed with Snowcap, you need to apply tags to columns. There are three approaches:
+Once your tags and masking policies are deployed with Snowcap, you need to apply tags to columns. There are four approaches:
 
 1. **At load time** - Apply tags immediately after loading data (e.g., with dlt)
 2. **At transformation time** - Apply tags during dbt model builds via post-hooks
 3. **Manual** - Apply tags directly via SQL for one-off needs
+4. **At creation time** - Apply tags inline via dbt contracts and constraints (closes the post-hook timing window)
+
+All four tag individual columns, so they are **fail-open**: an untagged column is unprotected. To flip the default to **fail-closed** (mask everything unless allowlisted), see [Default Masking at the Schema Level](#fail-closed-default-masking-at-the-schema-level).
 
 ### Option 1: During Data Load (dlt)
 
@@ -365,7 +385,17 @@ role_grants:
 
 ### Option 2: During Transformation (dbt)
 
-The most common approach is to apply tags during dbt model builds using post-hooks. This works well when your transformation layer is the primary interface for data consumers.
+A common approach is to apply tags during dbt model builds using post-hooks. This works well when your transformation layer is the primary interface for data consumers.
+
+!!! warning "Understand the post-hook trade-offs"
+    Post-hooks apply the tag *after* the table is materialized, using a separate `ALTER TABLE ... SET TAG` statement. This introduces a few risks you should account for:
+
+    - **A brief unmasked window on every build.** The table exists with real data before the post-hook runs. Between materialization and the `ALTER TABLE` that applies the tag, the column holds unmasked PII with no policy attached. The window is usually short, but it exists on every run, not just the first.
+    - **`CREATE OR REPLACE` drops the tag each time.** dbt materializes tables with `CREATE OR REPLACE`. That drops the old table and everything attached to it, including tags. The post-hook re-applies the tag on each build, so the protection is only ever as current as the last successful post-hook.
+    - **A failed or interrupted run leaves data unmasked.** If the model builds but the post-hook fails (permissions, a typo in the tag name, a cancelled run), the table is left populated and untagged. Nothing masks it until the next successful build.
+    - **Post-hooks run on every build.** They re-issue the `ALTER TABLE` even when nothing changed, adding metadata operations to each run.
+
+    If a persistent unmasked window is unacceptable for your data, apply the tag at creation time instead (see [Option 4](#option-4-at-creation-time-dbt-contracts-and-constraints)), or tag at load time (Option 1) so the raw data is protected before dbt ever reads it.
 
 #### Snowcap Macros
 
@@ -473,6 +503,80 @@ ALTER TABLE analytics.staging.stg_customers
   ALTER COLUMN birth_date SET TAG governance.public.pii = 'true';
 ```
 
+### Option 4: At Creation Time (dbt Contracts and Constraints)
+
+To close the unmasked window described in Option 2, apply the tag *as part of the `CREATE TABLE` statement* rather than in a post-hook. dbt supports this through [model contracts](https://docs.getdbt.com/docs/collaborate/govern/model-contracts){:target="_blank"} and a `custom` column constraint that renders the tag inline.
+
+Snowcap still owns the tag and the masking policies (Steps 1 through 5). dbt only applies the tag to the column, and it does so atomically when the table is built:
+
+```yaml
+# models/staging/schema.yml
+models:
+  - name: stg_customers
+    config:
+      contract:
+        enforced: true          # required for dbt to render column constraints
+    columns:
+      - name: id
+        data_type: number
+      - name: email
+        data_type: varchar
+        constraints:
+          - type: custom
+            expression: "with tag (governance.tags.pii = 'true')"
+      - name: birth_date
+        data_type: date
+        constraints:
+          - type: custom
+            expression: "with tag (governance.tags.pii = 'true')"
+```
+
+dbt compiles this into the column definition, so the tag (and therefore the masking policy) is present the moment the table exists:
+
+```sql
+create or replace table analytics.staging.stg_customers (
+  id number,
+  email varchar with tag (governance.tags.pii = 'true'),
+  birth_date date with tag (governance.tags.pii = 'true')
+)
+as ( ... );
+```
+
+There is no separate `ALTER TABLE`, so there is no window where the data sits unmasked, and a partial run cannot leave a populated-but-untagged table. The dbt role still needs the `z_tag__apply__pii` role granted in [Step 6 / Option 2](#4-grant-the-tag-apply-role-to-your-dbt-role).
+
+!!! warning "Requirements and limits of the constraint approach"
+    - **Contracts must be enforced.** dbt only renders column constraints when `contract: enforced: true`. This also requires an explicit `data_type` for every column and turns column mismatches into build errors rather than silent drift.
+    - **Tables only, not views.** dbt does not render constraints into view DDL. For view columns that pass a source column straight through, Snowflake propagates the masking policy automatically. For view columns produced by a transformation (hashing, concatenation, aggregation), the lineage is broken and neither the constraint nor auto-propagation applies. A post-hook (Option 2) remains the fallback for those columns.
+    - **No dynamic tables.** Constraints are not rendered for the `dynamic_table` materialization.
+
+## Fail-Closed: Default Masking at the Schema Level
+
+The four options above are all **fail-open**: a column is exposed until someone remembers to tag it. Forget the tag, mistype the column name, or add a new PII column without updating `schema.yml`, and the data is readable by everyone. The failure mode is a leak.
+
+You can invert this. Because tags are inherited down the object hierarchy, setting the masking tag on a **schema** (or database, or table) applies the associated masking policy to **every column whose data type matches a policy on the tag**, including columns in tables added later. Nothing is visible unless a role holds the unmask role. The failure mode becomes over-masking instead of exposure.
+
+Snowcap sets a tag on a schema through the schema's `tags` property:
+
+```yaml
+# resources/schemas.yml
+schemas:
+  - name: analytics.sensitive
+    managed_access: true
+    tags:
+      governance.tags.pii: 'true'   # every matching-type column here is masked by default
+```
+
+New tables built into `analytics.sensitive`, and new columns added to existing tables, are masked from the moment they exist. There is no per-column tagging step to forget.
+
+!!! tip "The escape hatch is direct assignment"
+    A masking policy assigned **directly** to a column takes precedence over the inherited tag-based one (see [Caveats](#caveats-and-limitations)). So the schema tag masks everything by default, and you explicitly allowlist a reviewed non-sensitive column by attaching a pass-through policy (one that always returns `val`) directly to it. Default-deny, with a documented exception list.
+
+!!! warning "Know what fail-closed costs"
+    - **It masks non-sensitive columns too.** Every VARCHAR in the schema is masked, not just the PII ones, so `city` and `product_name` come back `***MASKED***` for anyone without the unmask role. Only put genuinely sensitive schemas behind a schema-level tag, or be ready to maintain the allowlist above.
+    - **Broad blast radius.** Changing the policy on the tag re-evaluates every inheriting column in the schema.
+    - **No materialized views.** You cannot create a materialized view on any table protected by a tag-based masking policy, which now includes every table in the schema.
+    - **Analysts need the unmask role to do anything useful.** Plan the RBAC grants before flipping a schema to default-masked, or you will block legitimate work.
+
 ## Verifying Masking Works
 
 Test that masking is applied correctly:
@@ -502,6 +606,20 @@ SELECT email, account_balance, birth_date
     ALTER USER <username> SET DEFAULT_SECONDARY_ROLES = ();
     ```
 
+## Caveats and Limitations
+
+Tag-based masking is the right default for most teams, but it has behaviors worth knowing before you rely on it.
+
+- **A directly assigned policy silently wins.** If a column has both a masking policy attached directly *and* a tag-based policy, the directly assigned policy takes precedence and the tag-based one is ignored. There is no error. Pick one mechanism per column so you always know which policy is in effect.
+- **One policy per tag per data type.** A tag can hold only one masking policy for each data type. You cannot, for example, attach two different VARCHAR policies to the same tag. This is why Step 4 defines a single policy per data type.
+- **Silent gap when a data type has no policy.** If you tag a column whose data type has no matching policy on the tag, the column is simply not masked. Audit the data types in your schema and make sure each has a policy (see the warning in Step 5).
+- **Dependencies are locked while associated.** You cannot drop a tag or a masking policy while the policy is assigned to the tag. Unset the reference first.
+- **Materialized views are blocked.** You cannot create a materialized view on a table that is protected by a tag-based masking policy.
+- **Propagated tags depend on lineage.** `propagate: ON_DATA_MOVEMENT` carries tags to downstream tables and to view columns that pass a source column straight through. It does **not** cover columns derived by a transformation (hashing, concatenation, aggregation), because that breaks the lineage Snowflake uses to propagate. Tag or mask those columns explicitly.
+- **Enterprise Edition required.** Masking policies and tag-based masking are Enterprise Edition (or higher) features.
+
+Also review the [secondary roles warning](#verifying-masking-works) below: masking can be bypassed if `USE SECONDARY ROLES ALL` brings an unmask role into session.
+
 ## Benefits of This Pattern
 
 1. **Scalable** - Tag once, mask everywhere. New tables just need column tags.
@@ -516,7 +634,7 @@ SELECT email, account_balance, birth_date
 
 6. **Maintainable** - Change masking logic in one policy, applies to all tagged columns.
 
-7. **dbt-native** - Works with your existing dbt workflow via post-hooks.
+7. **dbt-native** - Works with your existing dbt workflow via post-hooks or creation-time constraints.
 
 ## See Also
 
