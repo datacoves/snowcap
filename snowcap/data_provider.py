@@ -2773,6 +2773,30 @@ def fetch_stream(session: SnowflakeConnection, fqn: FQN):
         raise NotImplementedError(f"Unsupported stream source type {data['source_type']}")
 
 
+def fetch_streamlit(session: SnowflakeConnection, fqn: FQN):
+    streamlits = _show_resources(session, "STREAMLITS", fqn)
+    if len(streamlits) == 0:
+        return None
+    if len(streamlits) > 1:
+        raise Exception(f"Found multiple streamlits matching {fqn}")
+
+    data = streamlits[0]
+    desc_result = execute(session, f"DESC STREAMLIT {fqn}", cacheable=True)
+    properties = desc_result[0]
+    return {
+        "name": data["name"],
+        # root_location is the stage the app was deployed from, e.g.
+        # '@db.schema.stage/app' — this is the `from_` field.
+        "from_": properties.get("root_location"),
+        "version": None,
+        "main_file": properties.get("main_file"),
+        "title": properties.get("title") or None,
+        "query_warehouse": data.get("query_warehouse") or None,
+        "comment": data.get("comment") or None,
+        "owner": _get_owner_identifier(data),
+    }
+
+
 def fetch_tag(session: SnowflakeConnection, fqn: FQN):
     try:
         show_result = execute(session, "SHOW TAGS IN ACCOUNT", cacheable=True)
