@@ -1622,6 +1622,21 @@ def fetch_database_role_grant(session: SnowflakeConnection, fqn: FQN):
     }
 
 
+def fetch_dbt_project(session: SnowflakeConnection, fqn: FQN):
+    projects = _show_resources(session, "DBT PROJECTS", fqn)
+    if len(projects) == 0:
+        return None
+    if len(projects) > 1:
+        raise Exception(f"Found multiple dbt projects matching {fqn}")
+
+    data = projects[0]
+    return {
+        "name": data["name"],
+        "owner": _get_owner_identifier(data),
+        "comment": data["comment"] or None,
+    }
+
+
 def fetch_dynamic_table(session: SnowflakeConnection, fqn: FQN):
     show_result = _show_resources(session, "DYNAMIC TABLES", fqn)
     if len(show_result) == 0:
