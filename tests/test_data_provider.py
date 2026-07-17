@@ -44,6 +44,8 @@ from snowcap.data_provider import (
 from snowcap.identifiers import FQN, URN
 from snowcap.resource_name import ResourceName
 from snowcap.enums import ResourceType
+from snowcap import resources as res
+from snowcap.resources.warehouse import ADAPTIVE_UNSUPPORTED_FIELDS
 
 import datetime
 import pytz
@@ -679,6 +681,7 @@ class TestFetchWarehouse:
         assert result["resource_constraint"] == "STANDARD_GEN_2"
         assert result["enable_query_acceleration"] is False
         assert result["query_acceleration_max_scale_factor"] == "8"
+        assert result["max_query_performance_level"] is None
 
     @patch("snowcap.data_provider._show_resources")
     def test_derives_standard_constraint_from_generation(self, mock_show_resources):
@@ -689,6 +692,7 @@ class TestFetchWarehouse:
 
         assert result["generation"] == "2"
         assert result["resource_constraint"] == "STANDARD_GEN_2"
+        assert result["max_query_performance_level"] is None
 
     @patch("snowcap.data_provider._show_resources")
     def test_derives_generation_from_standard_constraint(self, mock_show_resources):
@@ -699,6 +703,7 @@ class TestFetchWarehouse:
 
         assert result["generation"] == "1"
         assert result["resource_constraint"] == "STANDARD_GEN_1"
+        assert result["max_query_performance_level"] is None
 
     @patch("snowcap.data_provider._show_resources")
     def test_treats_null_and_missing_generation_fields_as_none(self, mock_show_resources):
@@ -718,6 +723,7 @@ class TestFetchWarehouse:
         assert result["resource_constraint"] is None
         assert result["enable_query_acceleration"] is None
         assert result["query_acceleration_max_scale_factor"] is None
+        assert result["max_query_performance_level"] is None
 
     @patch("snowcap.data_provider._show_resources")
     def test_preserves_snowpark_memory_constraint(self, mock_show_resources):
@@ -735,6 +741,82 @@ class TestFetchWarehouse:
         assert result["warehouse_type"] == "SNOWPARK-OPTIMIZED"
         assert result["generation"] is None
         assert result["resource_constraint"] == "MEMORY_16X_X86"
+        assert result["max_query_performance_level"] is None
+
+    @patch("snowcap.data_provider._show_resources")
+    def test_fetch_warehouse_adaptive(self, mock_show_resources):
+        mock_show_resources.return_value = [
+            _warehouse_show_row(
+                type="ADAPTIVE",
+                size="",
+                max_query_performance_level="LARGE",
+                max_cluster_count=4,
+                min_cluster_count=2,
+                scaling_policy="ECONOMY",
+            )
+        ]
+        mock_session = MagicMock()
+
+        result = fetch_warehouse(mock_session, FQN(name=ResourceName("WH")), include_params=False)
+
+        assert result["warehouse_type"] == "ADAPTIVE"
+        assert result["max_query_performance_level"] == "LARGE"
+        for field_name in ADAPTIVE_UNSUPPORTED_FIELDS:
+            assert result.get(field_name) is None, field_name
+        assert "query_throughput_multiplier" not in result
+
+    @patch("snowcap.data_provider._show_resources")
+    def test_fetch_warehouse_adaptive_missing_columns(self, mock_show_resources):
+        # Stale SHOW WAREHOUSES output that lacks the adaptive-only columns entirely.
+        mock_show_resources.return_value = [_warehouse_show_row(type="ADAPTIVE", size="")]
+        mock_session = MagicMock()
+
+        result = fetch_warehouse(mock_session, FQN(name=ResourceName("WH")), include_params=False)
+
+        assert result["max_query_performance_level"] is None
+        assert result["warehouse_size"] is None
+        assert "query_throughput_multiplier" not in result
+
+    @patch("snowcap.data_provider._show_resources")
+    def test_fetch_warehouse_adaptive_size_does_not_raise(self, mock_show_resources):
+        mock_show_resources.return_value = [_warehouse_show_row(type="ADAPTIVE", size="null")]
+        mock_session = MagicMock()
+
+        result = fetch_warehouse(mock_session, FQN(name=ResourceName("WH")), include_params=False)
+
+        assert result["warehouse_size"] is None
+
+    @patch("snowcap.data_provider._show_resources")
+    def test_fetch_warehouse_adaptive_round_trip(self, mock_show_resources):
+        # No spurious drift: a declared ADAPTIVE spec fed through SHOW WAREHOUSES output for the
+        # same warehouse must fetch back to matching values on every field it sets.
+        warehouse = res.Warehouse(
+            name="WH",
+            warehouse_type="ADAPTIVE",
+            max_query_performance_level="LARGE",
+            comment="adaptive warehouse",
+        )
+        spec_dict = warehouse.to_dict()
+
+        mock_show_resources.return_value = [
+            _warehouse_show_row(
+                type="ADAPTIVE",
+                size="",
+                max_query_performance_level="LARGE",
+                comment="adaptive warehouse",
+            )
+        ]
+        mock_session = MagicMock()
+
+        result = fetch_warehouse(mock_session, FQN(name=ResourceName("WH")), include_params=False)
+
+        # initially_suspended is metadata={"fetchable": False} -- SHOW WAREHOUSES has no such
+        # column, so fetch_warehouse never returns it.
+        for field_name, value in spec_dict.items():
+            if field_name == "initially_suspended":
+                continue
+            assert result[field_name] == value, field_name
+        assert "query_throughput_multiplier" not in result
 
 
 class TestListResource:
