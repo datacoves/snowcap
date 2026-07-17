@@ -59,6 +59,11 @@ grants:
   - priv: MONITOR
     on: cortex search service somedb.someschema.someservice
     to: search_observability_role
+
+  # IMPORTED PRIVILEGES on a shared database (see SharedDatabase)
+  - priv: IMPORTED PRIVILEGES
+    on_database: gong
+    to: gong_r
 ```
 
 #### Future Grants
@@ -115,6 +120,9 @@ grant = Grant(priv="CREATE TABLE", on_schema="foo", to="somerole")
 
 # Table Privileges:
 grant = Grant(priv=["SELECT", "INSERT", "DELETE"], on_table="sometable", to="somerole")
+
+# IMPORTED PRIVILEGES on a shared database (see SharedDatabase):
+grant = Grant(priv="IMPORTED PRIVILEGES", on_database="gong", to="gong_r")
 ```
 
 #### Future Grants
@@ -196,3 +204,9 @@ grant_on_all = Grant(
 
 - **`owner`** (`string` or [Role](role.md), optional):  
   The owner role of the grant. Defaults to `"SYSADMIN"`.
+
+**Note:** `IMPORTED PRIVILEGES` is only valid on a [SharedDatabase](shared_database.md)
+(a database created `FROM SHARE`). It cannot be granted `WITH GRANT OPTION`
+and can only be granted to account roles, not database roles. Snowflake's
+`SHOW GRANTS` reports it as `USAGE` on shared databases — snowcap's fetch
+logic handles this quirk transparently.

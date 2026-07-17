@@ -17,6 +17,7 @@ from snowcap import resources as res
 from snowcap.enums import ResourceType, WarehouseSize
 from snowcap.identifiers import FQN, URN
 from snowcap.resource_name import ResourceName
+from snowcap.resources.resource import Resource, ResourceContainer
 
 
 class TestDatabase:
@@ -78,6 +79,65 @@ class TestDatabase:
         data = db.to_dict()
         assert data["name"] == "TEST_DB"
         assert data["comment"] == "Test"
+
+
+class TestSharedDatabase:
+    """Tests for SharedDatabase resource, the polymorphic sibling of Database for
+    databases created FROM SHARE."""
+
+    def test_shared_database_minimal(self):
+        """Test SharedDatabase with minimal required properties."""
+        db = res.SharedDatabase(name="gong", from_share="provider_account.share_name")
+        assert db.name == "gong"
+        assert db.resource_type == ResourceType.DATABASE
+
+    def test_shared_database_default_owner_is_accountadmin(self):
+        """SharedDatabase defaults to ACCOUNTADMIN ownership, unlike Database's SYSADMIN default."""
+        db = res.SharedDatabase(name="gong", from_share="provider_account.share_name")
+        assert str(db._data.owner.name) == "ACCOUNTADMIN"
+
+    def test_shared_database_create_sql(self):
+        """SharedDatabase.create_sql() renders CREATE DATABASE ... FROM SHARE ..."""
+        db = res.SharedDatabase(name="gong", from_share="provider_account.share_name")
+        sql = db.create_sql()
+        assert sql == "CREATE DATABASE GONG FROM SHARE PROVIDER_ACCOUNT.SHARE_NAME"
+
+    def test_shared_database_is_not_a_resource_container(self):
+        """SharedDatabase is read-only (no schemas, no tags, no params) so it must not be a
+        ResourceContainer."""
+        assert not issubclass(res.SharedDatabase, ResourceContainer)
+
+    def test_shared_database_resolver_picks_shared_database(self):
+        """Resource.resolve_resource_cls resolves to SharedDatabase when from_share is present."""
+        resource_cls = Resource.resolve_resource_cls(ResourceType.DATABASE, {"name": "gong", "from_share": "a.b"})
+        assert resource_cls is res.SharedDatabase
+
+    def test_shared_database_resolver_picks_database(self):
+        """Resource.resolve_resource_cls resolves to Database when from_share is absent."""
+        resource_cls = Resource.resolve_resource_cls(ResourceType.DATABASE, {"name": "analytics"})
+        assert resource_cls is res.Database
+
+    @pytest.mark.xfail(
+        reason=(
+            "ResourceName wraps from_share as a single opaque string, so a compound identifier "
+            "with one quoted component (e.g. SOME_ORG.\"My Share\") gets uppercased wholesale by "
+            "ResourceName.__str__ instead of preserving the quoted part. ResourceName has no "
+            "concept of compound (dotted) identifiers with independently-quoted components -- "
+            "this is a pre-existing limitation shared by every IdentifierProp field, not "
+            "something introduced by SharedDatabase, so fixing it is out of scope here."
+        ),
+        strict=True,
+    )
+    def test_shared_database_from_share_quoted_component_round_trips(self):
+        """A from_share value with a quoted component should preserve that quoting through
+        create_sql, and from_sql should parse it back without mangling it."""
+        db = res.SharedDatabase(name="gong", from_share='SOME_ORG."My Share"')
+        assert db.create_sql() == 'CREATE DATABASE GONG FROM SHARE SOME_ORG."My Share"'
+
+        round_tripped = res.SharedDatabase.from_sql(
+            'CREATE DATABASE gong FROM SHARE SOME_ORG."My Share"'
+        )
+        assert round_tripped._data.from_share == 'SOME_ORG."My Share"'
 
 
 class TestSchema:
