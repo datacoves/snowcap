@@ -635,3 +635,51 @@ class TestBalboaYamlFixtures:
             config = self._load_fixture(os.path.basename(fixture_path))
             blueprint_config = collect_blueprint_config(config)
             assert len(blueprint_config.resources) > 0, f"{fixture_path} produced no resources"
+
+
+class TestSharedDatabaseYaml:
+    """Tests for the YAML surface of shared databases and their IMPORTED PRIVILEGES grants:
+    a `databases:` entry with `from_share` resolves to SharedDatabase, and a `grants:` entry
+    can request IMPORTED PRIVILEGES on it."""
+
+    def test_database_with_from_share_produces_shared_database(self):
+        """Test: a databases: entry with from_share: resolves to SharedDatabase, not Database."""
+        from snowcap import resources as res
+
+        config = {
+            "databases": [
+                {"name": "gong", "from_share": "provider_account.share_name", "owner": "ACCOUNTADMIN"},
+            ],
+        }
+        blueprint_config = collect_blueprint_config(config)
+
+        assert len(blueprint_config.resources) == 1
+        assert isinstance(blueprint_config.resources[0], res.SharedDatabase)
+
+    def test_database_without_from_share_still_produces_database(self):
+        """Test: a databases: entry without from_share: still resolves to the regular Database
+        (regression check now that ResourceType.DATABASE is polymorphic)."""
+        from snowcap import resources as res
+
+        config = {"databases": [{"name": "analytics"}]}
+        blueprint_config = collect_blueprint_config(config)
+
+        assert len(blueprint_config.resources) == 1
+        assert isinstance(blueprint_config.resources[0], res.Database)
+
+    def test_imported_privileges_grant_create_sql(self):
+        """Test: a grants: entry for IMPORTED PRIVILEGES on a database parses into a Grant with
+        the expected create SQL."""
+        from snowcap import resources as res
+
+        config = {
+            "grants": [
+                {"priv": "IMPORTED PRIVILEGES", "on_database": "gong", "to": "gong_r"},
+            ],
+        }
+        blueprint_config = collect_blueprint_config(config)
+
+        assert len(blueprint_config.resources) == 1
+        grant = blueprint_config.resources[0]
+        assert isinstance(grant, res.Grant)
+        assert grant.create_sql() == "GRANT IMPORTED PRIVILEGES ON DATABASE GONG TO ROLE GONG_R"

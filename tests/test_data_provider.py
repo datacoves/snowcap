@@ -33,6 +33,8 @@ from snowcap.data_provider import (
     remove_none_values,
     # Dispatcher functions
     fetch_resource,
+    fetch_database,
+    fetch_grant,
     fetch_warehouse,
     list_resource,
     list_account_scoped_resource,
@@ -640,6 +642,153 @@ class TestFetchResource:
 
         with pytest.raises(ProgrammingError):
             fetch_resource(mock_session, urn)
+
+
+def _database_show_row(**overrides):
+    row = {
+        "name": "MY_DB",
+        "kind": "STANDARD",
+        "owner": "SYSADMIN",
+        "owner_role_type": "ROLE",
+        "retention_time": "1",
+        "comment": "",
+        "options": "",
+    }
+    row.update(overrides)
+    return row
+
+
+class TestFetchDatabase:
+    """Tests for fetch_database's imported-database delegation."""
+
+    @patch("snowcap.data_provider.fetch_shared_database")
+    @patch("snowcap.data_provider._show_resource_parameters")
+    @patch("snowcap.data_provider._show_resources")
+    def test_imported_database_delegates_to_fetch_shared_database(
+        self, mock_show_resources, mock_show_params, mock_fetch_shared_database
+    ):
+        mock_show_resources.return_value = [_database_show_row(kind="IMPORTED DATABASE", name="GONG")]
+        mock_fetch_shared_database.return_value = {
+            "name": "GONG",
+            "from_share": "provider_account.share_name",
+            "owner": "ACCOUNTADMIN",
+        }
+        mock_session = MagicMock()
+        fqn = FQN(name=ResourceName("GONG"))
+
+        result = fetch_database(mock_session, fqn)
+
+        mock_fetch_shared_database.assert_called_once_with(mock_session, fqn)
+        mock_show_params.assert_not_called()
+        assert result == mock_fetch_shared_database.return_value
+        assert "data_retention_time_in_days" not in result
+
+    @patch("snowcap.data_provider._show_resource_parameters")
+    @patch("snowcap.data_provider._show_resources")
+    def test_standard_database_returns_full_shape(self, mock_show_resources, mock_show_params):
+        mock_show_resources.return_value = [_database_show_row()]
+        mock_show_params.return_value = {"default_ddl_collation": ""}
+        mock_session = MagicMock()
+
+        result = fetch_database(mock_session, FQN(name=ResourceName("MY_DB")))
+
+        assert result["name"] == "MY_DB"
+        assert result["data_retention_time_in_days"] == 1
+        assert result["owner"] == "SYSADMIN"
+        assert result["transient"] is False
+
+
+def _imported_privileges_grant_fqn():
+    return FQN(
+        name=ResourceName("GRANT"),
+        params={"priv": "IMPORTED PRIVILEGES", "on": "database/gong", "to": "role/gong_r"},
+    )
+
+
+def _grant_to_role_row(**overrides):
+    row = {
+        "created_on": "2024-01-01",
+        "privilege": "USAGE",
+        "granted_on": "DATABASE",
+        "name": "GONG",
+        "granted_to": "ROLE",
+        "grantee_name": "GONG_R",
+        "grant_option": "false",
+        "granted_by": "ACCOUNTADMIN",
+    }
+    row.update(overrides)
+    return row
+
+
+class TestFetchGrantImportedPrivilegesQuirk:
+    """Tests for fetch_grant's IMPORTED PRIVILEGES/USAGE reporting quirk on shared databases."""
+
+    @patch("snowcap.data_provider._show_resources")
+    @patch("snowcap.data_provider._show_grants_to_role")
+    def test_matches_when_reported_as_usage_on_imported_database(self, mock_show_grants, mock_show_resources):
+        mock_show_grants.return_value = [_grant_to_role_row(privilege="USAGE")]
+        mock_show_resources.return_value = [_database_show_row(kind="IMPORTED DATABASE", name="GONG")]
+        mock_session = MagicMock()
+
+        result = fetch_grant(mock_session, _imported_privileges_grant_fqn())
+
+        assert result is not None
+        assert result["priv"] == "IMPORTED PRIVILEGES"
+
+    @patch("snowcap.data_provider._show_resources")
+    @patch("snowcap.data_provider._show_grants_to_role")
+    def test_matches_when_reported_verbatim(self, mock_show_grants, mock_show_resources):
+        mock_show_grants.return_value = [_grant_to_role_row(privilege="IMPORTED PRIVILEGES")]
+        mock_session = MagicMock()
+
+        result = fetch_grant(mock_session, _imported_privileges_grant_fqn())
+
+        assert result is not None
+        assert result["priv"] == "IMPORTED PRIVILEGES"
+        # Exact match succeeded, so the USAGE fallback (and its kind check) never ran.
+        mock_show_resources.assert_not_called()
+
+    @patch("snowcap.data_provider._show_resources")
+    @patch("snowcap.data_provider._show_grants_to_role")
+    def test_returns_none_when_grant_genuinely_absent(self, mock_show_grants, mock_show_resources):
+        mock_show_grants.return_value = []
+        mock_show_resources.return_value = [_database_show_row(kind="IMPORTED DATABASE", name="GONG")]
+        mock_session = MagicMock()
+
+        result = fetch_grant(mock_session, _imported_privileges_grant_fqn())
+
+        assert result is None
+
+    @patch("snowcap.data_provider._show_resources")
+    @patch("snowcap.data_provider._show_grants_to_role")
+    def test_plain_usage_grant_on_regular_database_unaffected(self, mock_show_grants, mock_show_resources):
+        mock_show_grants.return_value = [_grant_to_role_row(privilege="USAGE")]
+        mock_session = MagicMock()
+        fqn = FQN(
+            name=ResourceName("GRANT"),
+            params={"priv": "USAGE", "on": "database/gong", "to": "role/gong_r"},
+        )
+
+        result = fetch_grant(mock_session, fqn)
+
+        assert result is not None
+        assert result["priv"] == "USAGE"
+        # Exact match succeeded for the requested privilege, so the imported-database
+        # kind check (which only applies to the IMPORTED PRIVILEGES fallback) never ran.
+        mock_show_resources.assert_not_called()
+
+    @patch("snowcap.data_provider._show_resources")
+    @patch("snowcap.data_provider._show_grants_to_role")
+    def test_does_not_false_match_usage_on_regular_database(self, mock_show_grants, mock_show_resources):
+        # A REGULAR database with a plain USAGE grant must not be mistaken for an
+        # IMPORTED PRIVILEGES grant -- that would mask a genuine config error.
+        mock_show_grants.return_value = [_grant_to_role_row(privilege="USAGE")]
+        mock_show_resources.return_value = [_database_show_row(kind="STANDARD", name="GONG")]
+        mock_session = MagicMock()
+
+        result = fetch_grant(mock_session, _imported_privileges_grant_fqn())
+
+        assert result is None
 
 
 def _warehouse_show_row(**overrides):

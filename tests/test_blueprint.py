@@ -42,7 +42,7 @@ def flatten_sql_commands(sql_commands_result) -> list[str]:
     return result
 
 
-from snowcap import var
+from snowcap import data_provider, var
 from snowcap.blueprint import (
     Blueprint,
     CreateResource,
@@ -55,8 +55,10 @@ from snowcap.blueprint_config import BlueprintConfig
 from snowcap.enums import AccountEdition, BlueprintScope, ResourceType
 from snowcap.exceptions import (
     DuplicateResourceException,
+    InvalidResourceException,
     MissingVarException,
     NonConformingPlanException,
+    OrphanResourceException,
     WrongEditionException,
 )
 from snowcap.identifiers import FQN, URN, parse_URN
@@ -1099,3 +1101,185 @@ def test_resource_type_needs_params(session_ctx):
     )
     manifest = blueprint.generate_manifest(session_ctx)
     assert resource_type_needs_params(ResourceType.ROLE, manifest) is True
+
+
+def test_blueprint_shared_database_create_default_owner(session_ctx, remote_state):
+    shared_db = res.SharedDatabase(name="GONG", from_share="provider_account.share_name")
+    blueprint = Blueprint(name="blueprint", resources=[shared_db])
+    manifest = blueprint.generate_manifest(session_ctx)
+    plan = diff(remote_state, manifest)
+    assert len(plan) == 1
+    assert plan[0].resource_cls == res.SharedDatabase
+
+    commands = flatten_sql_commands(compile_plan_to_sql(session_ctx, plan))
+    assert "USE ROLE ACCOUNTADMIN" in commands
+    assert any(c.startswith("CREATE DATABASE") and "FROM SHARE" in c for c in commands)
+    assert not any(c.startswith("GRANT OWNERSHIP") for c in commands)
+
+
+def test_blueprint_shared_database_create_custom_owner_skips_public_schema_transfer(session_ctx, remote_state):
+    shared_db = res.SharedDatabase(name="GONG", from_share="provider_account.share_name", owner="SYSADMIN")
+    blueprint = Blueprint(name="blueprint", resources=[shared_db])
+    manifest = blueprint.generate_manifest(session_ctx)
+    plan = diff(remote_state, manifest)
+
+    commands = flatten_sql_commands(compile_plan_to_sql(session_ctx, plan))
+    assert "GRANT OWNERSHIP ON DATABASE GONG TO ROLE SYSADMIN COPY CURRENT GRANTS" in commands
+    assert not any("PUBLIC" in c for c in commands)
+
+
+def test_blueprint_database_create_custom_owner_transfers_public_schema(session_ctx, remote_state):
+    # Regression: a regular Database with a non-default owner still transfers the PUBLIC schema.
+    db = res.Database(name="DB", owner="USERADMIN")
+    blueprint = Blueprint(name="blueprint", resources=[db])
+    manifest = blueprint.generate_manifest(session_ctx)
+    plan = diff(remote_state, manifest)
+
+    commands = flatten_sql_commands(compile_plan_to_sql(session_ctx, plan))
+    assert "GRANT OWNERSHIP ON DATABASE DB TO ROLE USERADMIN COPY CURRENT GRANTS" in commands
+    assert "GRANT OWNERSHIP ON SCHEMA DB.PUBLIC TO ROLE USERADMIN COPY CURRENT GRANTS" in commands
+
+
+def test_blueprint_shared_database_from_share_change_raises_not_implemented(session_ctx, remote_state):
+    # Documents today's limitation: from_share triggers_replacement, and replace_resource
+    # is unimplemented, so a from_share drift is a plan-time error rather than a silent
+    # (and nonsensical) ALTER at apply time.
+    remote_state[parse_URN("urn::ABCD123:database/GONG")] = {
+        "name": "GONG",
+        "from_share": "provider_account.old_share",
+        "owner": "ACCOUNTADMIN",
+    }
+    shared_db = res.SharedDatabase(name="GONG", from_share="provider_account.new_share")
+    blueprint = Blueprint(name="blueprint", resources=[shared_db])
+    manifest = blueprint.generate_manifest(session_ctx)
+
+    with pytest.raises(NotImplementedError, match="replace_resource"):
+        diff(remote_state, manifest)
+
+
+def test_blueprint_shared_database_idempotent_round_trip(session_ctx, remote_state):
+    # Remote state mirrors what fetch_shared_database returns: Snowflake normalizes
+    # unquoted identifiers to uppercase, matching the manifest's own normalization.
+    remote_state[parse_URN("urn::ABCD123:database/GONG")] = {
+        "name": "GONG",
+        "from_share": "PROVIDER_ACCOUNT.SHARE_NAME",
+        "owner": "ACCOUNTADMIN",
+    }
+    shared_db = res.SharedDatabase(name="GONG", from_share="provider_account.share_name")
+    blueprint = Blueprint(name="blueprint", resources=[shared_db])
+    manifest = blueprint.generate_manifest(session_ctx)
+    plan = diff(remote_state, manifest)
+
+    assert plan == []
+
+
+def _fetch_remote_state_with_mocked_fetch(blueprint, manifest, session_ctx, monkeypatch, fetched_data):
+    """Drive Blueprint.fetch_remote_state with data_provider entirely mocked out.
+
+    DATABASE-typed URNs get `fetched_data`; ROLE references (e.g. the database's owner) are
+    reported as existing so the post-fetch reference check passes; anything else (e.g. the
+    implicit ACCOUNT resource) is reported as not-found and simply skipped.
+    """
+    monkeypatch.setattr(data_provider, "fetch_session", lambda session: session_ctx)
+    monkeypatch.setattr(data_provider, "use_secondary_roles", lambda session, all=False: None)
+
+    def _fetch_resource(session, urn, include_params=True, existence_only=False):
+        if urn.resource_type == ResourceType.DATABASE:
+            return fetched_data
+        if urn.resource_type == ResourceType.ROLE:
+            return {"name": str(urn.fqn.name)}
+        return None
+
+    monkeypatch.setattr(data_provider, "fetch_resource", _fetch_resource)
+    return blueprint.fetch_remote_state(session=None, manifest=manifest)
+
+
+def test_fetch_remote_state_declared_database_but_remote_is_shared_raises_clear_error(session_ctx, monkeypatch):
+    # Regression for FINDING 1: a pre-existing config declares a plain Database, but Snowflake
+    # reports the same URN as an imported (shared) database. This must raise a guided domain
+    # error, not a raw TypeError from Database(**data) choking on the unexpected 'from_share' key.
+    db = res.Database(name="GONG", owner="SYSADMIN")
+    blueprint = Blueprint(name="blueprint", resources=[db])
+    manifest = blueprint.generate_manifest(session_ctx)
+
+    fetched_data = {"name": "GONG", "from_share": "provider_account.share_name", "owner": "ACCOUNTADMIN"}
+    with pytest.raises(
+        InvalidResourceException, match="declared as Database but Snowflake reports it as SharedDatabase"
+    ):
+        _fetch_remote_state_with_mocked_fetch(blueprint, manifest, session_ctx, monkeypatch, fetched_data)
+
+
+def test_fetch_remote_state_declared_shared_database_but_remote_is_standard_raises_clear_error(
+    session_ctx, monkeypatch
+):
+    # Reverse of the above: declared as SharedDatabase, but Snowflake reports a STANDARD database.
+    shared_db = res.SharedDatabase(name="GONG", from_share="provider_account.share_name")
+    blueprint = Blueprint(name="blueprint", resources=[shared_db])
+    manifest = blueprint.generate_manifest(session_ctx)
+
+    fetched_data = {"name": "GONG", "owner": "SYSADMIN"}
+    with pytest.raises(
+        InvalidResourceException, match="declared as SharedDatabase but Snowflake reports it as Database"
+    ):
+        _fetch_remote_state_with_mocked_fetch(blueprint, manifest, session_ctx, monkeypatch, fetched_data)
+
+
+def test_fetch_remote_state_matching_declared_and_fetched_kind_does_not_raise(session_ctx, monkeypatch):
+    # Regression: when the declared and fetched classes agree, fetch_remote_state proceeds normally.
+    db = res.Database(name="GONG", owner="SYSADMIN")
+    blueprint = Blueprint(name="blueprint", resources=[db])
+    manifest = blueprint.generate_manifest(session_ctx)
+
+    fetched_data = {"name": "GONG", "owner": "SYSADMIN"}
+    state = _fetch_remote_state_with_mocked_fetch(blueprint, manifest, session_ctx, monkeypatch, fetched_data)
+    assert len(state) == 1
+
+
+def test_shared_database_sole_db_scoped_resource_raises_clear_error(session_ctx):
+    # Regression for FINDING 2 (site: databases[0].add(resource) for parentless db-scoped
+    # resources): a SharedDatabase is not a ResourceContainer, so a parentless Schema (no
+    # database: set) must raise a guided OrphanResourceException instead of AttributeError.
+    shared_db = res.SharedDatabase(name="GONG", from_share="provider_account.share_name")
+    schema = res.Schema(name="MY_SCHEMA")
+    blueprint = Blueprint(name="blueprint", resources=[shared_db, schema])
+
+    with pytest.raises(OrphanResourceException, match="Cannot add SCHEMA 'MY_SCHEMA' to SharedDatabase 'GONG'"):
+        blueprint.generate_manifest(session_ctx)
+
+
+def test_shared_database_sole_public_schema_target_raises_clear_error(session_ctx):
+    # Regression for FINDING 2 (site: _get_public_schema(databases[0]) for parentless
+    # schema-scoped resources): a Table with no schema:/database: set falls back to
+    # "<sole database>.PUBLIC", which doesn't exist on a read-only SharedDatabase.
+    shared_db = res.SharedDatabase(name="GONG", from_share="provider_account.share_name")
+    table = res.Table(name="MY_TABLE", columns=[{"name": "ID", "data_type": "INT"}])
+    blueprint = Blueprint(name="blueprint", resources=[shared_db, table])
+
+    with pytest.raises(OrphanResourceException, match="Cannot add TABLE 'MY_TABLE' to SharedDatabase 'GONG'"):
+        blueprint.generate_manifest(session_ctx)
+
+
+def test_shared_database_schema_pointer_without_database_raises_clear_error(session_ctx):
+    # Regression for FINDING 2 (site: databases[0].add(schema_pointer) for a schema-scoped
+    # resource that names its schema but not its database): the implied schema pointer would
+    # be attached to the sole database, which cannot hold it if that database is shared.
+    shared_db = res.SharedDatabase(name="GONG", from_share="provider_account.share_name")
+    table = res.Table(name="MY_TABLE", schema="SOME_SCHEMA", columns=[{"name": "ID", "data_type": "INT"}])
+    blueprint = Blueprint(name="blueprint", resources=[shared_db, table])
+
+    with pytest.raises(OrphanResourceException, match="Cannot add SCHEMA 'SOME_SCHEMA' to SharedDatabase 'GONG'"):
+        blueprint.generate_manifest(session_ctx)
+
+
+def test_schema_under_shared_database_raises_clear_error(session_ctx):
+    # Regression for FINDING 3: Schema(database='gong') registers a ResourcePointer that
+    # _merge_pointers later merges into the resolved SharedDatabase resource. Since
+    # SharedDatabase is not a ResourceContainer, this is a different code path from FINDING 2
+    # (explicitly-parented vs. parentless) and must independently raise a guided error instead
+    # of a bare AttributeError deep in merge internals.
+    shared_db = res.SharedDatabase(name="gong", from_share="provider_account.share_name")
+    schema = res.Schema(name="foo", database="gong")
+    blueprint = Blueprint(name="blueprint", resources=[shared_db, schema])
+
+    with pytest.raises(OrphanResourceException, match="Cannot add SCHEMA '.*' to SharedDatabase 'GONG'"):
+        blueprint.generate_manifest(session_ctx)

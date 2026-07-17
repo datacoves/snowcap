@@ -99,7 +99,7 @@ class DatabasePriv(Priv):
     APPLYBUDGET = "APPLYBUDGET"
     CREATE_DATABASE_ROLE = "CREATE DATABASE ROLE"
     CREATE_SCHEMA = "CREATE SCHEMA"
-    # IMPORTED_PRIVILEGES = "IMPORTED PRIVILEGES" # only granted on shared database
+    IMPORTED_PRIVILEGES = "IMPORTED PRIVILEGES"  # only granted on shared databases
     MODIFY = "MODIFY"
     MONITOR = "MONITOR"
     OWNERSHIP = "OWNERSHIP"
@@ -560,7 +560,9 @@ def all_privs_for_resource_type(resource_type):
     privs = PRIVS_FOR_RESOURCE_TYPE[resource_type] or []
     for priv in privs:
         priv = str(priv)
-        if priv != "ALL" and priv != "OWNERSHIP":
+        # IMPORTED PRIVILEGES is only grantable on shared databases; excluding it here keeps
+        # priv="ALL" grants on regular databases from expanding into an invalid grant.
+        if priv not in ("ALL", "OWNERSHIP", "IMPORTED PRIVILEGES"):
             all_privs.append(priv)
     return all_privs
 

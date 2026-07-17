@@ -1539,7 +1539,10 @@ def fetch_database(session: SnowflakeConnection, fqn: FQN, include_params: bool 
 
     data = show_result[0]
 
-    is_standard_db = data["kind"] in ["STANDARD", "IMPORTED DATABASE"]
+    if data["kind"] == "IMPORTED DATABASE":
+        return fetch_shared_database(session, fqn)
+
+    is_standard_db = data["kind"] == "STANDARD"
     is_snowflake_builtin = data["kind"] == "APPLICATION" and data["name"] in SYSTEM_DATABASES
 
     if not (is_standard_db or is_snowflake_builtin):
@@ -1908,6 +1911,22 @@ def fetch_grant(session: SnowflakeConnection, fqn: FQN):
             privilege=priv,
             role_type=to_type,
         )
+        if data is None and priv == "IMPORTED PRIVILEGES" and on_type == "DATABASE":
+            # Snowflake reports IMPORTED PRIVILEGES on a shared database as USAGE in SHOW GRANTS.
+            # Gate on the database actually being shared: without this, a mistakenly-declared
+            # IMPORTED PRIVILEGES grant on a regular database would false-match its (very common)
+            # plain USAGE grant and mask the config error.
+            db_rows = _show_resources(session, "DATABASES", FQN(name=ResourceName(on)))
+            if db_rows and db_rows[0]["kind"] == "IMPORTED DATABASE":
+                data = _fetch_grant_to_role(
+                    session,
+                    grant_type=grant_type,
+                    role=to,
+                    granted_on=on_type,
+                    on_name=on,
+                    privilege="USAGE",
+                    role_type=to_type,
+                )
         if data is None:
             return None
         privs = [priv]

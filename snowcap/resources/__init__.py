@@ -58,6 +58,7 @@ from .security_integration import (
 from .sequence import Sequence
 from .service import Service
 from .share import Share
+from .shared_database import SharedDatabase
 from .stage import ExternalStage, InternalStage
 from .storage_integration import (
     AzureStorageIntegration,
@@ -139,6 +140,7 @@ __all__ = [
     "Sequence",
     "Service",
     "Share",
+    "SharedDatabase",
     "SnowflakeIcebergTable",
     "SnowflakePartnerOAuthSecurityIntegration",
     "SnowservicesOAuthSecurityIntegration",

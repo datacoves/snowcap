@@ -202,6 +202,11 @@ class TestDatabasePriv:
         """DatabasePriv has MONITOR privilege."""
         assert DatabasePriv.MONITOR.value == "MONITOR"
 
+    def test_imported_privileges_privilege(self):
+        """DatabasePriv has IMPORTED PRIVILEGES privilege, granted on shared databases."""
+        assert DatabasePriv.IMPORTED_PRIVILEGES.value == "IMPORTED PRIVILEGES"
+        assert DatabasePriv("IMPORTED PRIVILEGES") == DatabasePriv.IMPORTED_PRIVILEGES
+
 
 #############################################################################
 # SchemaPriv Tests
@@ -395,6 +400,12 @@ class TestAllPrivsForResourceType:
         assert "ALL" not in privs
         assert "OWNERSHIP" not in privs
 
+    def test_database_privs_exclude_imported_privileges(self):
+        """all_privs_for_resource_type excludes IMPORTED PRIVILEGES so priv='ALL' on a regular
+        database never expands to a privilege that's only grantable on shared databases."""
+        privs = all_privs_for_resource_type(ResourceType.DATABASE)
+        assert "IMPORTED PRIVILEGES" not in privs
+
     def test_table_privs(self):
         """all_privs_for_resource_type returns non-ALL/OWNERSHIP privileges for table."""
         privs = all_privs_for_resource_type(ResourceType.TABLE)
@@ -517,6 +528,12 @@ class TestGrantedPrivilege:
         gp = GrantedPrivilege.from_grant(privilege="SOME_PRIV", granted_on="GRANT", name="MY_GRANT")
         assert gp.privilege == "SOME_PRIV"
         assert gp.on == "GRANT"
+
+    def test_from_grant_with_imported_privileges_on_database(self):
+        """GrantedPrivilege.from_grant works for IMPORTED PRIVILEGES granted on a shared database."""
+        gp = GrantedPrivilege.from_grant(privilege="IMPORTED PRIVILEGES", granted_on="DATABASE", name="SOME_SHARED_DB")
+        assert gp.privilege == DatabasePriv.IMPORTED_PRIVILEGES
+        assert gp.on == "SOME_SHARED_DB"
 
     def test_repr(self):
         """GrantedPrivilege has a useful repr."""

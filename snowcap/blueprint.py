@@ -10,6 +10,7 @@ from typing import (
     Optional,
     Sequence,
     Set,
+    Type,
     TypeVar,
     Union,
     cast,
@@ -42,6 +43,7 @@ from .error_formatting import (
 )
 from .exceptions import (
     DuplicateResourceException,
+    InvalidResourceException,
     MissingPrivilegeException,
     MissingResourceException,
     NonConformingPlanException,
@@ -49,7 +51,7 @@ from .exceptions import (
     OrphanResourceException,
 )
 from .identifiers import URN, parse_identifier, parse_URN, resource_label_for_type
-from .privs import CREATE_PRIV_FOR_RESOURCE_TYPE, system_role_for_priv
+from .privs import AccountPriv, CREATE_PRIV_FOR_RESOURCE_TYPE, system_role_for_priv
 from .resource_name import ResourceName
 from .resource_tags import ResourceTags
 from .resources import Database, Grant, RoleGrant, Schema
@@ -64,6 +66,7 @@ from .resources.resource import (
     infer_role_type_from_name,
 )
 from .resources.role import Role
+from .resources.shared_database import SharedDatabase
 from .resources.tag import Tag, TaggableResource
 from .scope import (
     AccountScope,
@@ -928,6 +931,23 @@ def _raise_if_plan_would_drop_session_user(session_ctx: SessionContext, plan: Pl
                 raise Exception("Plan would drop the current session user, which is not allowed")
 
 
+def _require_container(container: Resource, needed_for: Resource) -> ResourceContainer:
+    """
+    SharedDatabase is a DATABASE-typed resource that is deliberately not a ResourceContainer
+    (shared databases are read-only: no schemas, no db-scoped resources). Every place that
+    attaches `needed_for` to `container` via .add()/.find() funnels through here, so that case
+    raises a guided OrphanResourceException instead of a bare AttributeError.
+    """
+    if not isinstance(container, ResourceContainer):
+        raise OrphanResourceException(
+            f"Cannot add {needed_for.resource_type.value} '{needed_for.name}' to "
+            f"{type(container).__name__} '{container.name}': it is read-only and cannot contain "
+            f"schemas or other resources.\n"
+            f"  Add a regular Database to your config, or set an explicit database:/schema: on the resource."
+        )
+    return container
+
+
 def _merge_pointers(resources: Sequence[Resource]) -> list[Resource]:
     """
     It is expected in yaml-defined blueprints that all resources are defined with static strings, instead
@@ -939,7 +959,7 @@ def _merge_pointers(resources: Sequence[Resource]) -> list[Resource]:
     # Push pointers to the end
     resources = sorted(resources, key=lambda resource: isinstance(resource, ResourcePointer))
 
-    def _merge(resource: ResourceContainer, pointer: ResourcePointer):
+    def _merge(resource: Resource, pointer: ResourcePointer):
         if pointer.container is not None:
             # # The pointer has a container but the resource does not, merge fails
             # if getattr(resource, "container", None) is None:
@@ -949,7 +969,7 @@ def _merge_pointers(resources: Sequence[Resource]) -> list[Resource]:
         # Migrate items from pointer to resource
         for item in pointer.items():
             pointer.remove(item)
-            resource.add(item)
+            _require_container(resource, needed_for=item).add(item)
 
     for resource_or_pointer in resources:
         # Create a unique identifier for the resource
@@ -966,8 +986,7 @@ def _merge_pointers(resources: Sequence[Resource]) -> list[Resource]:
         if isinstance(resource_or_pointer, ResourcePointer):
             pointer = resource_or_pointer
             if resource_id in namespace:
-                primary = cast(ResourceContainer, namespace[resource_id])
-                _merge(primary, pointer)
+                _merge(namespace[resource_id], pointer)
             else:
                 namespace[resource_id] = pointer
         else:
@@ -1019,6 +1038,21 @@ def _get_public_schema(resource: ResourceContainer) -> Union[Schema, ResourcePoi
 
 def _get_role_grants(resource: ResourceContainer) -> list[RoleGrant]:
     return cast(list[RoleGrant], resource.items(resource_type=ResourceType.ROLE_GRANT))
+
+
+def _kind_mismatch_message(urn: URN, declared_cls: Type[Resource], fetched_cls: Type[Resource]) -> str:
+    hint = "Update your config to match, or drop the resource so it's no longer managed by snowcap."
+    if {declared_cls, fetched_cls} == {Database, SharedDatabase}:
+        hint = (
+            "declare it with from_share: <provider_account>.<share_name>"
+            if fetched_cls is SharedDatabase
+            else "remove from_share: from its config so it's declared as a regular database"
+        )
+        hint = f"To fix, {hint}."
+    return (
+        f"{urn.fqn.name} is declared as {declared_cls.__name__} but Snowflake reports it as "
+        f"{fetched_cls.__name__}. {hint}"
+    )
 
 
 def _resource_scope_is_outside_blueprint_scope(resource_type: ResourceType, blueprint_scope: BlueprintScope) -> bool:
@@ -1253,11 +1287,20 @@ class Blueprint:
                             resource_cls = Resource.resolve_resource_cls(urn.resource_type, data)
                         else:
                             item = manifest[urn]
-                            resource_cls = (
-                                item.resource_cls
-                                if isinstance(item, ManifestResource)
-                                else Resource.resolve_resource_cls(urn.resource_type, data)
-                            )
+                            if isinstance(item, ManifestResource):
+                                resource_cls = item.resource_cls
+                                # For polymorphic resource types, the class Snowflake's data actually
+                                # matches can disagree with the class the manifest declared (e.g. a
+                                # database declared as Database that Snowflake reports as an imported
+                                # database). resource_cls.spec(**data) would then raise a raw TypeError
+                                # from an unexpected/missing keyword, so check agreement up front.
+                                fetched_cls = Resource.resolve_resource_cls(urn.resource_type, data)
+                                if fetched_cls is not resource_cls:
+                                    raise InvalidResourceException(
+                                        _kind_mismatch_message(urn, resource_cls, fetched_cls)
+                                    )
+                            else:
+                                resource_cls = Resource.resolve_resource_cls(urn.resource_type, data)
                         state[urn] = resource_cls.spec(**data).to_dict(session_ctx["account_edition"])
                     # If data is None, resource doesn't exist in Snowflake
                     # Don't add to state - reconciliation will create it
@@ -1362,7 +1405,7 @@ class Blueprint:
         for resource in db_scoped:
             if resource.container is None:
                 if len(databases) == 1:
-                    databases[0].add(resource)
+                    _require_container(databases[0], needed_for=resource).add(resource)
                 else:
                     raise OrphanResourceException(
                         f"Resource {resource.resource_type.value} '{resource.name}' has no database.\n"
@@ -1373,6 +1416,10 @@ class Blueprint:
 
         available_scopes = {}
         for database in databases:
+            # SharedDatabase is a DATABASE-typed leaf, not a ResourceContainer: shared
+            # databases are read-only, so they never have schemas to merge or scope.
+            if not isinstance(database, ResourceContainer):
+                continue
             database_resources = list(database.items())
             _merge_pointers(database_resources)
             for schema in _get_schemas(database):
@@ -1383,12 +1430,14 @@ class Blueprint:
                 if len(databases) == 1:
                     # When the blueprint is scoped all dangling resources should be assigned to the configured scope
                     if self._config.scope == BlueprintScope.SCHEMA and self._config.schema is not None:
-                        scoped_schema = _get_schema_by_name(databases[0], self._config.schema)
+                        scoped_schema = _get_schema_by_name(
+                            _require_container(databases[0], needed_for=resource), self._config.schema
+                        )
                         scoped_schema.add(resource)
                         # TODO: figure out how to handle the case where the schema is already in the blueprint
                     else:
                         logger.warning(f"Resource {resource} has no schema, using {databases[0].name}.PUBLIC")
-                        _get_public_schema(databases[0]).add(resource)
+                        _get_public_schema(_require_container(databases[0], needed_for=resource)).add(resource)
                 else:
                     raise OrphanResourceException(
                         f"Resource {resource.resource_type.value} '{resource.name}' has no schema.\n"
@@ -1406,7 +1455,7 @@ class Blueprint:
                 # If the schema pointer has no database, assume it lives in the only database we have
                 if schema_pointer.container is None:
                     if len(databases) == 1:
-                        databases[0].add(schema_pointer)
+                        _require_container(databases[0], needed_for=schema_pointer).add(schema_pointer)
                     else:
                         raise OrphanResourceException(
                             f"Resource {resource.resource_type.value} '{resource.name}' references schema "
@@ -1905,7 +1954,12 @@ def execution_strategy_for_change(
             )
     elif isinstance(change, CreateResource):
         if isinstance(change.resource_cls.scope, AccountScope):
-            create_priv = CREATE_PRIV_FOR_RESOURCE_TYPE[change.urn.resource_type]
+            # CREATE DATABASE ... FROM SHARE requires IMPORT SHARE, not CREATE DATABASE
+            create_priv = (
+                AccountPriv.IMPORT_SHARE
+                if change.resource_cls is SharedDatabase
+                else CREATE_PRIV_FOR_RESOURCE_TYPE[change.urn.resource_type]
+            )
 
             # SHARE ownership cannot be changed
             if change.urn.resource_type == ResourceType.SHARE:
@@ -1981,8 +2035,9 @@ def sql_commands_for_change(
             )
             # SPECIAL CASE: when creating a database with a custom owner that we will transfer ownership to,
             # we also need to transfer ownership of the public schema to that role. This replicates the behavior
-            # if we were to create the database with a custom owner directly
-            if change.urn.resource_type == ResourceType.DATABASE:
+            # if we were to create the database with a custom owner directly. Shared databases have no owned
+            # PUBLIC schema (Snowflake replicates the provider's schemas read-only), so they're excluded.
+            if change.urn.resource_type == ResourceType.DATABASE and change.resource_cls is not SharedDatabase:
                 after_change_cmd.append(
                     lifecycle.transfer_resource(
                         public_schema_urn(change.urn),

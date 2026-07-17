@@ -1,0 +1,5 @@
+{
+    "name": "TEST_SHARED_DATABASE",
+    "from_share": "PROVIDER_ACCOUNT.SHARE_NAME",
+    "owner": "ACCOUNTADMIN"
+}
