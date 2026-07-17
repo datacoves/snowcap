@@ -41,6 +41,7 @@ from .resource_name import (
     attribute_is_resource_name,
     resource_name_from_snowflake_metadata,
 )
+from .resources.warehouse import ADAPTIVE_UNSUPPORTED_FIELDS
 
 __this__ = sys.modules[__name__]
 
@@ -3166,6 +3167,9 @@ def fetch_warehouse(session: SnowflakeConnection, fqn: FQN, include_params: bool
     if generation is not None:
         generation = str(generation)
     resource_constraint = _normalize_snowflake_optional(data.get("resource_constraint"), upper=True)
+    max_query_performance_level = _normalize_snowflake_optional(
+        data.get("max_query_performance_level"), upper=True
+    )
 
     if warehouse_type == "STANDARD":
         if resource_constraint is None and generation in {"1", "2"}:
@@ -3178,13 +3182,22 @@ def fetch_warehouse(session: SnowflakeConnection, fqn: FQN, include_params: bool
     if query_accel is not None:
         query_accel = str(query_accel).lower() == "true"
 
+    # Adaptive warehouses may report ''/'null'/'ADAPTIVE' in the size column instead of a
+    # WarehouseSize value; ADAPTIVE_UNSUPPORTED_FIELDS nulls warehouse_size out below regardless,
+    # so this conversion just needs to not crash on those values.
+    try:
+        warehouse_size = str(WarehouseSize(data["size"]))
+    except ValueError:
+        warehouse_size = None
+
     warehouse_dict = {
         "name": _quote_snowflake_identifier(data["name"]),
         "owner": _get_owner_identifier(data),
         "warehouse_type": warehouse_type,
-        "warehouse_size": str(WarehouseSize(data["size"])),
+        "warehouse_size": warehouse_size,
         "generation": generation,
         "resource_constraint": resource_constraint,
+        "max_query_performance_level": max_query_performance_level,
         "auto_suspend": data["auto_suspend"],
         "auto_resume": data["auto_resume"] == "true",
         "comment": data["comment"] or None,
@@ -3200,6 +3213,14 @@ def fetch_warehouse(session: SnowflakeConnection, fqn: FQN, include_params: bool
         "statement_queued_timeout_in_seconds": statement_queued_timeout,
         "statement_timeout_in_seconds": statement_timeout,
     }
+
+    # ADAPTIVE warehouses don't support these properties (Snowflake computes them
+    # automatically); null them out here using the same field set __post_init__ validates
+    # against, so fetched state matches a declared ADAPTIVE spec with no spurious drift.
+    if warehouse_type == "ADAPTIVE":
+        for field_name in ADAPTIVE_UNSUPPORTED_FIELDS:
+            if field_name in warehouse_dict:
+                warehouse_dict[field_name] = None
 
     return warehouse_dict
 

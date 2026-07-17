@@ -42,6 +42,7 @@ from .error_formatting import (
 )
 from .exceptions import (
     DuplicateResourceException,
+    InvalidResourceException,
     MissingPrivilegeException,
     MissingResourceException,
     NonConformingPlanException,
@@ -744,8 +745,8 @@ def _get_key_properties(change: "ResourceChange", resource_type: ResourceType) -
     if not is_grant and "owner" in data and data["owner"]:
         props.append(f"owner: {data['owner']}")
 
-    # Show size for warehouses
-    if "warehouse_size" in data:
+    # Show size for warehouses (adaptive warehouses have no size, so warehouse_size is None)
+    if data.get("warehouse_size") is not None:
         props.append(f"size: {data['warehouse_size']}")
 
     if props:
@@ -2312,6 +2313,17 @@ def diff(remote_state: State, manifest: Manifest) -> list:
 
         delta = {k: v for k, v in delta.items() if k not in ignore_fields}
         if delta:
+            # Snowflake doesn't support converting to or from X5LARGE/X6LARGE warehouses
+            # (https://docs.snowflake.com/en/user-guide/warehouses-adaptive), so fail at
+            # plan time instead of erroring mid-apply.
+            if urn.resource_type == ResourceType.WAREHOUSE and "warehouse_type" in delta:
+                converting_adaptive = "ADAPTIVE" in (delta["warehouse_type"], remote_state[urn].get("warehouse_type"))
+                sizes = {remote_state[urn].get("warehouse_size"), manifest_item.data.get("warehouse_size")}
+                if converting_adaptive and sizes & {"X5LARGE", "X6LARGE"}:
+                    raise InvalidResourceException(
+                        f"{urn}: Snowflake does not support converting an X5LARGE or X6LARGE warehouse "
+                        "to ADAPTIVE, or converting an ADAPTIVE warehouse to those sizes"
+                    )
             changes.append(
                 UpdateResource(
                     urn,

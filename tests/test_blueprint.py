@@ -1,6 +1,7 @@
 import json
 import re
 from copy import deepcopy
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -52,9 +53,11 @@ from snowcap.blueprint import (
     dump_plan,
 )
 from snowcap.blueprint_config import BlueprintConfig
+from snowcap.data_provider import fetch_warehouse
 from snowcap.enums import AccountEdition, BlueprintScope, ResourceType
 from snowcap.exceptions import (
     DuplicateResourceException,
+    InvalidResourceException,
     MissingVarException,
     NonConformingPlanException,
     WrongEditionException,
@@ -852,6 +855,139 @@ def test_blueprint_warehouse_generation_and_resource_constraint_update(session_c
 
     sql = flatten_sql_commands(compile_plan_to_sql(session_ctx, plan))
     assert "ALTER WAREHOUSE WH SET GENERATION = '2' RESOURCE_CONSTRAINT = STANDARD_GEN_2" in sql
+
+
+def _warehouse_remote_state(**show_row_overrides):
+    """Build remote_state for warehouse "WH" through the real fetch_warehouse path, mocking
+    only the underlying SHOW WAREHOUSES call -- same pattern as TestFetchWarehouse in
+    tests/test_data_provider.py -- so the dict shape matches what production fetch actually
+    returns (e.g. it omits keys like initially_suspended that Warehouse.to_dict() includes).
+    """
+    show_row = {
+        "name": "WH",
+        "owner": "SYSADMIN",
+        "owner_role_type": "ROLE",
+        "type": "STANDARD",
+        "size": "X-SMALL",
+        "auto_suspend": 600,
+        "auto_resume": "true",
+        "comment": "",
+        "resource_monitor": "null",
+    }
+    show_row.update(show_row_overrides)
+    with patch("snowcap.data_provider._show_resources", return_value=[show_row]):
+        return fetch_warehouse(MagicMock(), FQN(name=ResourceName("WH")), include_params=False)
+
+
+def test_blueprint_standard_to_adaptive_warehouse_conversion(session_ctx):
+    # Snowflake documents ALTER WAREHOUSE ... SET WAREHOUSE_TYPE = 'ADAPTIVE' as an online
+    # conversion that auto-computes adaptive settings server-side, so converting a STANDARD
+    # warehouse to ADAPTIVE must produce a delta of only warehouse_type (blueprint skips
+    # manifest-None fields) and no UNSETs for the fields that no longer apply.
+    wh_urn = parse_URN("urn::ABCD123:warehouse/WH")
+    remote_state = {
+        parse_URN("urn::ABCD123:account/ACCOUNT"): {},
+        wh_urn: _warehouse_remote_state(),
+    }
+    blueprint = Blueprint(resources=[res.Warehouse(name="WH", warehouse_type="ADAPTIVE")])
+    manifest = blueprint.generate_manifest(session_ctx)
+
+    plan = diff(remote_state, manifest)
+    assert len(plan) == 1
+    wh_change = plan[0]
+    assert wh_change.delta == {"warehouse_type": "ADAPTIVE"}
+
+    sql = flatten_sql_commands(compile_plan_to_sql(session_ctx, plan))
+    # warehouse_type's EnumProp label renders verbatim (lowercase), unlike GENERATION/
+    # RESOURCE_CONSTRAINT above which were declared with uppercase labels.
+    assert "ALTER WAREHOUSE WH SET warehouse_type = 'ADAPTIVE'" in sql
+
+
+def test_blueprint_adaptive_to_standard_warehouse_conversion(session_ctx):
+    # Symmetric reverse direction: remote is a fetched ADAPTIVE warehouse (fetch_warehouse nulls
+    # ADAPTIVE_UNSUPPORTED_FIELDS -- size/cluster/suspend-resume/scaling -- to None), and the
+    # manifest declares a STANDARD warehouse whose dataclass defaults for those same fields are
+    # non-None. _diff_resource_data only skips manifest-None fields, so the delta -- and the
+    # emitted SQL -- combines warehouse_type with every STANDARD default that differs from the
+    # nulled remote value, all in one ALTER ... SET statement. This assumes Snowflake's ALTER
+    # WAREHOUSE SET grammar accepts multiple properties (including WAREHOUSE_TYPE) in a single
+    # statement; live verification of this combined-statement form is a post-merge follow-up.
+    wh_urn = parse_URN("urn::ABCD123:warehouse/WH")
+    remote_state = {
+        parse_URN("urn::ABCD123:account/ACCOUNT"): {},
+        wh_urn: _warehouse_remote_state(type="ADAPTIVE", size="", max_query_performance_level="LARGE"),
+    }
+    blueprint = Blueprint(resources=[res.Warehouse(name="WH")])
+    manifest = blueprint.generate_manifest(session_ctx)
+
+    plan = diff(remote_state, manifest)
+    assert len(plan) == 1
+    wh_change = plan[0]
+    assert wh_change.delta == {
+        "warehouse_type": "STANDARD",
+        "warehouse_size": "XSMALL",
+        "auto_suspend": 600,
+        "auto_resume": True,
+        "max_cluster_count": 1,
+        "min_cluster_count": 1,
+        "scaling_policy": "STANDARD",
+    }
+
+    sql = flatten_sql_commands(compile_plan_to_sql(session_ctx, plan))
+    assert (
+        "ALTER WAREHOUSE WH SET warehouse_type = 'STANDARD' warehouse_size = XSMALL "
+        "MAX_CLUSTER_COUNT = 1 MIN_CLUSTER_COUNT = 1 scaling_policy = STANDARD "
+        "AUTO_SUSPEND = 600 AUTO_RESUME = TRUE"
+    ) in sql
+
+
+def test_blueprint_x5large_to_adaptive_warehouse_conversion_raises(session_ctx):
+    # Snowflake does not support converting to or from an X5LARGE/X6LARGE warehouse
+    # (https://docs.snowflake.com/en/user-guide/warehouses-adaptive), so the plan must
+    # fail instead of emitting an ALTER that errors mid-apply.
+    wh_urn = parse_URN("urn::ABCD123:warehouse/WH")
+    remote_state = {
+        parse_URN("urn::ABCD123:account/ACCOUNT"): {},
+        wh_urn: _warehouse_remote_state(size="5X-LARGE"),
+    }
+    blueprint = Blueprint(resources=[res.Warehouse(name="WH", warehouse_type="ADAPTIVE")])
+    manifest = blueprint.generate_manifest(session_ctx)
+
+    with pytest.raises(InvalidResourceException, match="X5LARGE or X6LARGE"):
+        diff(remote_state, manifest)
+
+
+def test_blueprint_adaptive_to_x6large_warehouse_conversion_raises(session_ctx):
+    # Reverse direction of the same Snowflake restriction: an ADAPTIVE warehouse can't be
+    # converted to an X5LARGE/X6LARGE standard warehouse.
+    wh_urn = parse_URN("urn::ABCD123:warehouse/WH")
+    remote_state = {
+        parse_URN("urn::ABCD123:account/ACCOUNT"): {},
+        wh_urn: _warehouse_remote_state(type="ADAPTIVE", size="", max_query_performance_level="LARGE"),
+    }
+    blueprint = Blueprint(resources=[res.Warehouse(name="WH", warehouse_size="X6LARGE")])
+    manifest = blueprint.generate_manifest(session_ctx)
+
+    with pytest.raises(InvalidResourceException, match="X5LARGE or X6LARGE"):
+        diff(remote_state, manifest)
+
+
+def test_blueprint_key_properties_adaptive_warehouse_omits_size(session_ctx, remote_state):
+    # Adaptive warehouses fetch/plan with warehouse_size=None; the CREATE preview must not
+    # render "size: None" for them, while standard warehouses keep showing their size.
+    blueprint = Blueprint(
+        resources=[res.Warehouse(name="WH", warehouse_type="ADAPTIVE", max_query_performance_level="LARGE")]
+    )
+    manifest = blueprint.generate_manifest(session_ctx)
+    plan = diff(remote_state, manifest)
+    plan_str = strip_ansi(dump_plan(plan, format="text"))
+    assert "size:" not in plan_str
+
+    blueprint = Blueprint(resources=[res.Warehouse(name="WH", warehouse_size="LARGE")])
+    manifest = blueprint.generate_manifest(session_ctx)
+    plan = diff(remote_state, manifest)
+    plan_str = strip_ansi(dump_plan(plan, format="text"))
+    assert "size: LARGE" in plan_str
 
 
 def test_blueprint_scope_config():
