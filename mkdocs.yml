@@ -117,6 +117,7 @@ nav:
       - User: resources/user.md
     - AI:
       - CortexSearchService: resources/cortex_search_service.md
+      - SemanticView: resources/semantic_view.md
     - Account & Monitoring:
       - AccountParameter: resources/account_parameter.md
       - EventTable: resources/event_table.md

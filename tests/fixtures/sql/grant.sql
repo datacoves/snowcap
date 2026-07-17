@@ -19,5 +19,6 @@ GRANT CREATE MATERIALIZED VIEW ON SCHEMA mydb.myschema TO ROLE myrole;
 GRANT ALL PRIVILEGES ON FUNCTION mydb.myschema.add5(number) TO ROLE analyst;
 GRANT ALL PRIVILEGES ON FUNCTION mydb.myschema.add5(string) TO ROLE analyst;
 GRANT USAGE ON PROCEDURE mydb.myschema.myprocedure(number) TO ROLE analyst;
+GRANT SELECT ON SEMANTIC VIEW mydb.myschema.mysemanticview TO ROLE analyst;
 
 
