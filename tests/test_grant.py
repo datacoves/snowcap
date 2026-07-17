@@ -174,6 +174,55 @@ def test_grant_on_cortex_search_service():
     assert "MONITOR ON CORTEX SEARCH SERVICE" in monitor_grant.create_sql()
 
 
+def test_grant_on_compute_pool():
+    """USAGE on a COMPUTE POOL parses and renders correctly.
+
+    Compute pools are account-scoped, so grants target a bare name:
+        GRANT USAGE ON COMPUTE POOL <pool> TO ROLE r
+    """
+    grant = res.Grant(
+        priv="USAGE",
+        on_compute_pool="MY_POOL",
+        to="SOME_ROLE",
+    )
+    assert grant.on_type == ResourceType.COMPUTE_POOL
+    assert grant.on == "MY_POOL"
+    assert "GRANT USAGE ON COMPUTE POOL" in grant.create_sql()
+
+
+def test_grant_on_image_repository():
+    """READ on an IMAGE REPOSITORY parses and renders correctly.
+
+    Image repositories are schema-scoped, so grants target a fully
+    qualified name:
+        GRANT READ ON IMAGE REPOSITORY <db>.<schema>.<repo> TO ROLE r
+    """
+    grant = res.Grant(
+        priv="READ",
+        on_image_repository="DB.SPCS.REPO",
+        to="SOME_ROLE",
+    )
+    assert grant.on_type == ResourceType.IMAGE_REPOSITORY
+    assert grant.on == "DB.SPCS.REPO"
+    assert "GRANT READ ON IMAGE REPOSITORY DB.SPCS.REPO" in grant.create_sql()
+
+
+def test_grant_on_service():
+    """MONITOR on a SERVICE parses and renders correctly.
+
+    Services are schema-scoped, so grants target a fully qualified name:
+        GRANT MONITOR ON SERVICE <db>.<schema>.<svc> TO ROLE r
+    """
+    grant = res.Grant(
+        priv="MONITOR",
+        on_service="DB.SPCS.SVC",
+        to="SOME_ROLE",
+    )
+    assert grant.on_type == ResourceType.SERVICE
+    assert grant.on == "DB.SPCS.SVC"
+    assert "GRANT MONITOR ON SERVICE DB.SPCS.SVC" in grant.create_sql()
+
+
 def test_grant_database_role_to_database_role():
     database = res.Database(name="somedb")
     parent = res.DatabaseRole(name="parent", database=database)
@@ -327,6 +376,21 @@ class TestMultiPrivilegeGrants:
         """Test: Empty privilege list raises error."""
         with pytest.raises(ValueError, match="at least one privilege"):
             res.Grant(priv=[], on_warehouse="somewh", to="somerole")
+
+    def test_all_priv_expands_on_compute_pool(self):
+        """Test: priv: ALL on a compute pool expands to the full non-ALL/non-OWNERSHIP list."""
+        grant = res.Grant(priv="ALL", on_compute_pool="MY_POOL", to="R")
+        assert grant._data._privs == ["MODIFY", "MONITOR", "OPERATE", "USAGE"]
+
+    def test_all_priv_expands_on_image_repository(self):
+        """Test: priv: ALL on an image repository expands to the full non-ALL/non-OWNERSHIP list."""
+        grant = res.Grant(priv="ALL", on_image_repository="D.S.REPO", to="R")
+        assert grant._data._privs == ["READ", "WRITE"]
+
+    def test_all_priv_expands_on_service(self):
+        """Test: priv: ALL on a service expands to the full non-ALL/non-OWNERSHIP list."""
+        grant = res.Grant(priv="ALL", on_service="D.S.SVC", to="R")
+        assert grant._data._privs == ["MONITOR", "OPERATE", "USAGE"]
 
     def test_single_priv_in_list_works(self):
         """Test: Single privilege in list works correctly."""
