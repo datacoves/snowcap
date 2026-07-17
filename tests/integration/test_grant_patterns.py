@@ -246,6 +246,112 @@ class TestGrantsFetchBackIntegration:
         assert len(plan2) == 0, f"Expected no drift but got: {plan2}"
 
 
+class TestSPCSGrantsIntegration:
+    """Test that grants on compute pools, image repositories, and services work correctly."""
+
+    def test_grants_on_compute_pool_image_repository_and_service(
+        self, cursor, suffix, test_db, marked_for_cleanup
+    ):
+        """Test: USAGE on compute pool + ALL on image repository + ALL on service in one apply.
+
+        Compute pools are slow to provision, so this test creates one compute
+        pool, one image repository, and one service, then plans and applies
+        all three SPCS grants in a single blueprint cycle instead of one per
+        object type.
+        """
+        session = cursor.connection
+
+        role_name = f"SPCS_GRANT_ROLE_{suffix}"
+        role = res.Role(name=role_name)
+        cursor.execute(role.create_sql(if_not_exists=True))
+
+        schema_name = f"SPCS_SCHEMA_{suffix}"
+        schema = res.Schema(name=f"{test_db}.{schema_name}")
+        cursor.execute(schema.create_sql(if_not_exists=True))
+
+        pool_name = f"SPCS_POOL_{suffix}"
+        cursor.execute(
+            f"CREATE COMPUTE POOL IF NOT EXISTS {pool_name} "
+            "MIN_NODES = 1 MAX_NODES = 1 INSTANCE_FAMILY = CPU_X64_XS"
+        )
+
+        repo_name = f"SPCS_REPO_{suffix}"
+        repo_fqn = f"{test_db}.{schema_name}.{repo_name}"
+        cursor.execute(f"CREATE IMAGE REPOSITORY IF NOT EXISTS {repo_fqn}")
+
+        svc_name = f"SPCS_SVC_{suffix}"
+        svc_fqn = f"{test_db}.{schema_name}.{svc_name}"
+        cursor.execute(
+            f"""
+CREATE SERVICE IF NOT EXISTS {svc_fqn}
+  IN COMPUTE POOL {pool_name}
+  FROM SPECIFICATION $$
+spec:
+  container:
+  - name: main
+    image: /snowflake/images/snowflake_images/tutorial-image:latest
+  endpoint:
+  - name: apiendpoint
+    port: 8000
+    public: true
+$$
+  MIN_INSTANCES=1
+  MAX_INSTANCES=1
+"""
+        )
+        # Cleanup order: service and compute pool are billable and account-scoped
+        # (outside the DROP DATABASE safety net), so register them first - the
+        # cleanup loop drops in this append order, and an aborted loop must
+        # not leak the pool behind an earlier failure.
+        marked_for_cleanup.append(res.Service(name=svc_fqn, compute_pool=pool_name))
+        marked_for_cleanup.append(res.ComputePool(name=pool_name))
+        marked_for_cleanup.append(res.ImageRepository(name=repo_fqn))
+        marked_for_cleanup.append(schema)
+        marked_for_cleanup.append(role)
+
+        yaml_config = {
+            "grants": [
+                {"priv": "USAGE", "on_compute_pool": pool_name, "to_role": role_name},
+                {"priv": "ALL", "on_image_repository": repo_fqn, "to_role": role_name},
+                {"priv": "ALL", "on_service": svc_fqn, "to_role": role_name},
+            ],
+        }
+
+        bc = collect_blueprint_config(yaml_config)
+        blueprint = Blueprint.from_config(bc)
+
+        plan = blueprint.plan(session)
+        assert len(plan) == 3
+        assert all(isinstance(p, CreateResource) for p in plan)
+
+        blueprint.apply(session, plan)
+
+        # Verify USAGE grant on the compute pool
+        pool_grant = res.Grant(priv="USAGE", on_compute_pool=pool_name, to=role)
+        pool_data = safe_fetch(cursor, pool_grant.urn)
+        assert pool_data is not None, "USAGE grant on compute pool was not created"
+        assert pool_data["priv"] == "USAGE"
+
+        # Verify ALL grant on the image repository expands to exactly READ, WRITE
+        repo_grant = res.Grant(priv="ALL", on_image_repository=repo_fqn, to=role)
+        repo_data = safe_fetch(cursor, repo_grant.urn)
+        assert repo_data is not None, "ALL grant on image repository was not created"
+        assert repo_data["_privs"] == ["READ", "WRITE"]
+
+        # Verify ALL grant on the service expands to exactly MONITOR, OPERATE, USAGE
+        svc_grant = res.Grant(priv="ALL", on_service=svc_fqn, to=role)
+        svc_data = safe_fetch(cursor, svc_grant.urn)
+        assert svc_data is not None, "ALL grant on service was not created"
+        assert svc_data["_privs"] == ["MONITOR", "OPERATE", "USAGE"]
+
+        # Re-plan should show no changes
+        reset_cache()
+        bc2 = collect_blueprint_config(yaml_config)
+        blueprint2 = Blueprint.from_config(bc2)
+        plan2 = blueprint2.plan(session)
+        assert len(plan2) == 0, f"Expected no drift but got: {plan2}"
+
+
 class TestRoleGrantsIntegration:
     """Test that role grants work correctly in Snowflake."""
 

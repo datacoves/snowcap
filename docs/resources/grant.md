@@ -59,6 +59,21 @@ grants:
   - priv: MONITOR
     on: cortex search service somedb.someschema.someservice
     to: search_observability_role
+
+  # SPCS: USAGE on a compute pool
+  - priv: usage
+    on_compute_pool: ds_gpu_pool
+    to_role: data_engineer
+
+  # SPCS: READ on an image repository
+  - priv: read
+    on_image_repository: sandbox.spcs.vllm_repo
+    to_role: data_engineer
+
+  # SPCS: MONITOR on a service
+  - priv: monitor
+    on_service: sandbox.spcs.lora_service
+    to_role: data_engineer
 ```
 
 #### Future Grants
@@ -115,6 +130,11 @@ grant = Grant(priv="CREATE TABLE", on_schema="foo", to="somerole")
 
 # Table Privileges:
 grant = Grant(priv=["SELECT", "INSERT", "DELETE"], on_table="sometable", to="somerole")
+
+# Snowpark Container Services (SPCS) Privileges:
+grant = Grant(priv="USAGE", on_compute_pool="ds_gpu_pool", to="data_engineer")
+grant = Grant(priv="READ", on_image_repository="sandbox.spcs.vllm_repo", to="data_engineer")
+grant = Grant(priv="MONITOR", on_service="sandbox.spcs.lora_service", to="data_engineer")
 ```
 
 #### Future Grants
@@ -185,6 +205,9 @@ grant_on_all = Grant(
   - `"schema my_db.my_schema"` - for schema privileges
   - `"warehouse my_wh"` - for warehouse privileges
   - `"database my_db"` - for database privileges
+  - `"compute pool my_pool"` - for compute pool privileges
+  - `"image repository my_db.my_schema.my_repo"` - for image repository privileges
+  - `"service my_db.my_schema.my_service"` - for service privileges
   - `"future tables in schema my_schema"` - for future grants
   - `"all tables in database my_db"` - for grants on all existing objects
 

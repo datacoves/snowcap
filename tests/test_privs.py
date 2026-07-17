@@ -7,6 +7,7 @@ from snowcap.privs import (
     Priv,
     AccountPriv,
     AlertPriv,
+    ComputePoolPriv,
     CortexSearchServicePriv,
     DatabasePriv,
     DatabaseRolePriv,
@@ -17,6 +18,7 @@ from snowcap.privs import (
     FileFormatPriv,
     FunctionPriv,
     IcebergTablePriv,
+    ImageRepositoryPriv,
     IntegrationPriv,
     MaterializedViewPriv,
     NetworkPolicyPriv,
@@ -31,6 +33,7 @@ from snowcap.privs import (
     SchemaPriv,
     SecretPriv,
     SequencePriv,
+    ServicePriv,
     StagePriv,
     StreamPriv,
     StreamlitPriv,
@@ -68,6 +71,38 @@ def test_resource_privs_is_complete():
         assert resource_type in PRIVS_FOR_RESOURCE_TYPE, f"{resource_type} is missing from PRIVS_FOR_RESOURCE_TYPE"
 
 
+# Resource types deliberately mapped to None in PRIVS_FOR_RESOURCE_TYPE: no grantable Priv
+# enum exists for them yet (or, for genuinely non-grantable pseudo-types, ever will). Any other
+# ResourceType mapped to None would silently break `priv: ALL` expansion (empty _privs), so
+# test_resource_privs_maps_to_priv_enum requires new entries to be added here explicitly.
+RESOURCE_TYPES_WITHOUT_PRIV_ENUM = {
+    ResourceType.AGGREGATION_POLICY,
+    ResourceType.APPLICATION_ROLE,
+    ResourceType.AUTHENTICATION_POLICY,
+    ResourceType.CATALOG_INTEGRATION,
+    ResourceType.CLASS,
+    ResourceType.COLUMN,
+    ResourceType.GRANT,
+    ResourceType.HYBRID_TABLE,
+    ResourceType.RESOURCE_MONITOR,
+    ResourceType.ROLE_GRANT,
+    ResourceType.SHARE,
+    ResourceType.TAG_MASKING_POLICY_REFERENCE,
+    ResourceType.TAG_REFERENCE,
+}
+
+
+def test_resource_privs_maps_to_priv_enum():
+    for resource_type, priv_enum in PRIVS_FOR_RESOURCE_TYPE.items():
+        if resource_type in RESOURCE_TYPES_WITHOUT_PRIV_ENUM:
+            continue
+        assert priv_enum is not None, (
+            f"{resource_type} maps to None in PRIVS_FOR_RESOURCE_TYPE; either add a Priv subclass "
+            "or add it to RESOURCE_TYPES_WITHOUT_PRIV_ENUM if it's genuinely non-grantable"
+        )
+        assert issubclass(priv_enum, Priv), f"{resource_type} maps to {priv_enum}, which is not a Priv subclass"
+
+
 #############################################################################
 # Priv Base Class Tests
 #############################################################################
@@ -87,6 +122,7 @@ class TestPrivBaseClass:
         priv_classes = [
             AccountPriv,
             AlertPriv,
+            ComputePoolPriv,
             DatabasePriv,
             DatabaseRolePriv,
             DirectoryTablePriv,
@@ -96,6 +132,7 @@ class TestPrivBaseClass:
             FileFormatPriv,
             FunctionPriv,
             IcebergTablePriv,
+            ImageRepositoryPriv,
             IntegrationPriv,
             MaterializedViewPriv,
             NetworkPolicyPriv,
@@ -110,6 +147,7 @@ class TestPrivBaseClass:
             SchemaPriv,
             SecretPriv,
             SequencePriv,
+            ServicePriv,
             StagePriv,
             StreamPriv,
             StreamlitPriv,
@@ -300,6 +338,93 @@ class TestWarehousePriv:
 
 
 #############################################################################
+# ComputePoolPriv Tests
+#############################################################################
+
+
+class TestComputePoolPriv:
+    """Tests for ComputePoolPriv enum values."""
+
+    def test_all_privilege(self):
+        """ComputePoolPriv has ALL privilege."""
+        assert ComputePoolPriv.ALL.value == "ALL"
+
+    def test_modify_privilege(self):
+        """ComputePoolPriv has MODIFY privilege."""
+        assert ComputePoolPriv.MODIFY.value == "MODIFY"
+
+    def test_monitor_privilege(self):
+        """ComputePoolPriv has MONITOR privilege."""
+        assert ComputePoolPriv.MONITOR.value == "MONITOR"
+
+    def test_operate_privilege(self):
+        """ComputePoolPriv has OPERATE privilege."""
+        assert ComputePoolPriv.OPERATE.value == "OPERATE"
+
+    def test_ownership_privilege(self):
+        """ComputePoolPriv has OWNERSHIP privilege."""
+        assert ComputePoolPriv.OWNERSHIP.value == "OWNERSHIP"
+
+    def test_usage_privilege(self):
+        """ComputePoolPriv has USAGE privilege."""
+        assert ComputePoolPriv.USAGE.value == "USAGE"
+
+
+#############################################################################
+# ImageRepositoryPriv Tests
+#############################################################################
+
+
+class TestImageRepositoryPriv:
+    """Tests for ImageRepositoryPriv enum values."""
+
+    def test_all_privilege(self):
+        """ImageRepositoryPriv has ALL privilege."""
+        assert ImageRepositoryPriv.ALL.value == "ALL"
+
+    def test_ownership_privilege(self):
+        """ImageRepositoryPriv has OWNERSHIP privilege."""
+        assert ImageRepositoryPriv.OWNERSHIP.value == "OWNERSHIP"
+
+    def test_read_privilege(self):
+        """ImageRepositoryPriv has READ privilege."""
+        assert ImageRepositoryPriv.READ.value == "READ"
+
+    def test_write_privilege(self):
+        """ImageRepositoryPriv has WRITE privilege."""
+        assert ImageRepositoryPriv.WRITE.value == "WRITE"
+
+
+#############################################################################
+# ServicePriv Tests
+#############################################################################
+
+
+class TestServicePriv:
+    """Tests for ServicePriv enum values."""
+
+    def test_all_privilege(self):
+        """ServicePriv has ALL privilege."""
+        assert ServicePriv.ALL.value == "ALL"
+
+    def test_monitor_privilege(self):
+        """ServicePriv has MONITOR privilege."""
+        assert ServicePriv.MONITOR.value == "MONITOR"
+
+    def test_operate_privilege(self):
+        """ServicePriv has OPERATE privilege."""
+        assert ServicePriv.OPERATE.value == "OPERATE"
+
+    def test_ownership_privilege(self):
+        """ServicePriv has OWNERSHIP privilege."""
+        assert ServicePriv.OWNERSHIP.value == "OWNERSHIP"
+
+    def test_usage_privilege(self):
+        """ServicePriv has USAGE privilege."""
+        assert ServicePriv.USAGE.value == "USAGE"
+
+
+#############################################################################
 # StagePriv Tests
 #############################################################################
 
@@ -430,6 +555,21 @@ class TestAllPrivsForResourceType:
         assert "ALL" not in privs
         assert "OWNERSHIP" not in privs
 
+    def test_compute_pool_privs(self):
+        """all_privs_for_resource_type returns non-ALL/OWNERSHIP privileges for compute pool."""
+        privs = all_privs_for_resource_type(ResourceType.COMPUTE_POOL)
+        assert privs == ["MODIFY", "MONITOR", "OPERATE", "USAGE"]
+
+    def test_image_repository_privs(self):
+        """all_privs_for_resource_type returns non-ALL/OWNERSHIP privileges for image repository."""
+        privs = all_privs_for_resource_type(ResourceType.IMAGE_REPOSITORY)
+        assert privs == ["READ", "WRITE"]
+
+    def test_service_privs(self):
+        """all_privs_for_resource_type returns non-ALL/OWNERSHIP privileges for service."""
+        privs = all_privs_for_resource_type(ResourceType.SERVICE)
+        assert privs == ["MONITOR", "OPERATE", "USAGE"]
+
 
 #############################################################################
 # system_role_for_priv() Tests
@@ -511,6 +651,24 @@ class TestGrantedPrivilege:
         assert gp.privilege == SchemaPriv.USAGE
         assert gp.on == "MY_SCHEMA"
 
+    def test_from_grant_with_compute_pool(self):
+        """GrantedPrivilege.from_grant works with compute pool resource type."""
+        gp = GrantedPrivilege.from_grant(privilege="USAGE", granted_on="COMPUTE POOL", name="MY_POOL")
+        assert gp.privilege == ComputePoolPriv.USAGE
+        assert gp.on == "MY_POOL"
+
+    def test_from_grant_with_image_repository(self):
+        """GrantedPrivilege.from_grant works with image repository resource type."""
+        gp = GrantedPrivilege.from_grant(privilege="READ", granted_on="IMAGE REPOSITORY", name="MY_REPO")
+        assert gp.privilege == ImageRepositoryPriv.READ
+        assert gp.on == "MY_REPO"
+
+    def test_from_grant_with_service(self):
+        """GrantedPrivilege.from_grant works with service resource type."""
+        gp = GrantedPrivilege.from_grant(privilege="MONITOR", granted_on="SERVICE", name="MY_SERVICE")
+        assert gp.privilege == ServicePriv.MONITOR
+        assert gp.on == "MY_SERVICE"
+
     def test_from_grant_with_no_priv_type(self):
         """GrantedPrivilege.from_grant returns string privilege for resource types without privilege enums."""
         # GRANT resource type has no associated privilege enum
@@ -569,6 +727,18 @@ class TestPrivsForResourceTypeMapping:
     def test_grant_maps_to_none(self):
         """GRANT resource type maps to None (pseudo-resource)."""
         assert PRIVS_FOR_RESOURCE_TYPE[ResourceType.GRANT] is None
+
+    def test_compute_pool_maps_to_compute_pool_priv(self):
+        """COMPUTE_POOL resource type maps to ComputePoolPriv."""
+        assert PRIVS_FOR_RESOURCE_TYPE[ResourceType.COMPUTE_POOL] is ComputePoolPriv
+
+    def test_image_repository_maps_to_image_repository_priv(self):
+        """IMAGE_REPOSITORY resource type maps to ImageRepositoryPriv."""
+        assert PRIVS_FOR_RESOURCE_TYPE[ResourceType.IMAGE_REPOSITORY] is ImageRepositoryPriv
+
+    def test_service_maps_to_service_priv(self):
+        """SERVICE resource type maps to ServicePriv."""
+        assert PRIVS_FOR_RESOURCE_TYPE[ResourceType.SERVICE] is ServicePriv
 
     def test_integration_types_map_to_integration_priv(self):
         """Integration resource types map to IntegrationPriv."""
