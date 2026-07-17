@@ -46,6 +46,12 @@ def resource_fixtures() -> list:
             mfa_enrollment="REQUIRED",
             client_types=["SNOWFLAKE_UI"],
             security_integrations=["ALL"],
+            authentication_methods=["PROGRAMMATIC_ACCESS_TOKEN", "KEYPAIR"],
+            pat_policy={
+                "network_policy_evaluation": "ENFORCED_NOT_REQUIRED",
+                "default_expiry_in_days": 30,
+                "max_expiry_in_days": 180,
+            },
             owner=TEST_ROLE,
         ),
         res.AzureStorageIntegration(

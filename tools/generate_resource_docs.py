@@ -10,12 +10,12 @@ RESOURCES_ROOT = os.path.join(REPO_ROOT, "snowcap", "resources")
 doc_template = """\
 ---
 description: >-
-  
+{frontmatter_description}
 ---
 
 # {class_name}
 
-[Snowflake Documentation]({snowflake_docs})
+[Snowflake Documentation]({snowflake_docs}) | Snowcap CLI label: `{resource_label}`
 
 {description}
 
@@ -185,6 +185,28 @@ def camelcase_to_snakecase(name: str) -> str:
     return name
 
 
+def default_frontmatter_description(resource_class_name: str) -> str:
+    # Every committed description that doesn't have bespoke wording follows
+    # this pattern, so it's a reasonable default for resources that don't
+    # have a hand-written one yet (see get_frontmatter_description).
+    human_name = camelcase_to_snakecase(resource_class_name).replace("_", " ")
+    article = "An" if human_name[0].lower() in "aeiou" else "A"
+    return f"  {article} {human_name} in Snowflake."
+
+
+def get_frontmatter_description(doc_file: str, resource_class_name: str) -> str:
+    # Some descriptions (e.g. grant.md, masking-policy.md) are bespoke and not
+    # derivable from the docstring, so preserve whatever is already committed.
+    # Only fall back to the generated pattern when there's nothing to preserve.
+    if os.path.exists(doc_file):
+        with open(doc_file, "r") as f:
+            content = f.read()
+        match = re.match(r"^---\ndescription: >-\n((?:  .*\n)+)---\n", content)
+        if match and match.group(1).strip():
+            return match.group(1).rstrip("\n")
+    return default_frontmatter_description(resource_class_name)
+
+
 def generate_resource_doc(resource_class_name: str, resource_docstring: str):
 
     doc_file_name = camelcase_to_snakecase(resource_class_name)
@@ -197,7 +219,10 @@ def generate_resource_doc(resource_class_name: str, resource_docstring: str):
     # print(fields_md)
     # return
 
-    with open(os.path.join(DOCS_ROOT, "resources", f"{doc_file_name}.md"), "w") as f:
+    doc_file = os.path.join(DOCS_ROOT, "resources", f"{doc_file_name}.md")
+    frontmatter_description = get_frontmatter_description(doc_file, resource_class_name)
+
+    with open(doc_file, "w") as f:
         f.write(
             doc_template.format(
                 class_name=resource_class_name,
@@ -206,6 +231,8 @@ def generate_resource_doc(resource_class_name: str, resource_docstring: str):
                 fields=fields_md,
                 python_example=parsed["Python"],
                 yaml_example=parsed["Yaml"],
+                frontmatter_description=frontmatter_description,
+                resource_label=doc_file_name,
             )
         )
 

@@ -27,6 +27,8 @@ from snowcap.data_provider import (
     _parse_comma_separated_values,
     _parse_packages,
     _parse_storage_location,
+    _parse_pat_policy_property,
+    _suppress_default_pat_policy,
     _cast_param_value,
     params_result_to_dict,
     options_result_to_list,
@@ -420,6 +422,89 @@ class TestParseListProperty:
     def test_trims_whitespace(self):
         result = _parse_list_property("[ item1 ,  item2 ]")
         assert result == ["item1", "item2"]
+
+
+class TestParsePatPolicyProperty:
+    """Tests for _parse_pat_policy_property helper function."""
+
+    def test_parses_brace_map(self):
+        result = _parse_pat_policy_property(
+            "{NETWORK_POLICY_EVALUATION=ENFORCED_NOT_REQUIRED, DEFAULT_EXPIRY_IN_DAYS=30, MAX_EXPIRY_IN_DAYS=180}"
+        )
+        assert result == {
+            "network_policy_evaluation": "ENFORCED_NOT_REQUIRED",
+            "default_expiry_in_days": 30,
+            "max_expiry_in_days": 180,
+        }
+
+    def test_drops_unknown_keys(self):
+        result = _parse_pat_policy_property(
+            "{NETWORK_POLICY_EVALUATION=ENFORCED_REQUIRED, DEFAULT_EXPIRY_IN_DAYS=15, "
+            "MAX_EXPIRY_IN_DAYS=365, REQUIRE_ROLE_RESTRICTION_FOR_SERVICE_USERS=true}"
+        )
+        assert "require_role_restriction_for_service_users" not in result
+        assert result == {
+            "network_policy_evaluation": "ENFORCED_REQUIRED",
+            "default_expiry_in_days": 15,
+            "max_expiry_in_days": 365,
+        }
+
+    def test_none_returns_none(self):
+        assert _parse_pat_policy_property(None) is None
+
+    def test_empty_string_returns_none(self):
+        assert _parse_pat_policy_property("") is None
+
+    def test_null_string_returns_none(self):
+        assert _parse_pat_policy_property("null") is None
+
+    def test_whitespace_variants_parse_identically(self):
+        result = _parse_pat_policy_property(
+            "{ NETWORK_POLICY_EVALUATION = ENFORCED_NOT_REQUIRED, DEFAULT_EXPIRY_IN_DAYS = 30, MAX_EXPIRY_IN_DAYS = 180 }"
+        )
+        assert result == {
+            "network_policy_evaluation": "ENFORCED_NOT_REQUIRED",
+            "default_expiry_in_days": 30,
+            "max_expiry_in_days": 180,
+        }
+
+    def test_no_braces_raises(self):
+        with pytest.raises(ValueError):
+            _parse_pat_policy_property("ENFORCED_REQUIRED")
+
+    def test_unterminated_braces_raises(self):
+        with pytest.raises(ValueError):
+            _parse_pat_policy_property("{GARBAGE")
+
+    def test_partial_keys_raises(self):
+        with pytest.raises(ValueError):
+            _parse_pat_policy_property("{DEFAULT_EXPIRY_IN_DAYS=30, MAX_EXPIRY_IN_DAYS=180}")
+
+
+class TestSuppressDefaultPatPolicy:
+    """Tests for _suppress_default_pat_policy helper function."""
+
+    def test_suppresses_default(self):
+        result = _suppress_default_pat_policy(
+            {
+                "network_policy_evaluation": "ENFORCED_REQUIRED",
+                "default_expiry_in_days": 15,
+                "max_expiry_in_days": 365,
+            }
+        )
+        assert result is None
+
+    def test_passes_through_non_default(self):
+        pat_policy = {
+            "network_policy_evaluation": "ENFORCED_NOT_REQUIRED",
+            "default_expiry_in_days": 30,
+            "max_expiry_in_days": 180,
+        }
+        result = _suppress_default_pat_policy(pat_policy)
+        assert result == pat_policy
+
+    def test_none_returns_none(self):
+        assert _suppress_default_pat_policy(None) is None
 
 
 class TestParseSignature:
