@@ -24,3 +24,11 @@ scaling_policy = economy
 initially_suspended = true
 ;
 
+CREATE WAREHOUSE ADAPTIVE_WH
+    WITH
+    WAREHOUSE_TYPE = 'ADAPTIVE'
+    MAX_QUERY_PERFORMANCE_LEVEL = LARGE
+    STATEMENT_TIMEOUT_IN_SECONDS = 3600
+    COMMENT = 'My adaptive warehouse'
+;
+

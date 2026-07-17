@@ -174,6 +174,20 @@ def test_grant_on_cortex_search_service():
     assert "MONITOR ON CORTEX SEARCH SERVICE" in monitor_grant.create_sql()
 
 
+def test_grant_on_adaptive_warehouse():
+    """Grants on an ADAPTIVE warehouse render identically to grants on a STANDARD warehouse."""
+    wh = res.Warehouse(name="somewh", warehouse_type="ADAPTIVE", max_query_performance_level="LARGE")
+
+    usage_grant = res.Grant(priv="usage", on=wh, to="somerole")
+    assert usage_grant.create_sql() == "GRANT USAGE ON WAREHOUSE SOMEWH TO ROLE SOMEROLE"
+
+    operate_grant = res.Grant(priv="operate", on=wh, to="somerole")
+    assert operate_grant.create_sql() == "GRANT OPERATE ON WAREHOUSE SOMEWH TO ROLE SOMEROLE"
+
+    monitor_grant = res.Grant(priv="monitor", on=wh, to="somerole")
+    assert monitor_grant.create_sql() == "GRANT MONITOR ON WAREHOUSE SOMEWH TO ROLE SOMEROLE"
+
+
 def test_grant_database_role_to_database_role():
     database = res.Database(name="somedb")
     parent = res.DatabaseRole(name="parent", database=database)
