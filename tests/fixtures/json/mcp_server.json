@@ -1,0 +1,5 @@
+{
+    "name": "MCP_SERVER_EXAMPLE",
+    "owner": "SYSADMIN",
+    "specification": "tools:\n- identifier: run_sql\n  name: run_sql\n  type: SYSTEM_EXECUTE_SQL\nversion: 1\n"
+}

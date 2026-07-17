@@ -392,6 +392,22 @@ def update_masking_policy(urn: URN, data: dict, props: Props) -> str:
         return update__default(urn, {attr: new_value}, props)
 
 
+def update_mcp_server(urn: URN, data: dict, props: Props) -> str:
+    # Snowflake has no ALTER MCP SERVER command. A rename is impossible regardless
+    # of what else changed, so it takes precedence over a specification change.
+    if "name" in data:
+        raise NotImplementedError(
+            "Snowflake does not support renaming MCP servers (no ALTER MCP SERVER command); "
+            "rename requires dropping and recreating the server"
+        )
+    return tidy_sql(
+        "CREATE OR REPLACE",
+        urn.resource_type,
+        fqn_to_sql(urn.fqn),
+        props.render({"specification": data["specification"]}),
+    )
+
+
 def update_account_parameter(urn: URN, data: dict, props: Props) -> str:
     return create_account_parameter(urn, data, props)
 

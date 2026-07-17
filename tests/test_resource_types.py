@@ -10,6 +10,8 @@ Each resource type has tests for:
 6. Property defaults
 """
 
+import json
+
 import pytest
 from unittest.mock import MagicMock
 
@@ -17,6 +19,7 @@ from snowcap import resources as res
 from snowcap.enums import ResourceType, WarehouseSize
 from snowcap.identifiers import FQN, URN
 from snowcap.resource_name import ResourceName
+from snowcap.resources.mcp_server import normalize_mcp_specification
 
 
 class TestDatabase:
@@ -610,6 +613,213 @@ class TestInternalStage:
             comment="Test stage",
         )
         assert stage._data.directory is not None
+
+
+class TestMCPServer:
+    """Tests for MCPServer resource."""
+
+    SPEC = "tools:\n  - name: run_sql\n    identifier: run_sql\n    type: SYSTEM_EXECUTE_SQL\n"
+
+    def test_mcp_server_minimal(self):
+        """Test MCPServer with minimal required properties."""
+        server = res.MCPServer(name="test_mcp_server", specification=self.SPEC)
+        assert server.fqn.name == "TEST_MCP_SERVER"
+        assert server.resource_type == ResourceType.MCP_SERVER
+        assert server._data.owner.name == "SYSADMIN"
+
+    def test_mcp_server_create_sql(self):
+        """Test MCPServer create_sql produces the exact expected DDL."""
+        server = res.MCPServer(name="test_mcp_server", specification=self.SPEC)
+        assert server.create_sql() == (
+            "CREATE MCP SERVER TEST_MCP_SERVER FROM SPECIFICATION $$tools:\n"
+            "- identifier: run_sql\n"
+            "  name: run_sql\n"
+            "  type: SYSTEM_EXECUTE_SQL\n"
+            "version: 1\n"
+            "$$"
+        )
+
+    def test_normalize_desc_json_shape_matches_equivalent_yaml(self):
+        """The documented DESC JSON shape must normalize identically to equivalent user YAML.
+
+        Guards against Perpetual Diff: a spec fetched back from Snowflake (JSON, with an
+        explicit version) must compare equal to the same spec as a user would write it in
+        YAML (no version key), or every plan would show a spurious update.
+        """
+        desc_json = json.dumps(
+            {
+                "version": 1,
+                "tools": [
+                    {
+                        "name": "search_docs",
+                        "identifier": "search_docs",
+                        "type": "CORTEX_SEARCH_SERVICE_QUERY",
+                    }
+                ],
+            }
+        )
+        user_yaml = """
+        tools:
+          - name: search_docs
+            identifier: search_docs
+            type: CORTEX_SEARCH_SERVICE_QUERY
+        """
+        assert normalize_mcp_specification(desc_json) == normalize_mcp_specification(user_yaml)
+
+    def test_normalize_multi_tool_all_tool_types(self):
+        """Multi-tool specs covering all five tool types normalize identically regardless of
+        key order, optional config/title/description, or YAML vs. JSON source syntax."""
+        tools = [
+            {
+                "name": "search_docs",
+                "identifier": "search_docs",
+                "type": "CORTEX_SEARCH_SERVICE_QUERY",
+                "title": "Search Docs",
+                "description": "Search the docs",
+                "config": {"service": "my_search_svc"},
+            },
+            {
+                "name": "ask_analyst",
+                "identifier": "ask_analyst",
+                "type": "CORTEX_ANALYST_MESSAGE",
+            },
+            {
+                "name": "run_sql",
+                "identifier": "run_sql",
+                "type": "SYSTEM_EXECUTE_SQL",
+                "description": "Run a SQL query",
+            },
+            {
+                "name": "run_agent",
+                "identifier": "run_agent",
+                "type": "CORTEX_AGENT_RUN",
+                "config": {"agent": "my_agent"},
+            },
+            {
+                "name": "custom_tool",
+                "identifier": "custom_tool",
+                "type": "GENERIC",
+                "title": "Custom Tool",
+            },
+        ]
+        spec_dict = {"tools": tools}
+        json_form = json.dumps(spec_dict)
+        expected = normalize_mcp_specification(spec_dict)
+
+        # Same tools, different key order per tool, no explicit version -> same canonical form.
+        yaml_reordered = """
+        tools:
+          - identifier: search_docs
+            type: CORTEX_SEARCH_SERVICE_QUERY
+            name: search_docs
+            config:
+              service: my_search_svc
+            description: Search the docs
+            title: Search Docs
+          - name: ask_analyst
+            identifier: ask_analyst
+            type: CORTEX_ANALYST_MESSAGE
+          - description: Run a SQL query
+            identifier: run_sql
+            name: run_sql
+            type: SYSTEM_EXECUTE_SQL
+          - config:
+              agent: my_agent
+            identifier: run_agent
+            name: run_agent
+            type: CORTEX_AGENT_RUN
+          - title: Custom Tool
+            identifier: custom_tool
+            name: custom_tool
+            type: GENERIC
+        """
+
+        assert normalize_mcp_specification(json_form) == expected
+        assert normalize_mcp_specification(yaml_reordered) == expected
+
+    def test_normalize_yaml_1_1_boolean_scalars(self):
+        """YAML 1.1 boolean words normalize the same as `true`/`false`, but a quoted word stays
+        a string."""
+        yaml_yes = """
+        tools:
+          - name: run_sql
+            identifier: run_sql
+            type: SYSTEM_EXECUTE_SQL
+            read_only: yes
+        """
+        yaml_true = """
+        tools:
+          - name: run_sql
+            identifier: run_sql
+            type: SYSTEM_EXECUTE_SQL
+            read_only: true
+        """
+        yaml_quoted_yes = """
+        tools:
+          - name: run_sql
+            identifier: run_sql
+            type: SYSTEM_EXECUTE_SQL
+            read_only: "yes"
+        """
+        assert normalize_mcp_specification(yaml_yes) == normalize_mcp_specification(yaml_true)
+        assert normalize_mcp_specification(yaml_yes) != normalize_mcp_specification(yaml_quoted_yes)
+        assert "read_only: true" in normalize_mcp_specification(yaml_yes)
+        assert "read_only: 'yes'" in normalize_mcp_specification(yaml_quoted_yes)
+
+    def test_normalize_invalid_yaml_raises(self):
+        """Malformed YAML/JSON raises ValueError rather than propagating a YAMLError."""
+        with pytest.raises(ValueError):
+            normalize_mcp_specification("tools: [unterminated")
+
+    def test_normalize_non_mapping_top_level_raises(self):
+        """A specification whose top level is not a mapping (e.g. a bare list) raises ValueError."""
+        with pytest.raises(ValueError):
+            normalize_mcp_specification("- just\n- a\n- list")
+
+    def test_normalize_empty_string_raises(self):
+        """An empty (or whitespace-only) specification raises ValueError with a clear message."""
+        with pytest.raises(ValueError, match="cannot be empty"):
+            normalize_mcp_specification("")
+        with pytest.raises(ValueError, match="cannot be empty"):
+            normalize_mcp_specification("   \n  ")
+
+    def test_normalize_date_like_scalar_matches_json_form(self):
+        """An unquoted date-like scalar in YAML (read as a `date` via YAML 1.1 implicit typing)
+        must normalize the same as the equivalent JSON, where the same value is a quoted string.
+
+        Guards against Perpetual Diff: without coercing through a JSON-compatible intermediate,
+        the YAML side stays a `date` object while the JSON side is a `str`, and the two dump to
+        different scalar styles even though they're semantically identical.
+        """
+        yaml_form = """
+        tools:
+          - name: run_sql
+            identifier: run_sql
+            type: SYSTEM_EXECUTE_SQL
+            title: 2024-01-01
+        """
+        json_form = json.dumps(
+            {
+                "tools": [
+                    {
+                        "name": "run_sql",
+                        "identifier": "run_sql",
+                        "type": "SYSTEM_EXECUTE_SQL",
+                        "title": "2024-01-01",
+                    }
+                ]
+            }
+        )
+        assert normalize_mcp_specification(yaml_form) == normalize_mcp_specification(json_form)
+        assert "title: '2024-01-01'" in normalize_mcp_specification(yaml_form)
+
+    def test_normalize_tool_order_not_significant(self):
+        """Two specs differing only in tool order normalize identically."""
+        tool_a = {"name": "a_tool", "identifier": "a_tool", "type": "SYSTEM_EXECUTE_SQL"}
+        tool_b = {"name": "b_tool", "identifier": "b_tool", "type": "SYSTEM_EXECUTE_SQL"}
+        forward = {"tools": [tool_a, tool_b]}
+        reversed_ = {"tools": [tool_b, tool_a]}
+        assert normalize_mcp_specification(forward) == normalize_mcp_specification(reversed_)
 
 
 class TestNetworkPolicy:
