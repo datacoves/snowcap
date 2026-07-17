@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from ..enums import ParseableEnum, ResourceType
-from ..props import EnumProp, Props, StringListProp, StringProp
+from ..props import EnumProp, IntProp, Props, PropSet, StringListProp, StringProp
 from ..resource_name import ResourceName
 from ..role_ref import RoleRef
 from ..scope import SchemaScope
@@ -14,6 +14,7 @@ class AuthenticationMethods(ParseableEnum):
     SAML = "SAML"
     OAUTH = "OAUTH"
     KEYPAIR = "KEYPAIR"
+    PROGRAMMATIC_ACCESS_TOKEN = "PROGRAMMATIC_ACCESS_TOKEN"
 
 
 class MFAEnrollment(ParseableEnum):
@@ -28,6 +29,21 @@ class ClientTypes(ParseableEnum):
     SNOWSQL = "SNOWSQL"
 
 
+class NetworkPolicyEvaluation(ParseableEnum):
+    ENFORCED_REQUIRED = "ENFORCED_REQUIRED"
+    ENFORCED_NOT_REQUIRED = "ENFORCED_NOT_REQUIRED"
+    NOT_ENFORCED = "NOT_ENFORCED"
+
+
+# Single source of truth for the PAT_POLICY sub-key schema, shared by __post_init__
+# (to derive the required-key set) and AuthenticationPolicy.props (to render/parse it).
+_PAT_POLICY_PROPS = Props(
+    network_policy_evaluation=EnumProp("NETWORK_POLICY_EVALUATION", NetworkPolicyEvaluation),
+    default_expiry_in_days=IntProp("default_expiry_in_days"),
+    max_expiry_in_days=IntProp("max_expiry_in_days"),
+)
+
+
 @dataclass(unsafe_hash=True)
 class _AuthenticationPolicy(ResourceSpec):
     name: ResourceName
@@ -36,6 +52,7 @@ class _AuthenticationPolicy(ResourceSpec):
     mfa_enrollment: MFAEnrollment = "OPTIONAL"
     client_types: list[ClientTypes] = None
     security_integrations: list[str] = None
+    pat_policy: dict = None
     comment: str = None
     owner: RoleRef = "SECURITYADMIN"
 
@@ -68,6 +85,18 @@ class _AuthenticationPolicy(ResourceSpec):
         if self.security_integrations is None:
             self.security_integrations = ["ALL"]
 
+        if self.pat_policy is not None:
+            self.pat_policy = {k: v for k, v in self.pat_policy.items() if k in _PAT_POLICY_PROPS.props}
+            required_keys = set(_PAT_POLICY_PROPS.props)
+            missing_keys = required_keys - self.pat_policy.keys()
+            if missing_keys:
+                raise ValueError(f"pat_policy is missing required keys: {sorted(missing_keys)}")
+
+            for key, prop in _PAT_POLICY_PROPS.props.items():
+                self.pat_policy[key] = prop.typecheck(self.pat_policy[key])
+            if self.pat_policy["default_expiry_in_days"] > self.pat_policy["max_expiry_in_days"]:
+                raise ValueError("pat_policy.default_expiry_in_days cannot exceed pat_policy.max_expiry_in_days")
+
 
 class AuthenticationPolicy(NamedResource, Resource):
     """
@@ -84,6 +113,7 @@ class AuthenticationPolicy(NamedResource, Resource):
         mfa_enrollment (string): Determines whether a user must enroll in multi-factor authentication. Defaults to OPTIONAL.
         client_types (list): A list of clients that can authenticate with Snowflake.
         security_integrations (list): A list of security integrations the authentication policy is associated with.
+        pat_policy (dict): Controls programmatic access token issuance: network_policy_evaluation, default_expiry_in_days, and max_expiry_in_days must all be given or all omitted; declaring exactly the Snowflake defaults (ENFORCED_REQUIRED, 15, 365) compares as unset.
         comment (string): A comment or description for the authentication policy.
         owner (string or Role): The owner role of the authentication policy. Defaults to SECURITYADMIN.
 
@@ -92,11 +122,16 @@ class AuthenticationPolicy(NamedResource, Resource):
         ```python
         authentication_policy = AuthenticationPolicy(
             name="some_authentication_policy",
-            authentication_methods=["PASSWORD", "SAML"],
+            authentication_methods=["PASSWORD", "SAML", "PROGRAMMATIC_ACCESS_TOKEN"],
             mfa_authentication_methods=["PASSWORD"],
             mfa_enrollment="REQUIRED",
             client_types=["SNOWFLAKE_UI"],
             security_integrations=["ALL"],
+            pat_policy={
+                "network_policy_evaluation": "ENFORCED_NOT_REQUIRED",
+                "default_expiry_in_days": 30,
+                "max_expiry_in_days": 180,
+            },
             comment="Policy for secure authentication."
         )
         ```
@@ -109,6 +144,7 @@ class AuthenticationPolicy(NamedResource, Resource):
             authentication_methods:
               - PASSWORD
               - SAML
+              - PROGRAMMATIC_ACCESS_TOKEN
             mfa_authentication_methods:
               - PASSWORD
             mfa_enrollment: REQUIRED
@@ -116,6 +152,10 @@ class AuthenticationPolicy(NamedResource, Resource):
               - SNOWFLAKE_UI
             security_integrations:
               - ALL
+            pat_policy:
+              network_policy_evaluation: ENFORCED_NOT_REQUIRED
+              default_expiry_in_days: 30
+              max_expiry_in_days: 180
             comment: Policy for secure authentication.
         ```
     """
@@ -127,6 +167,7 @@ class AuthenticationPolicy(NamedResource, Resource):
         mfa_enrollment=EnumProp("mfa_enrollment", MFAEnrollment),
         client_types=StringListProp("client_types", parens=True),
         security_integrations=StringListProp("security_integrations", parens=True),
+        pat_policy=PropSet("PAT_POLICY", _PAT_POLICY_PROPS),
         comment=StringProp("comment"),
     )
     scope = SchemaScope()
@@ -140,6 +181,7 @@ class AuthenticationPolicy(NamedResource, Resource):
         mfa_enrollment: str = "OPTIONAL",
         client_types: list[str] = None,
         security_integrations: list[str] = None,
+        pat_policy: dict = None,
         comment: str = None,
         owner: str = "SECURITYADMIN",
         **kwargs,
@@ -152,6 +194,7 @@ class AuthenticationPolicy(NamedResource, Resource):
             mfa_enrollment=mfa_enrollment,
             client_types=client_types,
             security_integrations=security_integrations,
+            pat_policy=pat_policy,
             comment=comment,
             owner=owner,
         )

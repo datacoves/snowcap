@@ -11,6 +11,12 @@
         "ALL"
     ],
     "authentication_methods": [
-        "ALL"
-    ]
+        "PROGRAMMATIC_ACCESS_TOKEN",
+        "KEYPAIR"
+    ],
+    "pat_policy": {
+        "network_policy_evaluation": "ENFORCED_NOT_REQUIRED",
+        "default_expiry_in_days": 30,
+        "max_expiry_in_days": 180
+    }
 }
