@@ -261,6 +261,7 @@ class SchemaPriv(Priv):
     CREATE_RESOURCE_GROUP = "CREATE RESOURCE GROUP"
     CREATE_ROW_ACCESS_POLICY = "CREATE ROW ACCESS POLICY"
     CREATE_SECRET = "CREATE SECRET"
+    CREATE_SEMANTIC_VIEW = "CREATE SEMANTIC VIEW"
     CREATE_SEQUENCE = "CREATE SEQUENCE"
     CREATE_SERVICE = "CREATE SERVICE"
     CREATE_SERVICE_CLASS = "CREATE SERVICE CLASS"
@@ -284,6 +285,14 @@ class SecretPriv(Priv):
     OWNERSHIP = "OWNERSHIP"
     READ = "READ"
     USAGE = "USAGE"
+
+
+class SemanticViewPriv(Priv):
+    ALL = "ALL"
+    MONITOR = "MONITOR"
+    OWNERSHIP = "OWNERSHIP"
+    REFERENCES = "REFERENCES"
+    SELECT = "SELECT"
 
 
 class GitRepositoryPriv(Priv):
@@ -427,6 +436,7 @@ PRIVS_FOR_RESOURCE_TYPE: dict[ResourceType, Optional[type[Priv]]] = {
     ResourceType.SCHEMA: SchemaPriv,
     ResourceType.SECRET: SecretPriv,
     ResourceType.SECURITY_INTEGRATION: IntegrationPriv,
+    ResourceType.SEMANTIC_VIEW: SemanticViewPriv,
     ResourceType.SEQUENCE: SequencePriv,
     ResourceType.SERVICE: None,
     ResourceType.SHARE: None,

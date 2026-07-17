@@ -9,11 +9,12 @@ when applied to a real Snowflake instance.
 import os
 
 import pytest
+import snowflake.connector.errors
 
 from tests.helpers import safe_fetch
 from snowcap import resources as res
 from snowcap.blueprint import Blueprint, CreateResource
-from snowcap.client import reset_cache
+from snowcap.client import FEATURE_NOT_ENABLED_ERR, UNSUPPORTED_FEATURE, reset_cache
 from snowcap.gitops import collect_blueprint_config
 
 TEST_ROLE = os.environ.get("TEST_SNOWFLAKE_ROLE")
@@ -325,6 +326,82 @@ class TestRoleGrantsIntegration:
             role_grant = res.RoleGrant(role=source_name, to_role=target_name)
             grant_data = safe_fetch(cursor, role_grant.urn)
             assert grant_data is not None, f"Role grant {source_name} -> {target_name} was not created"
+
+
+class TestSemanticViewGrantsIntegration:
+    """Grant fetch round-trip for SEMANTIC VIEW.
+
+    SHOW GRANTS returns granted_on='SEMANTIC_VIEW' for a live semantic-view
+    grant; whether that string maps to ResourceType.SEMANTIC_VIEW (via
+    fetch_role_privileges' granted_on.replace('_', ' ') normalization) can
+    only be verified against a real account. This test proves that mapping,
+    plus that ALL/FUTURE SEMANTIC VIEWS IN SCHEMA grants execute successfully.
+    """
+
+    def test_semantic_view_grant_fetch_round_trip(self, cursor, suffix, test_db, marked_for_cleanup):
+        """Test: SELECT + FUTURE SEMANTIC VIEWS IN SCHEMA grants fetch back with no drift."""
+        session = cursor.connection
+
+        schema_name = f"SV_GRANT_SCHEMA_{suffix}"
+        schema = res.Schema(name=f"{test_db}.{schema_name}")
+        cursor.execute(schema.create_sql(if_not_exists=True))
+        marked_for_cleanup.append(schema)
+
+        table_fqn = f"{test_db}.{schema_name}.SV_SOURCE_TABLE_{suffix}"
+        cursor.execute(f"CREATE TABLE {table_fqn} (id INT, name STRING)")
+
+        sv_fqn = f"{test_db}.{schema_name}.SV_{suffix}"
+        try:
+            cursor.execute(f"CREATE SEMANTIC VIEW {sv_fqn} TABLES (t AS {table_fqn} PRIMARY KEY (id))")
+        except snowflake.connector.errors.ProgrammingError as err:
+            if err.errno in (UNSUPPORTED_FEATURE, FEATURE_NOT_ENABLED_ERR):
+                pytest.skip("SEMANTIC VIEW is not supported on this account")
+            raise
+
+        # Create a role to receive grants
+        role_name = f"SV_GRANT_ROLE_{suffix}"
+        role = res.Role(name=role_name)
+        cursor.execute(role.create_sql(if_not_exists=True))
+        marked_for_cleanup.append(role)
+
+        # Grant SELECT on the specific semantic view, plus a FUTURE grant on the schema
+        yaml_config = {
+            "grants": [
+                {
+                    "priv": "SELECT",
+                    "on_semantic_view": sv_fqn,
+                    "to_role": role_name,
+                },
+                {
+                    "priv": "SELECT",
+                    "on": f"FUTURE SEMANTIC VIEWS IN SCHEMA {test_db}.{schema_name}",
+                    "to_role": role_name,
+                },
+            ],
+        }
+
+        bc = collect_blueprint_config(yaml_config)
+        blueprint = Blueprint.from_config(bc)
+
+        plan = blueprint.plan(session)
+        assert len(plan) == 2
+        assert all(isinstance(p, CreateResource) for p in plan)
+
+        blueprint.apply(session, plan)
+
+        # Verify the SELECT ON SEMANTIC VIEW grant fetches back and maps to ResourceType.SEMANTIC_VIEW
+        select_grant = res.Grant(priv="SELECT", on_semantic_view=sv_fqn, to=role)
+        assert select_grant.urn.resource_type.value == "SEMANTIC VIEW"
+        fetched = safe_fetch(cursor, select_grant.urn)
+        assert fetched is not None, "SELECT ON SEMANTIC VIEW grant was not created"
+        assert fetched["priv"] == "SELECT"
+
+        # Re-plan should show zero drift for both grants
+        reset_cache()
+        bc2 = collect_blueprint_config(yaml_config)
+        blueprint2 = Blueprint.from_config(bc2)
+        plan2 = blueprint2.plan(session)
+        assert len(plan2) == 0, f"Expected no drift but got: {plan2}"
 
 
 class TestGrantCleanupIntegration:

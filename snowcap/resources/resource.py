@@ -310,6 +310,13 @@ RESOURCE_SCOPES = {
     # `priv: USAGE on cortex search service <db>.<schema>.<name>` in YAML to
     # manage access to services they create out-of-band (e.g. via dbt or DDL).
     ResourceType.CORTEX_SEARCH_SERVICE: SchemaScope(),
+    # SEMANTIC VIEW — Snowflake semantic layer object, schema-scoped.
+    # No concrete resource class yet (CREATE SEMANTIC VIEW involves tables,
+    # relationships, facts, and metrics that warrant its own PR).
+    # Registering a SchemaScope here lets users write
+    # `priv: SELECT on semantic view <db>.<schema>.<name>` in YAML to
+    # manage access to semantic views they create out-of-band (e.g. via dbt or DDL).
+    ResourceType.SEMANTIC_VIEW: SchemaScope(),
 }
 
 
