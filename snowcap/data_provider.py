@@ -12,6 +12,7 @@ from snowflake.connector import SnowflakeConnection
 from snowflake.connector.errors import ProgrammingError
 
 from .builtins import (
+    ALWAYS_BLOCKED_OAUTH_ROLES,
     SYSTEM_DATABASES,
     SYSTEM_ROLES,
     SYSTEM_SECURITY_INTEGRATIONS,
@@ -2546,19 +2547,29 @@ def fetch_security_integration(session: SnowflakeConnection, fqn: FQN):
                 "enabled": data["enabled"] == "true",
                 "owner": owner,
             }
+        elif oauth_client == "CUSTOM":
+            pre_authorized_roles_list = properties.get("pre_authorized_roles_list") or None
+            if pre_authorized_roles_list:
+                pre_authorized_roles_list = sorted(pre_authorized_roles_list)
+            blocked_roles_list = set(properties.get("blocked_roles_list") or []) - set(ALWAYS_BLOCKED_OAUTH_ROLES)
+            return {
+                "name": _quote_snowflake_identifier(data["name"]),
+                "type": type_,
+                "oauth_client": oauth_client,
+                "enabled": data["enabled"] == "true",
+                "oauth_client_type": properties.get("oauth_client_type"),
+                "oauth_redirect_uri": properties.get("oauth_redirect_uri"),
+                "oauth_issue_refresh_tokens": properties.get("oauth_issue_refresh_tokens"),
+                "oauth_refresh_token_validity": int(properties["oauth_refresh_token_validity"]),
+                "oauth_use_secondary_roles": properties.get("oauth_use_secondary_roles"),
+                "oauth_enforce_pkce": properties.get("oauth_enforce_pkce"),
+                "network_policy": properties.get("network_policy"),
+                "pre_authorized_roles_list": pre_authorized_roles_list,
+                "blocked_roles_list": sorted(blocked_roles_list) or None,
+                "comment": data["comment"] or None,
+                "owner": owner,
+            }
     raise Exception(f"Unsupported security integration type {data['type']}")
-
-    # return {
-    #     "name": _quote_snowflake_identifier(data["name"]),
-    #     "type": type_,
-    #     "enabled": data["enabled"] == "true",
-    #     "oauth_client": oauth_client,
-    #     # "oauth_client_secret": None,
-    #     # "oauth_redirect_uri": None,
-    #     "oauth_issue_refresh_tokens": properties["oauth_issue_refresh_tokens"] == "true",
-    #     "oauth_refresh_token_validity": properties["oauth_refresh_token_validity"],
-    #     "comment": data["comment"] or None,
-    # }
 
 
 def fetch_sequence(session: SnowflakeConnection, fqn: FQN):
