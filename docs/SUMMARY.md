@@ -35,6 +35,7 @@
 * [InternalStage](resources/internal_stage.md)
 * [JSONFileFormat](resources/json_file_format.md)
 * [JavascriptUDF](resources/javascript_udf.md)
+* [MCPServer](resources/mcp_server.md)
 * [MaskingPolicy](resources/masking-policy.md)
 * [MaterializedView](resources/materialized_view.md)
 * [NetworkPolicy](resources/network_policy.md)

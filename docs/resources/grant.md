@@ -59,6 +59,11 @@ grants:
   - priv: MONITOR
     on: cortex search service somedb.someschema.someservice
     to: search_observability_role
+
+  # AI: USAGE on an MCP Server so MCP clients can call its tools
+  - priv: USAGE
+    on: mcp server somedb.someschema.someserver
+    to: mcp_client_role
 ```
 
 #### Future Grants
@@ -115,6 +120,9 @@ grant = Grant(priv="CREATE TABLE", on_schema="foo", to="somerole")
 
 # Table Privileges:
 grant = Grant(priv=["SELECT", "INSERT", "DELETE"], on_table="sometable", to="somerole")
+
+# MCP Server Privileges:
+grant = Grant(priv="USAGE", on_mcp_server="someserver", to="mcp_client_role")
 ```
 
 #### Future Grants

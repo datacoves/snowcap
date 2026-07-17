@@ -32,6 +32,7 @@ from snowcap.lifecycle import (
     update__default,
     update_account_parameter,
     update_event_table,
+    update_mcp_server,
     update_procedure,
     update_role_grant,
     update_scanner_package,
@@ -1385,3 +1386,77 @@ class TestUpdateTagMaskingPolicyReference:
 
         assert "?" not in result, f"dispatcher produced malformed SQL: {result!r}"
         assert "UNSET MASKING POLICY" in result
+
+
+class TestUpdateMCPServer:
+    """
+    Tests for update_mcp_server.
+
+    Snowflake has no ALTER MCP SERVER command, so a specification change is applied
+    by dropping and recreating the server with CREATE OR REPLACE. Renaming is not
+    supported at all: no command exists to change an MCP server's name in place.
+    """
+
+    def test_specification_change_uses_create_or_replace(self):
+        """A specification delta must produce CREATE OR REPLACE, never ALTER MCP SERVER."""
+        urn = make_urn(ResourceType.MCP_SERVER, "MY_SERVER", database="MY_DB", schema="MY_SCHEMA")
+        data = {"specification": "tools:\n- name: query_data\n  type: SYSTEM_EXECUTE_SQL\nversion: 1\n"}
+        result = update_mcp_server(urn, data, res.MCPServer.props)
+
+        assert result.startswith("CREATE OR REPLACE MCP SERVER")
+        assert "FROM SPECIFICATION $$" in result
+        assert "ALTER MCP SERVER" not in result
+
+    def test_rename_raises_targeted_error(self):
+        """Renaming an MCP server has no Snowflake command and must raise, never ALTER ... RENAME TO."""
+        urn = make_urn(ResourceType.MCP_SERVER, "MY_SERVER", database="MY_DB", schema="MY_SCHEMA")
+        data = {"name": "NEW_SERVER"}
+        props = MockProps("")
+
+        with pytest.raises(NotImplementedError, match="MCP server"):
+            update_mcp_server(urn, data, props)
+
+    def test_rename_combined_with_specification_still_raises(self):
+        """Rename is impossible regardless of any other field in the delta, including specification."""
+        urn = make_urn(ResourceType.MCP_SERVER, "MY_SERVER", database="MY_DB", schema="MY_SCHEMA")
+        data = {"name": "NEW_SERVER", "specification": "tools:\n- name: foo\n  type: SYSTEM_EXECUTE_SQL\n"}
+        props = MockProps("")
+
+        with pytest.raises(NotImplementedError, match="MCP server"):
+            update_mcp_server(urn, data, props)
+
+    def test_update_resource_dispatches_to_mcp_server_handler(self):
+        """update_resource dispatcher must route MCP_SERVER to update_mcp_server, not update__default."""
+        urn = make_urn(ResourceType.MCP_SERVER, "MY_SERVER", database="MY_DB", schema="MY_SCHEMA")
+        data = {"specification": "tools:\n- name: query_data\n  type: SYSTEM_EXECUTE_SQL\nversion: 1\n"}
+        result = update_resource(urn, data, res.MCPServer.props)
+
+        assert result.startswith("CREATE OR REPLACE MCP SERVER")
+        assert "ALTER MCP SERVER" not in result
+
+
+class TestCreateMCPServer:
+    """create_resource needs no MCP server override; create__default already produces valid DDL."""
+
+    def test_create_uses_from_specification(self):
+        urn = make_urn(ResourceType.MCP_SERVER, "MY_SERVER", database="MY_DB", schema="MY_SCHEMA")
+        data = {
+            "name": "MY_SERVER",
+            "specification": "tools:\n- name: query_data\n  type: SYSTEM_EXECUTE_SQL\nversion: 1\n",
+            "owner": "SYSADMIN",
+        }
+        result = create_resource(urn, data, res.MCPServer.props)
+
+        assert result.startswith("CREATE MCP SERVER MY_DB.MY_SCHEMA.MY_SERVER")
+        assert "FROM SPECIFICATION $$" in result
+        assert "OR REPLACE" not in result
+
+
+class TestDropMCPServer:
+    """drop_resource needs no MCP server override; drop__default already produces valid DDL."""
+
+    def test_drop_if_exists(self):
+        urn = make_urn(ResourceType.MCP_SERVER, "MY_SERVER", database="MY_DB", schema="MY_SCHEMA")
+        result = drop_resource(urn, {}, if_exists=True)
+
+        assert result == "DROP MCP SERVER IF EXISTS MY_DB.MY_SCHEMA.MY_SERVER"
