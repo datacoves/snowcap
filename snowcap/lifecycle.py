@@ -595,10 +595,13 @@ def drop_grant(urn: URN, data: dict, **kwargs):
             "REVOKE",
             data["priv"],
             "ON ALL",
-            data["items_type"],
+            pluralize(data["items_type"]).upper(),
             "IN",
             data["on_type"],
             data["on"],
+            "FROM",
+            data["to_type"],
+            data["to"],
         )
     else:
         return tidy_sql(
