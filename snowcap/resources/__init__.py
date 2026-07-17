@@ -52,6 +52,7 @@ from .schema import Schema
 from .secret import GenericSecret, OAuthSecret, PasswordSecret
 from .security_integration import (
     APIAuthenticationSecurityIntegration,
+    SnowflakeCustomOAuthSecurityIntegration,
     SnowflakePartnerOAuthSecurityIntegration,
     SnowservicesOAuthSecurityIntegration,
 )
@@ -139,6 +140,7 @@ __all__ = [
     "Sequence",
     "Service",
     "Share",
+    "SnowflakeCustomOAuthSecurityIntegration",
     "SnowflakeIcebergTable",
     "SnowflakePartnerOAuthSecurityIntegration",
     "SnowservicesOAuthSecurityIntegration",

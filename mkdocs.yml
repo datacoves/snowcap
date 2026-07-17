@@ -164,6 +164,7 @@ nav:
         - ExternalAccessIntegration: resources/external_access_integration.md
       - Security:
         - APIAuthenticationSecurityIntegration: resources/api_authentication_security_integration.md
+        - SnowflakeCustomOAuthSecurityIntegration: resources/snowflake_custom_oauth_security_integration.md
         - SnowflakePartnerOAuthSecurityIntegration: resources/snowflake_partner_oauth_security_integration.md
         - SnowservicesOAuthSecurityIntegration: resources/snowservices_oauth_security_integration.md
       - Storage:

@@ -33,6 +33,7 @@ from snowcap.data_provider import (
     remove_none_values,
     # Dispatcher functions
     fetch_resource,
+    fetch_security_integration,
     fetch_warehouse,
     list_resource,
     list_account_scoped_resource,
@@ -735,6 +736,128 @@ class TestFetchWarehouse:
         assert result["warehouse_type"] == "SNOWPARK-OPTIMIZED"
         assert result["generation"] is None
         assert result["resource_constraint"] == "MEMORY_16X_X86"
+
+
+def _security_integration_show_row(**overrides):
+    row = {
+        "name": "CUSTOM_OAUTH",
+        "type": "OAUTH - CUSTOM",
+        "enabled": "true",
+        "comment": "",
+    }
+    row.update(overrides)
+    return row
+
+
+def _custom_oauth_desc_rows(blocked_roles_list="[]", pre_authorized_roles_list="[]"):
+    def row(property, value, property_type):
+        return {"property": property, "property_value": value, "property_type": property_type}
+
+    return [
+        row("OAUTH_CLIENT_TYPE", "CONFIDENTIAL", "String"),
+        row("OAUTH_REDIRECT_URI", "https://example.com/callback", "String"),
+        row("OAUTH_ISSUE_REFRESH_TOKENS", "true", "Boolean"),
+        row("OAUTH_REFRESH_TOKEN_VALIDITY", "7776000", "Long"),
+        row("OAUTH_USE_SECONDARY_ROLES", "NONE", "String"),
+        row("OAUTH_ENFORCE_PKCE", "false", "Boolean"),
+        row("NETWORK_POLICY", "", "String"),
+        row("PRE_AUTHORIZED_ROLES_LIST", pre_authorized_roles_list, "List"),
+        row("BLOCKED_ROLES_LIST", blocked_roles_list, "List"),
+    ]
+
+
+class TestFetchSecurityIntegration:
+    """Tests for fetch_security_integration's OAUTH branch."""
+
+    def _mock_execute(self, desc_rows, show_row=None):
+        show_row = show_row or _security_integration_show_row()
+
+        def execute(session, sql, cacheable=False):
+            if sql.startswith("SHOW SECURITY INTEGRATIONS"):
+                return [show_row]
+            return desc_rows
+
+        return execute
+
+    @patch("snowcap.data_provider._fetch_owner")
+    @patch("snowcap.data_provider.execute")
+    def test_custom_oauth_admin_only_blocked_roles_normalizes_to_none(self, mock_execute, mock_fetch_owner):
+        mock_fetch_owner.return_value = "ACCOUNTADMIN"
+        mock_execute.side_effect = self._mock_execute(
+            _custom_oauth_desc_rows(blocked_roles_list="[ACCOUNTADMIN, SECURITYADMIN]")
+        )
+
+        result = fetch_security_integration(MagicMock(), FQN(name=ResourceName("CUSTOM_OAUTH")))
+
+        assert result["blocked_roles_list"] is None
+
+    @patch("snowcap.data_provider._fetch_owner")
+    @patch("snowcap.data_provider.execute")
+    def test_custom_oauth_blocked_roles_strips_admin_roles(self, mock_execute, mock_fetch_owner):
+        mock_fetch_owner.return_value = "ACCOUNTADMIN"
+        mock_execute.side_effect = self._mock_execute(
+            _custom_oauth_desc_rows(blocked_roles_list="[ACCOUNTADMIN, SECURITYADMIN, SYSADMIN]")
+        )
+
+        result = fetch_security_integration(MagicMock(), FQN(name=ResourceName("CUSTOM_OAUTH")))
+
+        assert result["blocked_roles_list"] == ["SYSADMIN"]
+
+    @patch("snowcap.data_provider._fetch_owner")
+    @patch("snowcap.data_provider.execute")
+    def test_custom_oauth_blocked_roles_sorted_regardless_of_desc_order(self, mock_execute, mock_fetch_owner):
+        mock_fetch_owner.return_value = "ACCOUNTADMIN"
+        mock_execute.side_effect = self._mock_execute(
+            _custom_oauth_desc_rows(blocked_roles_list="[SECURITYADMIN, SYSADMIN, ACCOUNTADMIN, ANALYST]")
+        )
+
+        result = fetch_security_integration(MagicMock(), FQN(name=ResourceName("CUSTOM_OAUTH")))
+
+        assert result["blocked_roles_list"] == ["ANALYST", "SYSADMIN"]
+
+    @patch("snowcap.data_provider._fetch_owner")
+    @patch("snowcap.data_provider.execute")
+    def test_custom_oauth_empty_pre_authorized_roles_normalizes_to_none(self, mock_execute, mock_fetch_owner):
+        mock_fetch_owner.return_value = "ACCOUNTADMIN"
+        mock_execute.side_effect = self._mock_execute(_custom_oauth_desc_rows())
+
+        result = fetch_security_integration(MagicMock(), FQN(name=ResourceName("CUSTOM_OAUTH")))
+
+        assert result["pre_authorized_roles_list"] is None
+        assert result["oauth_client"] == "CUSTOM"
+        assert result["oauth_refresh_token_validity"] == 7776000
+        assert result["network_policy"] is None
+
+    @patch("snowcap.data_provider._fetch_owner")
+    @patch("snowcap.data_provider.execute")
+    def test_snowservices_ingress_still_fetches_as_before(self, mock_execute, mock_fetch_owner):
+        mock_fetch_owner.return_value = "ACCOUNTADMIN"
+        mock_execute.side_effect = self._mock_execute(
+            desc_rows=[],
+            show_row=_security_integration_show_row(name="SNOWSERVICES", type="OAUTH - SNOWSERVICES_INGRESS"),
+        )
+
+        result = fetch_security_integration(MagicMock(), FQN(name=ResourceName("SNOWSERVICES")))
+
+        assert result == {
+            "name": "SNOWSERVICES",
+            "type": "OAUTH",
+            "oauth_client": "SNOWSERVICES_INGRESS",
+            "enabled": True,
+            "owner": "ACCOUNTADMIN",
+        }
+
+    @patch("snowcap.data_provider._fetch_owner")
+    @patch("snowcap.data_provider.execute")
+    def test_unsupported_oauth_client_raises(self, mock_execute, mock_fetch_owner):
+        mock_fetch_owner.return_value = "ACCOUNTADMIN"
+        mock_execute.side_effect = self._mock_execute(
+            desc_rows=[],
+            show_row=_security_integration_show_row(name="TABLEAU", type="OAUTH - TABLEAU_DESKTOP"),
+        )
+
+        with pytest.raises(Exception, match="Unsupported security integration type"):
+            fetch_security_integration(MagicMock(), FQN(name=ResourceName("TABLEAU")))
 
 
 class TestListResource:

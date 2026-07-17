@@ -412,6 +412,29 @@ def test_fetch_api_authentication_security_integration(cursor, suffix, marked_fo
     assert result == data
 
 
+def test_fetch_snowflake_custom_oauth_security_integration(cursor, suffix, marked_for_cleanup):
+    security_integration = res.SnowflakeCustomOAuthSecurityIntegration(
+        name=f"CUSTOM_OAUTH_SECURITY_INTEGRATION_{suffix}",
+        oauth_client_type="CONFIDENTIAL",
+        oauth_redirect_uri="https://example.com/oauth/callback",
+        oauth_enforce_pkce=True,
+        oauth_issue_refresh_tokens=True,
+        oauth_refresh_token_validity=86400,
+        oauth_use_secondary_roles="IMPLICIT",
+        pre_authorized_roles_list=["PUBLIC"],
+        comment="Test custom OAuth security integration",
+        enabled=True,
+    )
+    create(cursor, security_integration)
+    marked_for_cleanup.append(security_integration)
+
+    result = safe_fetch(cursor, security_integration.urn)
+    assert result is not None
+    result = clean_resource_data(res.SnowflakeCustomOAuthSecurityIntegration.spec, result)
+    data = clean_resource_data(res.SnowflakeCustomOAuthSecurityIntegration.spec, security_integration.to_dict())
+    assert result == data
+
+
 def test_fetch_table_stream(cursor, suffix, marked_for_cleanup):
     stream = res.TableStream(
         name=f"SOME_TABLE_STREAM_{suffix}",

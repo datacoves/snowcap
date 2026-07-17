@@ -1385,3 +1385,123 @@ class TestUpdateTagMaskingPolicyReference:
 
         assert "?" not in result, f"dispatcher produced malformed SQL: {result!r}"
         assert "UNSET MASKING POLICY" in result
+
+
+# ============================================================================
+# Test SnowflakeCustomOAuthSecurityIntegration lifecycle
+# ============================================================================
+
+
+class TestCreateSnowflakeCustomOAuthSecurityIntegration:
+    """create_sql, the OAUTH/CUSTOM resolver, and field validation for SnowflakeCustomOAuthSecurityIntegration."""
+
+    def test_resolver_returns_custom_class(self):
+        """The OAUTH/CUSTOM resolver branch must no longer raise NotImplementedError."""
+        resource_cls = res.Resource.resolve_resource_cls(
+            ResourceType.SECURITY_INTEGRATION, {"type": "OAUTH", "oauth_client": "CUSTOM"}
+        )
+        assert resource_cls is res.SnowflakeCustomOAuthSecurityIntegration
+
+    def test_missing_oauth_client_type_raises(self):
+        """oauth_client_type is required at CREATE."""
+        with pytest.raises(ValueError):
+            res.SnowflakeCustomOAuthSecurityIntegration(
+                name="TEST_INTEGRATION", oauth_redirect_uri="https://example.com/cb"
+            )
+
+    def test_missing_oauth_redirect_uri_raises(self):
+        """oauth_redirect_uri is required at CREATE."""
+        with pytest.raises(ValueError):
+            res.SnowflakeCustomOAuthSecurityIntegration(name="TEST_INTEGRATION", oauth_client_type="CONFIDENTIAL")
+
+    def test_string_and_enum_oauth_client_type_produce_same_dict(self):
+        """oauth_client_type accepts either the raw string or the enum member."""
+        from snowcap.resources.security_integration import OAuthClientType, OAuthUseSecondaryRoles
+
+        by_string = res.SnowflakeCustomOAuthSecurityIntegration(
+            name="TEST_INTEGRATION", oauth_client_type="CONFIDENTIAL", oauth_redirect_uri="https://example.com/cb"
+        )
+        by_enum = res.SnowflakeCustomOAuthSecurityIntegration(
+            name="TEST_INTEGRATION",
+            oauth_client_type=OAuthClientType.CONFIDENTIAL,
+            oauth_redirect_uri="https://example.com/cb",
+        )
+        assert by_string.to_dict() == by_enum.to_dict()
+        assert by_string._data.oauth_use_secondary_roles == OAuthUseSecondaryRoles.NONE
+
+    def test_role_lists_are_sorted(self):
+        """pre_authorized_roles_list and blocked_roles_list must be canonicalized to sorted order."""
+        integration = res.SnowflakeCustomOAuthSecurityIntegration(
+            name="TEST_INTEGRATION",
+            oauth_client_type="CONFIDENTIAL",
+            oauth_redirect_uri="https://example.com/cb",
+            pre_authorized_roles_list=["SYSADMIN", "ANALYST"],
+            blocked_roles_list=["SYSADMIN", "ANALYST"],
+        )
+        data = integration.to_dict()
+        assert data["pre_authorized_roles_list"] == ["ANALYST", "SYSADMIN"]
+        assert data["blocked_roles_list"] == ["ANALYST", "SYSADMIN"]
+
+    def test_role_lists_are_case_normalized(self):
+        """Unquoted role names are uppercased so a lowercase manifest doesn't drift against DESC."""
+        integration = res.SnowflakeCustomOAuthSecurityIntegration(
+            name="TEST_INTEGRATION",
+            oauth_client_type="CONFIDENTIAL",
+            oauth_redirect_uri="https://example.com/cb",
+            blocked_roles_list=["sysadmin"],
+        )
+        assert integration.to_dict()["blocked_roles_list"] == ["SYSADMIN"]
+
+    def test_blocked_roles_list_rejects_always_blocked_roles(self):
+        """ACCOUNTADMIN/ORGADMIN/GLOBALORGADMIN/SECURITYADMIN are always blocked by Snowflake
+        and must not be listed, or every plan/apply would see a perpetual delta."""
+        with pytest.raises(ValueError):
+            res.SnowflakeCustomOAuthSecurityIntegration(
+                name="TEST_INTEGRATION",
+                oauth_client_type="CONFIDENTIAL",
+                oauth_redirect_uri="https://example.com/cb",
+                blocked_roles_list=["ACCOUNTADMIN", "SYSADMIN"],
+            )
+
+    def test_create_sql(self):
+        """CREATE SECURITY INTEGRATION renders every field, with a quoted client type and parenthesized quoted lists."""
+        integration = res.SnowflakeCustomOAuthSecurityIntegration(
+            name="CLAUDE_MCP_OAUTH",
+            enabled=True,
+            oauth_client_type="CONFIDENTIAL",
+            oauth_redirect_uri="https://example.com/cb",
+            oauth_alternate_redirect_uris=["https://example.com/cb2"],
+            oauth_issue_refresh_tokens=True,
+            oauth_refresh_token_validity=7776000,
+            oauth_use_secondary_roles="NONE",
+            oauth_enforce_pkce=True,
+            blocked_roles_list=["SYSADMIN", "ANALYST"],
+            comment="test comment",
+        )
+        sql = integration.create_sql()
+        assert sql == (
+            "CREATE SECURITY INTEGRATION CLAUDE_MCP_OAUTH type = OAUTH ENABLED = TRUE "
+            "oauth_client = CUSTOM oauth_client_type = 'CONFIDENTIAL' "
+            "OAUTH_REDIRECT_URI = $$https://example.com/cb$$ "
+            "OAUTH_ALTERNATE_REDIRECT_URIS = ($$https://example.com/cb2$$) "
+            "OAUTH_ISSUE_REFRESH_TOKENS = TRUE OAUTH_REFRESH_TOKEN_VALIDITY = 7776000 "
+            "oauth_use_secondary_roles = NONE OAUTH_ENFORCE_PKCE = TRUE "
+            "BLOCKED_ROLES_LIST = ($$ANALYST$$, $$SYSADMIN$$) COMMENT = $$test comment$$"
+        )
+
+
+class TestUpdateSnowflakeCustomOAuthSecurityIntegration:
+    """update_set_sql and replacement/fetchable metadata for SnowflakeCustomOAuthSecurityIntegration."""
+
+    def test_metadata(self):
+        """oauth_client_type triggers replacement; oauth_alternate_redirect_uris is create-only."""
+        spec = res.SnowflakeCustomOAuthSecurityIntegration.spec
+        assert spec.get_metadata("oauth_client_type").triggers_replacement is True
+        assert spec.get_metadata("oauth_alternate_redirect_uris").fetchable is False
+
+    def test_update_set_sql(self):
+        """A single-field delta renders as ALTER SECURITY INTEGRATION ... SET, never CREATE OR REPLACE."""
+        urn = make_urn(ResourceType.SECURITY_INTEGRATION, "CLAUDE_MCP_OAUTH")
+        data = {"oauth_refresh_token_validity": 86400}
+        result = update_resource(urn, data, res.SnowflakeCustomOAuthSecurityIntegration.props)
+        assert result == "ALTER SECURITY INTEGRATION CLAUDE_MCP_OAUTH SET OAUTH_REFRESH_TOKEN_VALIDITY = 86400"
