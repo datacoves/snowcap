@@ -30,6 +30,7 @@ from snowcap.privs import (
     RolePriv,
     SchemaPriv,
     SecretPriv,
+    SemanticViewPriv,
     SequencePriv,
     StagePriv,
     StreamPriv,
@@ -46,6 +47,7 @@ from snowcap.privs import (
     system_role_for_priv,
 )
 from snowcap.enums import ResourceType
+from snowcap.identifiers import resource_label_for_type, resource_type_for_label
 
 
 # Pseudo-resources and meta-resources that don't have associated privileges
@@ -109,6 +111,7 @@ class TestPrivBaseClass:
             RolePriv,
             SchemaPriv,
             SecretPriv,
+            SemanticViewPriv,
             SequencePriv,
             StagePriv,
             StreamPriv,
@@ -231,6 +234,10 @@ class TestSchemaPriv:
         """SchemaPriv has CREATE FUNCTION privilege."""
         assert SchemaPriv.CREATE_FUNCTION.value == "CREATE FUNCTION"
 
+    def test_create_semantic_view_privilege(self):
+        """SchemaPriv has CREATE SEMANTIC VIEW privilege."""
+        assert SchemaPriv.CREATE_SEMANTIC_VIEW.value == "CREATE SEMANTIC VIEW"
+
     def test_schema_priv_count(self):
         """SchemaPriv has expected number of privileges."""
         # Should have at least 30 schema-level privileges
@@ -345,6 +352,35 @@ class TestCortexSearchServicePriv:
 
     def test_ownership_privilege(self):
         assert CortexSearchServicePriv.OWNERSHIP.value == "OWNERSHIP"
+
+
+#############################################################################
+# SemanticViewPriv Tests
+#############################################################################
+
+
+class TestSemanticViewPriv:
+    """Tests for SemanticViewPriv enum values (Snowflake Semantic Views)."""
+
+    def test_all_privilege(self):
+        assert SemanticViewPriv.ALL.value == "ALL"
+
+    def test_monitor_privilege(self):
+        assert SemanticViewPriv.MONITOR.value == "MONITOR"
+
+    def test_ownership_privilege(self):
+        assert SemanticViewPriv.OWNERSHIP.value == "OWNERSHIP"
+
+    def test_references_privilege(self):
+        assert SemanticViewPriv.REFERENCES.value == "REFERENCES"
+
+    def test_select_privilege(self):
+        assert SemanticViewPriv.SELECT.value == "SELECT"
+
+    def test_all_privs_for_resource_type(self):
+        """all_privs_for_resource_type() returns the SemanticViewPriv members (excluding ALL/OWNERSHIP)."""
+        privs = all_privs_for_resource_type(ResourceType.SEMANTIC_VIEW)
+        assert set(privs) == {"MONITOR", "REFERENCES", "SELECT"}
 
 
 #############################################################################
@@ -511,6 +547,14 @@ class TestGrantedPrivilege:
         assert gp.privilege == SchemaPriv.USAGE
         assert gp.on == "MY_SCHEMA"
 
+    def test_from_grant_with_semantic_view(self):
+        """GrantedPrivilege.from_grant works with the space-normalized granted_on
+        SHOW GRANTS produces for semantic views (fetch_role_privileges does
+        granted_on.replace('_', ' '), turning 'SEMANTIC_VIEW' into 'SEMANTIC VIEW')."""
+        gp = GrantedPrivilege.from_grant(privilege="SELECT", granted_on="SEMANTIC VIEW", name="MY_SV")
+        assert gp.privilege == SemanticViewPriv.SELECT
+        assert gp.on == "MY_SV"
+
     def test_from_grant_with_no_priv_type(self):
         """GrantedPrivilege.from_grant returns string privilege for resource types without privilege enums."""
         # GRANT resource type has no associated privilege enum
@@ -576,6 +620,10 @@ class TestPrivsForResourceTypeMapping:
         assert PRIVS_FOR_RESOURCE_TYPE[ResourceType.STORAGE_INTEGRATION] == IntegrationPriv
         assert PRIVS_FOR_RESOURCE_TYPE[ResourceType.NOTIFICATION_INTEGRATION] == IntegrationPriv
         assert PRIVS_FOR_RESOURCE_TYPE[ResourceType.SECURITY_INTEGRATION] == IntegrationPriv
+
+    def test_semantic_view_maps_to_semantic_view_priv(self):
+        """SEMANTIC_VIEW resource type maps to SemanticViewPriv."""
+        assert PRIVS_FOR_RESOURCE_TYPE[ResourceType.SEMANTIC_VIEW] is SemanticViewPriv
 
 
 #############################################################################
@@ -749,3 +797,12 @@ class TestOtherPrivilegeClasses:
         assert UserPriv.ALL.value == "ALL"
         assert UserPriv.MONITOR.value == "MONITOR"
         assert UserPriv.OWNERSHIP.value == "OWNERSHIP"
+
+
+def test_semantic_view_resource_type_label_roundtrip():
+    """ResourceType.SEMANTIC_VIEW round-trips through both the enum value and the YAML label."""
+    assert ResourceType("SEMANTIC VIEW") == ResourceType.SEMANTIC_VIEW
+
+    resource_type = resource_type_for_label("semantic_view")
+    assert resource_type == ResourceType.SEMANTIC_VIEW
+    assert resource_label_for_type(resource_type) == "semantic_view"

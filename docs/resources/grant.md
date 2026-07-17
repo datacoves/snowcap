@@ -59,6 +59,16 @@ grants:
   - priv: MONITOR
     on: cortex search service somedb.someschema.someservice
     to: search_observability_role
+
+  # AI: schema-scope privilege to allow a role to create semantic views
+  - priv: CREATE SEMANTIC VIEW
+    on: schema somedb.someschema
+    to: semantic_view_author_role
+
+  # AI: SELECT on a Semantic View to query it via Cortex Analyst
+  - priv: SELECT
+    on: semantic view somedb.someschema.somesv
+    to: semantic_view_consumer_role
 ```
 
 #### Future Grants
@@ -77,6 +87,11 @@ grants:
       - future tables in schema someschema
       - future views in schema someschema
     to: somerole
+
+  # AI: future semantic views in schema
+  - priv: SELECT
+    on: future semantic views in schema somedb.someschema
+    to: somerole
 ```
 
 #### Grants on All Resources
@@ -94,6 +109,11 @@ grants:
     on:
       - all tables in schema someschema
       - all views in schema someschema
+    to: somerole
+
+  # AI: all semantic views in schema
+  - priv: SELECT
+    on: all semantic views in schema somedb.someschema
     to: somerole
 ```
 
@@ -185,6 +205,7 @@ grant_on_all = Grant(
   - `"schema my_db.my_schema"` - for schema privileges
   - `"warehouse my_wh"` - for warehouse privileges
   - `"database my_db"` - for database privileges
+  - `"semantic view my_db.my_schema.my_sv"` - for semantic view privileges
   - `"future tables in schema my_schema"` - for future grants
   - `"all tables in database my_db"` - for grants on all existing objects
 

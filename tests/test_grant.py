@@ -174,6 +174,39 @@ def test_grant_on_cortex_search_service():
     assert "MONITOR ON CORTEX SEARCH SERVICE" in monitor_grant.create_sql()
 
 
+def test_grant_on_semantic_view():
+    """SELECT/REFERENCES on a SEMANTIC VIEW parses and renders correctly.
+
+    Semantic Views are schema-scoped objects. Grants like
+        GRANT SELECT ON SEMANTIC VIEW <db>.<schema>.<sv> TO ROLE r
+    let consuming roles query the semantic view; REFERENCES lets roles
+    reference it from other objects.
+    """
+    grant = res.Grant(
+        priv="SELECT",
+        on_semantic_view="somedb.someschema.somesv",
+        to="somerole",
+    )
+    assert grant._data.on == "SOMEDB.SOMESCHEMA.SOMESV"
+    assert grant._data.on_type == ResourceType.SEMANTIC_VIEW
+    assert "SELECT ON SEMANTIC VIEW" in grant.create_sql()
+
+    references_grant = res.Grant(
+        priv="REFERENCES",
+        on_semantic_view="somedb.someschema.somesv",
+        to="somerole",
+    )
+    assert references_grant._data.on_type == ResourceType.SEMANTIC_VIEW
+    assert "REFERENCES ON SEMANTIC VIEW" in references_grant.create_sql()
+
+
+def test_grant_create_semantic_view_on_schema():
+    """CREATE SEMANTIC VIEW is a schema privilege granted like other CREATE <object> privs."""
+    grant = res.Grant(priv="CREATE SEMANTIC VIEW", on_schema="somedb.someschema", to="somerole")
+    assert grant.on_type == ResourceType.SCHEMA
+    assert "GRANT CREATE SEMANTIC VIEW ON SCHEMA" in grant.create_sql()
+
+
 def test_grant_database_role_to_database_role():
     database = res.Database(name="somedb")
     parent = res.DatabaseRole(name="parent", database=database)
@@ -644,3 +677,40 @@ class TestGrantOnList:
         assert grant.rest_of_ons == ["future schemas in database raw_prd"]
         additional = grant.process_shortcuts()
         assert len(additional) == 1
+
+
+class TestSemanticViewBulkGrants:
+    """ALL/FUTURE SEMANTIC VIEWS IN SCHEMA grants (string and list `on:` forms).
+
+    SEMANTIC VIEW is the first multi-word plural resource type to exercise the
+    generic ALL/FUTURE parser (grant.py's singularize path) end-to-end; prior
+    coverage of that path stopped at single-word plurals like TABLES/SCHEMAS.
+    """
+
+    def test_all_semantic_views_in_schema_string_form(self):
+        grant = res.Grant(
+            priv="SELECT",
+            on="ALL SEMANTIC VIEWS IN SCHEMA somedb.someschema",
+            to="somerole",
+        )
+        assert grant.items_type == ResourceType.SEMANTIC_VIEW
+        assert grant.on_type == ResourceType.SCHEMA
+        assert grant.grant_type == GrantType.ALL
+        assert "ON ALL SEMANTIC VIEW" in grant.create_sql()
+        assert "IN SCHEMA SOMEDB.SOMESCHEMA" in grant.create_sql()
+
+    def test_future_semantic_views_in_schema_list_form(self):
+        grant = res.Grant(
+            priv="SELECT",
+            on=["FUTURE", "SEMANTIC VIEWS", "SCHEMA", "somedb.someschema"],
+            to="somerole",
+        )
+        assert grant.items_type == ResourceType.SEMANTIC_VIEW
+        assert grant.on_type == ResourceType.SCHEMA
+        assert grant.grant_type == GrantType.FUTURE
+        assert "ON FUTURE SEMANTIC VIEWS IN SCHEMA SOMEDB.SOMESCHEMA" in grant.create_sql()
+
+    def test_on_all_semantic_views_in_schema_kwarg_raises(self):
+        """on_all_* kwargs are rejected by design; only on=[...]/on="..." forms are supported."""
+        with pytest.raises(ValueError):
+            res.Grant(priv="SELECT", on_all_semantic_views_in_schema="somedb.someschema", to="somerole")
