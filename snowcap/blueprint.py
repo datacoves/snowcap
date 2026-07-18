@@ -1158,7 +1158,7 @@ class Blueprint:
             ):
                 warnings.append(
                     f"MCP server {change.urn} specification change will be applied via CREATE OR REPLACE, which drops "
-                    "all existing grants on the MCP server; snowcap-managed grants are re-created on the next apply, "
+                    "all existing grants on the MCP server; snowcap-managed grants are re-created in the same apply, "
                     "externally-managed grants must be re-applied manually."
                 )
 
@@ -2357,6 +2357,38 @@ def diff(remote_state: State, manifest: Manifest) -> list:
                     manifest_item.data["owner"],
                 )
             )
+
+    # An MCP server specification change is applied via CREATE OR REPLACE (Snowflake has no
+    # ALTER MCP SERVER and COPY GRANTS is not supported), which drops all grants on the server.
+    # Re-create manifest grants targeting the replaced server in the same plan; grants execute
+    # after their target, so they are restored in the same apply.
+    replaced_mcp_servers = {
+        str(change.urn.fqn)
+        for change in changes
+        if isinstance(change, UpdateResource)
+        and change.urn.resource_type == ResourceType.MCP_SERVER
+        and "specification" in change.delta
+    }
+    if replaced_mcp_servers:
+        changed_urns = {change.urn for change in changes}
+        for urn in manifest_urns:
+            manifest_item = manifest[urn]
+            if (
+                urn.resource_type == ResourceType.GRANT
+                and not isinstance(manifest_item, ResourcePointer)
+                and manifest_item.data["grant_type"] == GrantType.OBJECT.value
+                and manifest_item.data["on_type"] == ResourceType.MCP_SERVER.value
+                and manifest_item.data["on"] in replaced_mcp_servers
+                and urn not in changed_urns
+            ):
+                changes.append(
+                    CreateResource(
+                        urn,
+                        manifest_item.resource_cls,
+                        _container_descriptor(urn),
+                        manifest_item.data,
+                    )
+                )
 
     return changes
 

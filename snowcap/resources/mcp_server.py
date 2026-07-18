@@ -60,8 +60,8 @@ class MCPServer(NamedResource, Resource):
 
         Snowflake has no ALTER MCP SERVER command, so a change to specification is applied by
         dropping and recreating the server with CREATE OR REPLACE. This drops any grants on the
-        MCP server; snowcap-managed grants are re-created on the next snowcap apply, but
-        externally-managed grants must be re-applied manually. The plan output warns when a
+        MCP server; grants managed by snowcap are automatically re-created in the same apply,
+        but externally-managed grants must be re-applied manually. The plan output warns when a
         specification change will trigger this. Renaming an MCP server is not supported;
         changing name creates a new resource instead of altering the existing one.
 
