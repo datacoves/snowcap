@@ -1149,6 +1149,19 @@ class Blueprint:
                 if change.after["role"] in SYSTEM_ROLES:
                     role_grant_to_system = True
 
+            # MCP server specification changes are applied via CREATE OR REPLACE, which
+            # drops all grants on the server (see lifecycle.update_mcp_server).
+            if (
+                isinstance(change, UpdateResource)
+                and change.urn.resource_type == ResourceType.MCP_SERVER
+                and "specification" in change.delta
+            ):
+                warnings.append(
+                    f"MCP server {change.urn} specification change will be applied via CREATE OR REPLACE, which drops "
+                    "all existing grants on the MCP server; snowcap-managed grants are re-created in the same apply, "
+                    "externally-managed grants must be re-applied manually."
+                )
+
         if grant_to_system:
             warnings.append(
                 "Grants to system role found. They will be always recreated since system roles are not managed by Snowcap"
@@ -1762,8 +1775,12 @@ class Blueprint:
         # TODO: cursor setup, including query tag
 
         logger = logging.getLogger(__name__)
+        session_ctx = data_provider.fetch_session(session)
         if plan is None:
+            # self.plan() already emits the nonconforming-plan warning.
             plan = self.plan(session)
+        else:
+            self._warning_for_nonconforming_plan(session_ctx, plan)
 
         # Print plan details (includes summary counts)
         print_plan(plan)
@@ -1771,7 +1788,6 @@ class Blueprint:
         if not plan:
             return
 
-        session_ctx = data_provider.fetch_session(session)
         _raise_if_plan_would_drop_session_user(session_ctx, plan)
 
         sql_commands_per_change, available_roles = compile_plan_to_sql(session_ctx, plan)
@@ -2341,6 +2357,38 @@ def diff(remote_state: State, manifest: Manifest) -> list:
                     manifest_item.data["owner"],
                 )
             )
+
+    # An MCP server specification change is applied via CREATE OR REPLACE (Snowflake has no
+    # ALTER MCP SERVER and COPY GRANTS is not supported), which drops all grants on the server.
+    # Re-create manifest grants targeting the replaced server in the same plan; grants execute
+    # after their target, so they are restored in the same apply.
+    replaced_mcp_servers = {
+        str(change.urn.fqn)
+        for change in changes
+        if isinstance(change, UpdateResource)
+        and change.urn.resource_type == ResourceType.MCP_SERVER
+        and "specification" in change.delta
+    }
+    if replaced_mcp_servers:
+        changed_urns = {change.urn for change in changes}
+        for urn in manifest_urns:
+            manifest_item = manifest[urn]
+            if (
+                urn.resource_type == ResourceType.GRANT
+                and not isinstance(manifest_item, ResourcePointer)
+                and manifest_item.data["grant_type"] == GrantType.OBJECT.value
+                and manifest_item.data["on_type"] == ResourceType.MCP_SERVER.value
+                and manifest_item.data["on"] in replaced_mcp_servers
+                and urn not in changed_urns
+            ):
+                changes.append(
+                    CreateResource(
+                        urn,
+                        manifest_item.resource_cls,
+                        _container_descriptor(urn),
+                        manifest_item.data,
+                    )
+                )
 
     return changes
 

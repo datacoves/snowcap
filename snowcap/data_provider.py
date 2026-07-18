@@ -2040,6 +2040,30 @@ def fetch_materialized_view(session: SnowflakeConnection, fqn: FQN):
     }
 
 
+def fetch_mcp_server(session: SnowflakeConnection, fqn: FQN, existence_only: bool = False):
+    show_result = _show_resources(session, "MCP SERVERS", fqn)
+    if len(show_result) == 0:
+        return None
+    if len(show_result) > 1:
+        raise Exception(f"Found multiple mcp servers matching {fqn}")
+    data = show_result[0]
+
+    # For existence checks (reference validation), skip expensive DESC MCP SERVER
+    if existence_only:
+        return {
+            "name": _quote_snowflake_identifier(data["name"]),
+            "owner": _get_owner_identifier(data),
+        }
+
+    desc_result = execute(session, f"DESC MCP SERVER {fqn}")
+    properties = desc_result[0]
+    return {
+        "name": _quote_snowflake_identifier(data["name"]),
+        "owner": _get_owner_identifier(data),
+        "specification": properties["server_spec"],
+    }
+
+
 def fetch_network_policy(session: SnowflakeConnection, fqn: FQN):
     policies = _show_resources(session, "NETWORK POLICIES", fqn)
     if len(policies) == 0:
@@ -3742,6 +3766,10 @@ def list_image_repositories(session: SnowflakeConnection) -> list[FQN]:
 
 def list_masking_policies(session: SnowflakeConnection) -> list[FQN]:
     return list_schema_scoped_resource(session, "MASKING POLICIES")
+
+
+def list_mcp_servers(session: SnowflakeConnection) -> list[FQN]:
+    return list_schema_scoped_resource(session, "MCP SERVERS")
 
 
 def list_network_policies(session: SnowflakeConnection) -> list[FQN]:

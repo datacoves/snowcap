@@ -2,7 +2,7 @@ import pytest
 
 from snowcap import resources as res
 from snowcap.enums import GrantType, ResourceType
-from snowcap.privs import all_privs_for_resource_type
+from snowcap.privs import GrantedPrivilege, all_privs_for_resource_type
 from snowcap.identifiers import URN
 from snowcap.resource_name import ResourceName
 from snowcap.resources.resource import ResourcePointer
@@ -172,6 +172,40 @@ def test_grant_on_cortex_search_service():
     )
     assert monitor_grant._data.on_type == ResourceType.CORTEX_SEARCH_SERVICE
     assert "MONITOR ON CORTEX SEARCH SERVICE" in monitor_grant.create_sql()
+
+
+def test_grant_on_mcp_server():
+    """USAGE on an MCP SERVER parses and renders correctly via the on_mcp_server kwarg."""
+    grant = res.Grant(
+        priv="USAGE",
+        on_mcp_server="somedb.sch.server1",
+        to="somerole",
+    )
+    assert grant._data.on == "SOMEDB.SCH.SERVER1"
+    assert grant._data.on_type == ResourceType.MCP_SERVER
+    assert grant.create_sql() == "GRANT USAGE ON MCP SERVER SOMEDB.SCH.SERVER1 TO ROLE SOMEROLE"
+
+
+def test_grant_on_mcp_server_string_form():
+    """The multi-word 'mcp server <fqn>' string form resolves on_type to MCP_SERVER."""
+    grant = res.Grant(
+        priv="USAGE",
+        on="mcp server somedb.sch.server1",
+        to="somerole",
+    )
+    assert grant._data.on == "SOMEDB.SCH.SERVER1"
+    assert grant._data.on_type == ResourceType.MCP_SERVER
+
+
+def test_grant_mcp_server_all_privs_expansion():
+    """ALL on an MCP SERVER expands to exactly MODIFY and USAGE."""
+    assert set(all_privs_for_resource_type(ResourceType.MCP_SERVER)) == {"MODIFY", "USAGE"}
+
+
+def test_grant_mcp_server_invalid_priv_raises():
+    """An invalid privilege (e.g. SELECT) for an MCP SERVER raises ValueError."""
+    with pytest.raises(ValueError):
+        GrantedPrivilege.from_grant(privilege="SELECT", granted_on="MCP SERVER", name="somedb.sch.server1")
 
 
 def test_grant_database_role_to_database_role():

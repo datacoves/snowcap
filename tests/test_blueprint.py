@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 from copy import deepcopy
 
@@ -46,6 +47,7 @@ from snowcap import var
 from snowcap.blueprint import (
     Blueprint,
     CreateResource,
+    UpdateResource,
     _merge_pointers,
     compile_plan_to_sql,
     diff,
@@ -1099,3 +1101,165 @@ def test_resource_type_needs_params(session_ctx):
     )
     manifest = blueprint.generate_manifest(session_ctx)
     assert resource_type_needs_params(ResourceType.ROLE, manifest) is True
+
+
+class TestWarningForNonconformingPlanMCPServer:
+    """
+    Tests for the MCP server grant-drop warning surfaced by
+    Blueprint._warning_for_nonconforming_plan.
+
+    Snowflake has no ALTER MCP SERVER command, so a specification change is applied
+    via CREATE OR REPLACE, which drops all grants on the server. This warning tells
+    the operator that up front, at plan time, rather than leaving them to discover
+    the dropped grants after apply.
+    """
+
+    def _mcp_server_urn(self, session_ctx):
+        return URN(
+            resource_type=ResourceType.MCP_SERVER,
+            fqn=FQN(ResourceName("MY_SERVER"), database=ResourceName("MY_DB"), schema=ResourceName("MY_SCHEMA")),
+            account_locator=session_ctx["account_locator"],
+        )
+
+    def test_specification_update_warns_about_dropped_grants(self, session_ctx, caplog):
+        urn = self._mcp_server_urn(session_ctx)
+        change = UpdateResource(
+            urn=urn,
+            resource_cls=res.MCPServer,
+            before={"specification": "old"},
+            after={"specification": "new"},
+            delta={"specification": "new"},
+        )
+        blueprint = Blueprint(resources=[])
+
+        with caplog.at_level(logging.WARNING, logger="snowcap"):
+            blueprint._warning_for_nonconforming_plan(session_ctx, [change])
+
+        assert str(urn) in caplog.text
+        assert "grant" in caplog.text.lower()
+
+    def test_update_without_specification_in_delta_produces_no_warning(self, session_ctx, caplog):
+        urn = self._mcp_server_urn(session_ctx)
+        change = UpdateResource(
+            urn=urn,
+            resource_cls=res.MCPServer,
+            before={"owner": "SYSADMIN"},
+            after={"owner": "OTHER_ROLE"},
+            delta={"owner": "OTHER_ROLE"},
+        )
+        blueprint = Blueprint(resources=[])
+
+        with caplog.at_level(logging.WARNING, logger="snowcap"):
+            blueprint._warning_for_nonconforming_plan(session_ctx, [change])
+
+        assert caplog.text == ""
+
+    def test_create_produces_no_warning(self, session_ctx, caplog):
+        urn = self._mcp_server_urn(session_ctx)
+        change = CreateResource(
+            urn=urn,
+            resource_cls=res.MCPServer,
+            container=None,
+            after={"specification": "new"},
+        )
+        blueprint = Blueprint(resources=[])
+
+        with caplog.at_level(logging.WARNING, logger="snowcap"):
+            blueprint._warning_for_nonconforming_plan(session_ctx, [change])
+
+        assert caplog.text == ""
+
+    def test_apply_with_prebuilt_plan_warns_about_dropped_grants(self, monkeypatch, session_ctx, caplog):
+        """The two-step CLI workflow (`snowcap plan -o plan.json` then `snowcap apply
+        --plan plan.json`) hands apply() an already-built plan, so plan() never re-runs.
+        apply() must surface the warning itself in that case."""
+        urn = self._mcp_server_urn(session_ctx)
+        change = UpdateResource(
+            urn=urn,
+            resource_cls=res.MCPServer,
+            before={"specification": "old"},
+            after={"specification": "new"},
+            delta={"specification": "new"},
+        )
+        blueprint = Blueprint(resources=[])
+
+        monkeypatch.setattr("snowcap.blueprint.data_provider.fetch_session", lambda session: session_ctx)
+        monkeypatch.setattr("snowcap.blueprint.compile_plan_to_sql", lambda session_ctx, plan: ([], []))
+
+        with caplog.at_level(logging.WARNING, logger="snowcap"):
+            blueprint.apply(session=None, plan=[change])
+
+        assert str(urn) in caplog.text
+        assert "grant" in caplog.text.lower()
+
+
+class TestMCPServerSpecChangeRegrantsManagedGrants:
+    """
+    CREATE OR REPLACE MCP SERVER drops all grants on the server (Snowflake has no
+    ALTER MCP SERVER, and COPY GRANTS is not supported for this object type). To keep
+    snowcap-managed grants from silently disappearing until a later run, diff() must
+    re-create every manifest grant targeting a spec-changed MCP server in the same
+    plan — grants execute after their target, so they are restored in the same apply.
+    """
+
+    @staticmethod
+    def _diff_for(session_ctx, remote_spec: str, grant_in_remote: bool = True):
+        db = res.Database(name="DB")
+        schema = res.Schema(name="SCHEMA", database=db)
+        server = res.MCPServer(
+            name="SERVER",
+            specification="tools:\n- name: query-data\n  type: SYSTEM_EXECUTE_SQL\n",
+            schema=schema,
+        )
+        role = res.Role(name="SOME_ROLE")
+        grant = res.Grant(priv="USAGE", on_mcp_server="DB.SCHEMA.SERVER", to=role)
+        blueprint = Blueprint(name="blueprint", resources=[db, schema, server, role, grant])
+        manifest = blueprint.generate_manifest(session_ctx)
+
+        server_urn = next(u for u in manifest.urns if u.resource_type == ResourceType.MCP_SERVER)
+        grant_urn = next(u for u in manifest.urns if u.resource_type == ResourceType.GRANT)
+
+        remote_state = {parse_URN("urn::ABCD123:account/ACCOUNT"): {}}
+        for urn in manifest.urns:
+            item = manifest[urn]
+            if isinstance(item, ResourcePointer):
+                continue
+            remote_state[urn] = dict(item.data)
+        remote_state[server_urn] = {**remote_state[server_urn], "specification": remote_spec}
+        if not grant_in_remote:
+            del remote_state[grant_urn]
+
+        return diff(remote_state, manifest), server_urn, grant_urn
+
+    def test_spec_change_recreates_managed_grants(self, session_ctx):
+        from snowcap.resources.mcp_server import normalize_mcp_specification
+
+        plan, server_urn, grant_urn = self._diff_for(session_ctx, remote_spec=normalize_mcp_specification("tools: []"))
+
+        server_change = find_change_by_urn(plan, server_urn)
+        assert isinstance(server_change, UpdateResource)
+        assert "specification" in server_change.delta
+
+        grant_change = find_change_by_urn(plan, grant_urn)
+        assert isinstance(grant_change, CreateResource)
+        assert len(plan) == 2
+
+    def test_unchanged_spec_recreates_nothing(self, session_ctx):
+        from snowcap.resources.mcp_server import normalize_mcp_specification
+
+        plan, _, _ = self._diff_for(
+            session_ctx,
+            remote_spec=normalize_mcp_specification("tools:\n- name: query-data\n  type: SYSTEM_EXECUTE_SQL\n"),
+        )
+        assert plan == []
+
+    def test_grant_already_in_plan_is_not_duplicated(self, session_ctx):
+        from snowcap.resources.mcp_server import normalize_mcp_specification
+
+        plan, _, grant_urn = self._diff_for(
+            session_ctx,
+            remote_spec=normalize_mcp_specification("tools: []"),
+            grant_in_remote=False,
+        )
+        grant_changes = [change for change in plan if change.urn == grant_urn]
+        assert len(grant_changes) == 1

@@ -27,6 +27,7 @@ from .iceberg_table import SnowflakeIcebergTable
 from .image_repository import ImageRepository
 from .masking_policy import MaskingPolicy
 from .materialized_view import MaterializedView
+from .mcp_server import MCPServer
 from .network_policy import NetworkPolicy
 from .network_rule import NetworkRule
 from .notebook import Notebook
@@ -115,6 +116,7 @@ __all__ = [
     "JSONFileFormat",
     "MaskingPolicy",
     "MaterializedView",
+    "MCPServer",
     "NetworkPolicy",
     "NetworkRule",
     "Notebook",
