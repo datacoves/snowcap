@@ -41,6 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       statuses: write
+      actions: read
     concurrency:
       group: integration-status-${{ github.event.pull_request.head.sha }}
       cancel-in-progress: false
@@ -52,44 +53,34 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: |
+          bail() { echo "::notice::$1"; exit 0; }
+
           # 1. AUTHORIZATION — role_name (not the legacy `permission` field,
           # which maps maintain -> write and would wrongly reject maintainers).
-          if ! role_name=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$REVIEWER/permission" --jq .role_name); then
-            echo "::notice::could not determine $REVIEWER's repo role; not waiving"
-            exit 0
-          fi
-          if [ "$role_name" != "admin" ] && [ "$role_name" != "maintain" ]; then
-            echo "::notice::$REVIEWER's role ($role_name) does not authorize a waiver"
-            exit 0
-          fi
+          role_name=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$REVIEWER/permission" --jq .role_name) ||
+            bail "could not determine $REVIEWER's repo role; not waiving"
+          [ "$role_name" = "admin" ] || [ "$role_name" = "maintain" ] ||
+            bail "$REVIEWER's role ($role_name) does not authorize a waiver"
 
           # 2. STICKY FAILURE — a recorded failure/error stands; any failure
           # to read the combined status must also block (fail closed) so an
           # API blip can never let a waive clobber an unread failure.
-          if ! state=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/status" --jq '[.statuses[] | select(.context == "integration")][0].state'); then
-            echo "::notice::could not verify existing integration status; not waiving"
-            exit 0
-          fi
+          state=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/status" --jq '[.statuses[] | select(.context == "integration")][0].state') ||
+            bail "could not verify existing integration status; not waiving"
           if [ "$state" = "failure" ] || [ "$state" = "error" ]; then
-            echo "::notice::recorded integration failure stands; not waiving"
-            exit 0
+            bail "recorded integration failure stands; not waiving"
           fi
 
           # 3. RUN IN FLIGHT — defer to `report` if an integration job is
           # actually executing. Runs only 'waiting' on environment approval
           # do not block — that's the normal state a waive resolves.
-          if ! run_ids=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/integration-tests.yml/runs?head_sha=$HEAD_SHA&status=in_progress" --jq '.workflow_runs[].id'); then
-            echo "::notice::could not check for an in-flight integration run; not waiving"
-            exit 0
-          fi
+          run_ids=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/integration-tests.yml/runs?head_sha=$HEAD_SHA&status=in_progress" --jq '.workflow_runs[].id') ||
+            bail "could not check for an in-flight integration run; not waiving"
           for run_id in $run_ids; do
-            if ! job_statuses=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs" --jq '.jobs[] | select(.name | startswith("integration")) | .status'); then
-              echo "::notice::could not read jobs for run $run_id; not waiving"
-              exit 0
-            fi
+            job_statuses=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs" --jq '.jobs[] | select(.name | startswith("integration")) | .status') ||
+              bail "could not read jobs for run $run_id; not waiving"
             if echo "$job_statuses" | grep -q '^in_progress$'; then
-              echo "::notice::integration run executing; deferring to its result"
-              exit 0
+              bail "integration run executing; deferring to its result"
             fi
           done
 

@@ -16,11 +16,16 @@ name: Integration Tests
 #               failure is already recorded for this commit (sticky) or an
 #               integration run is actively executing (defers to `report`).
 #
-# `report` (not `integration`) posts the final status: it distinguishes
-# "unit failed / run cancelled" (nothing posted, status stays pending) from
-# "reviewer rejected the deployment" (started output empty -> success) from
-# "tests ran" (decision output from a final always() step, based on the
-# continue-on-error pytest outcome).
+# `report` (not `integration`) posts the final status, based only on
+# needs.integration.result — computed by GitHub from step conclusions, and
+# not writable by untrusted PR code the way a self-reported job output
+# would be — and the `started` output: "unit failed / run cancelled"
+# (nothing posted, status stays pending) vs. "reviewer rejected the
+# deployment" (started output empty -> success) vs. "tests ran" (result ==
+# success -> success, else -> failure). Before posting, `report` re-reads
+# the combined status and refuses to overwrite an already-recorded failure
+# — the same sticky-failure rule pending/waive enforce — so re-running the
+# `integration` job alone can never clear a recorded failure.
 #
 # NOTE: use Reject to dismiss a run, not Cancel — a cancelled run is
 # excluded from `report`'s logic, so the status stays pending until re-run.
@@ -91,8 +96,9 @@ jobs:
       - name: Post pending status (fail closed)
         env:
           GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          count=$(gh api "repos/${{ github.repository }}/commits/${{ github.event.pull_request.head.sha }}/status" \
+          count=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/status" \
             --jq '[.statuses[] | select(.context == "integration")] | length') || {
             echo "::notice::could not read existing integration status; not posting pending (fail closed)"
             exit 0
@@ -101,7 +107,7 @@ jobs:
             echo "::notice::integration status already recorded for this commit; not resetting"
             exit 0
           fi
-          gh api "repos/${{ github.repository }}/statuses/${{ github.event.pull_request.head.sha }}" \
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" \
             -f state=pending \
             -f context=integration \
             -f description="Waiting for a maintainer decision (run, skip, or approve the PR)" \
@@ -110,6 +116,9 @@ jobs:
   unit:
     name: unit
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       head_sha: ${{ steps.sha.outputs.head_sha }}
     steps:
@@ -160,12 +169,12 @@ jobs:
     if: ${{ !cancelled() && (needs.unit.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.force == true)) }}
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment || 'snowflake-aws-enterprise' }}
+    timeout-minutes: 45
     concurrency:
       group: integration-${{ inputs.environment || 'snowflake-aws-enterprise' }}
       cancel-in-progress: false
     outputs:
       started: ${{ steps.mark.outputs.started }}
-      decision: ${{ steps.decide.outputs.decision }}
     steps:
       # Runs only after reviewer approval; its absence in outputs means the
       # run was rejected (dismissed) and report must not block the PR.
@@ -193,7 +202,6 @@ jobs:
 
       - name: Run integration tests
         id: tests
-        continue-on-error: true
         run: python -m pytest tests/ --snowflake -m standard ${{ inputs.pytest_args }}
         env:
           TEST_SNOWFLAKE_ACCOUNT: ${{ secrets.TEST_SNOWFLAKE_ACCOUNT }}
@@ -207,23 +215,6 @@ jobs:
           VAR_STATIC_USER_RSA_PUBLIC_KEY: ${{ secrets.STATIC_USER_RSA_PUBLIC_KEY }}
           VAR_STATIC_USER_MFA_PASSWORD: ${{ secrets.STATIC_USER_MFA_PASSWORD }}
 
-      - name: Report test outcome
-        run: |
-          echo "pytest outcome: ${{ steps.tests.outcome }}"
-          if [ "${{ steps.tests.outcome }}" != "success" ]; then
-            echo "::error::Integration tests failed — see 'Run integration tests' step. Merge will be blocked by the report job."
-          fi
-
-      - name: Decide job outcome
-        id: decide
-        if: always()
-        run: |
-          if [ "${{ steps.tests.outcome }}" = "success" ]; then
-            echo "decision=pass" >> "$GITHUB_OUTPUT"
-          else
-            echo "decision=fail" >> "$GITHUB_OUTPUT"
-          fi
-
   report:
     name: report
     needs: [unit, integration]
@@ -232,7 +223,7 @@ jobs:
     permissions:
       statuses: write
     concurrency:
-      group: integration-status-${{ github.event.pull_request.head.sha || github.run_id }}
+      group: integration-status-${{ needs.unit.outputs.head_sha || github.run_id }}
       cancel-in-progress: false
     steps:
       - name: Post integration result
@@ -241,7 +232,6 @@ jobs:
           HEAD_SHA: ${{ needs.unit.outputs.head_sha }}
           RESULT: ${{ needs.integration.result }}
           STARTED: ${{ needs.integration.outputs.started }}
-          DECISION: ${{ needs.integration.outputs.decision }}
           ENVIRONMENT: ${{ inputs.environment || 'snowflake-aws-enterprise' }}
         run: |
           if [ -z "$HEAD_SHA" ]; then
@@ -251,30 +241,40 @@ jobs:
 
           target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
+          # Sticky failure: a recorded failure/error stands until a new
+          # commit; a status read that fails outright must also block
+          # (fail closed) so an API blip can never clobber an unread
+          # failure — the same guard pending/waive enforce, needed here so
+          # an ordinary "re-run jobs" can't silently clear a recorded
+          # failure with a fresh (possibly flaky-passing) result.
+          prior_state=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/status" \
+            --jq '[.statuses[] | select(.context == "integration")][0].state') || {
+            echo "::notice::could not verify existing integration status; not posting"
+            exit 0
+          }
+          if [ "$prior_state" = "failure" ] || [ "$prior_state" = "error" ]; then
+            echo "::notice::recorded integration failure stands; only a new commit clears it"
+            exit 0
+          fi
+
           if [ "$RESULT" = "skipped" ] || [ "$RESULT" = "cancelled" ]; then
             echo "::notice::integration job $RESULT; leaving status pending"
             exit 0
           fi
 
           if [ "$STARTED" != "true" ]; then
-            gh api "repos/${{ github.repository }}/statuses/$HEAD_SHA" \
-              -f state=success \
-              -f context=integration \
-              -f description="Integration tests skipped by maintainer decision" \
-              -f target_url="$target_url"
-            exit 0
+            state=success
+            description="Integration tests skipped by maintainer decision"
+          elif [ "$RESULT" = "success" ]; then
+            state=success
+            description="Integration tests passed on $ENVIRONMENT"
+          else
+            state=failure
+            description="Integration tests failed on $ENVIRONMENT — push a new commit for a fresh decision"
           fi
 
-          if [ "$DECISION" = "pass" ]; then
-            gh api "repos/${{ github.repository }}/statuses/$HEAD_SHA" \
-              -f state=success \
-              -f context=integration \
-              -f description="Integration tests passed on $ENVIRONMENT" \
-              -f target_url="$target_url"
-          else
-            gh api "repos/${{ github.repository }}/statuses/$HEAD_SHA" \
-              -f state=failure \
-              -f context=integration \
-              -f description="Integration tests failed on $ENVIRONMENT — push a new commit for a fresh decision" \
-              -f target_url="$target_url"
-          fi
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" \
+            -f state="$state" \
+            -f context=integration \
+            -f description="$description" \
+            -f target_url="$target_url"
