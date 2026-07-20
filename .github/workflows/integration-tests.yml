@@ -16,9 +16,17 @@ name: Integration Tests
 #
 # NOTE: use Reject to dismiss, not Cancel — a cancelled run leaves `verdict`
 # incomplete, which keeps the PR blocked until the workflow is re-run.
+#
+# SECURITY: `pull_request_target` is used (instead of `pull_request`) so that
+# fork PRs — the normal contribution flow for this repo — can access the
+# environment secrets after approval. The workflow definition always comes
+# from the base repo; untrusted PR code is checked out and executed ONLY
+# inside the `integration` job, which cannot start until an environment
+# reviewer has approved it. Reviewers: read the PR diff (including changes to
+# conftest/tests) before approving.
 
 on:
-  pull_request:
+  pull_request_target:
     branches: [main]
     paths:
       - "snowcap/**"
@@ -40,6 +48,10 @@ on:
           - snowflake-aws-business-critical
           - snowflake-azure-standard
           - snowflake-gcp-standard
+      pr_number:
+        description: "PR number to test (optional; default: main)"
+        required: false
+        default: ""
       pytest_args:
         description: Extra pytest args (e.g. -k warehouse)
         required: false
@@ -66,7 +78,14 @@ jobs:
         id: mark
         run: echo "started=true" >> "$GITHUB_OUTPUT"
 
+      # PR events check out the PR *merge* ref (PR code merged into main),
+      # which lives in the base repo even for fork PRs.
       - uses: actions/checkout@v4
+        with:
+          ref: >-
+            ${{ github.event_name == 'pull_request_target'
+                && format('refs/pull/{0}/merge', github.event.pull_request.number)
+                || (inputs.pr_number != '' && format('refs/pull/{0}/merge', inputs.pr_number) || github.ref) }}
 
       - uses: actions/setup-python@v5
         with:

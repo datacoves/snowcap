@@ -81,12 +81,15 @@ Maintainers can also run integration tests against any of the five test
 accounts on demand via `workflow_dispatch`:
 
 ```bash
-gh workflow run integration-tests.yml -f environment=snowflake-aws-enterprise -f pytest_args="-k warehouse"
+gh workflow run integration-tests.yml -f environment=snowflake-aws-enterprise \
+  -f pr_number=36 -f pytest_args="-k warehouse"
 ```
 
-Note: PRs from forks cannot access environment secrets on `pull_request`
-events; an approved run from a fork will fail to connect. Maintainers should
-push the fork branch to this repository to integration-test it.
+Fork PRs are supported: the workflow uses `pull_request_target`, so it runs
+from the base repository (with access to environment secrets) and checks out
+the PR merge ref only inside the reviewer-approved job. Because approval is
+what authorizes untrusted code to run with test-account credentials,
+**reviewers must read the PR diff before approving**.
 
 ## Environment Configuration
 
