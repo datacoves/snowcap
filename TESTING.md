@@ -61,35 +61,63 @@ pytest tests/ --snowflake -v -m "not slow"
 
 ## Continuous Integration
 
-Two tiers of CI run on pull requests:
+Two independent merge gates run on pull requests: unit tests (a required
+check) and integration tests (a required commit status).
 
-1. **Unit tests** (`run-tests.yml`) run automatically on every PR open and push.
-   A failure blocks merging (enforced via branch protection required checks:
-   `build (3.10)`, `build (3.11)`, `build (3.12)`).
-2. **Integration tests** (`integration-tests.yml`) queue automatically on code
-   PRs but wait for a repository owner's decision (GitHub environment
-   *required reviewers* on the `snowflake-*` environments):
-   - **Approve** — tests run against the selected Snowflake test account.
-     If they fail, the `integration verdict` required check fails and blocks merge.
-   - **Reject** — the run is dismissed. `integration verdict` passes and the
-     PR can merge without integration testing.
-   - Until an owner decides, `integration verdict` stays pending and the PR
-     cannot merge. Use **Reject** to dismiss — cancelling the run leaves the
-     check incomplete and keeps the PR blocked.
+### Unit tests
 
-Maintainers can also run integration tests against any of the five test
-accounts on demand via `workflow_dispatch`:
+`run-tests.yml` runs on every PR open and push. A failure blocks merge via
+branch protection's required checks: `build (3.10)`, `build (3.11)`,
+`build (3.12)`.
+
+### Integration tests
+
+`integration-tests.yml` posts a commit status named `integration`, which is
+also a required check on `main`. On PR open and push, the `pending` job
+posts state `pending` for PRs that touch code paths (see the workflow's
+`paths:` filter); docs-only PRs get no pending status, but branch protection
+still shows `integration` as "Expected" and blocks merge until one of the
+decisions below resolves it.
+
+The PR cannot merge until a maintainer makes one of three decisions:
+
+| Decision | How | `integration` status | Notes |
+|----------|-----|-----------------------|-------|
+| Run | Approve the environment deployment (the GitHub required-reviewer prompt on the `snowflake-*` environment) | `success` if tests pass, `failure` if they fail | A failure blocks merge even after the PR is later approved — only a new commit (with a fresh `pending`) clears it. |
+| Skip | Reject the pending deployment | `success` ("skipped by maintainer decision") | |
+| Waive | A reviewer with the `maintain` or `admin` repo role approves the PR | `success` ("waived"), posted by `integration-waiver.yml` | Never overwrites a recorded failure. If an integration run is actively executing for the commit, the waiver defers and the run's own result stands instead. |
+
+Integration only becomes available once the in-workflow `unit` job passes on
+the latest commit (`needs: unit`). Maintainers can override this with
+`workflow_dispatch` and `force=true`, and can target any of the five
+`snowflake-*` environments:
 
 ```bash
 gh workflow run integration-tests.yml -f environment=snowflake-aws-enterprise \
-  -f pr_number=36 -f pytest_args="-k warehouse"
+  -f pr_number=36 -f pytest_args="-k warehouse" -f force=true
 ```
 
-Fork PRs are supported: the workflow uses `pull_request_target`, so it runs
-from the base repository (with access to environment secrets) and checks out
-the PR merge ref only inside the reviewer-approved job. Because approval is
-what authorizes untrusted code to run with test-account credentials,
-**reviewers must read the PR diff before approving**.
+### Contributor flow
+
+Open a PR from a fork. No Snowflake account or credentials are needed:
+`pull_request_target` runs the workflow from the base repository, and
+`secrets.*` is read only inside the reviewer-approved `integration` job.
+Wait for a maintainer to make one of the three decisions above.
+
+### Maintainer guidance
+
+- Read the diff before approving the environment deployment — approval runs
+  untrusted PR code with test-account credentials.
+- Use **Reject**, not **Cancel**, to dismiss a run: cancelling leaves the
+  status `pending` instead of resolving it.
+- A new push resets the status to `pending` and requires a fresh decision.
+- Re-running jobs never resets a recorded decision — the `pending` job skips
+  commits that already have an `integration` status.
+
+### Known limitation
+
+Dismissing a PR review approval does not revoke an already-posted waiver.
+Push a new commit to reset the gate.
 
 ## Environment Configuration
 

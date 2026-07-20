@@ -1,0 +1,101 @@
+name: Integration Waiver
+
+# Waives the `integration` commit status when a maintainer approves the PR
+# review, resolving the merge gate without requiring a Run/Skip decision on
+# integration-tests.yml. pull_request_review runs privileged in the
+# base-repo context even for fork PRs, so this workflow NEVER checks out
+# any code.
+#
+# Sticky failure: a recorded failure/error `integration` status for this
+# commit is never overwritten by a waive — only a fresh commit (and a fresh
+# maintainer decision) clears it. The combined-status read that enforces
+# this must fail closed: any API error reading it also blocks the waive,
+# since a blind write on an unreadable state could clobber an unread
+# failure.
+#
+# Four fail-closed exit paths, checked in order:
+#   1. AUTHORIZATION — reviewer's repo role_name must be admin or maintain.
+#   2. STICKY FAILURE — an existing failure/error `integration` status for
+#      this commit stands; a failed status read also blocks (fail closed).
+#   3. RUN IN FLIGHT — an integration job actively executing for this sha
+#      defers to `report` (integration-tests.yml), which posts the
+#      authoritative result when the run completes. A run merely waiting on
+#      environment approval does not count — that's the state waiving
+#      exists to resolve.
+#   4. WAIVE — post success with context `integration`.
+#
+# NOTE: dismissing a PR review approval does NOT revoke an already-posted
+# waiver; a new commit is required to reset the gate to pending.
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: read
+
+jobs:
+  waive:
+    name: waive
+    if: github.event.review.state == 'approved'
+    runs-on: ubuntu-latest
+    permissions:
+      statuses: write
+    concurrency:
+      group: integration-status-${{ github.event.pull_request.head.sha }}
+      cancel-in-progress: false
+    steps:
+      - name: Waive integration status (fail closed)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVIEWER: ${{ github.event.review.user.login }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          # 1. AUTHORIZATION — role_name (not the legacy `permission` field,
+          # which maps maintain -> write and would wrongly reject maintainers).
+          if ! role_name=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$REVIEWER/permission" --jq .role_name); then
+            echo "::notice::could not determine $REVIEWER's repo role; not waiving"
+            exit 0
+          fi
+          if [ "$role_name" != "admin" ] && [ "$role_name" != "maintain" ]; then
+            echo "::notice::$REVIEWER's role ($role_name) does not authorize a waiver"
+            exit 0
+          fi
+
+          # 2. STICKY FAILURE — a recorded failure/error stands; any failure
+          # to read the combined status must also block (fail closed) so an
+          # API blip can never let a waive clobber an unread failure.
+          if ! state=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/status" --jq '[.statuses[] | select(.context == "integration")][0].state'); then
+            echo "::notice::could not verify existing integration status; not waiving"
+            exit 0
+          fi
+          if [ "$state" = "failure" ] || [ "$state" = "error" ]; then
+            echo "::notice::recorded integration failure stands; not waiving"
+            exit 0
+          fi
+
+          # 3. RUN IN FLIGHT — defer to `report` if an integration job is
+          # actually executing. Runs only 'waiting' on environment approval
+          # do not block — that's the normal state a waive resolves.
+          if ! run_ids=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/integration-tests.yml/runs?head_sha=$HEAD_SHA&status=in_progress" --jq '.workflow_runs[].id'); then
+            echo "::notice::could not check for an in-flight integration run; not waiving"
+            exit 0
+          fi
+          for run_id in $run_ids; do
+            if ! job_statuses=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs" --jq '.jobs[] | select(.name | startswith("integration")) | .status'); then
+              echo "::notice::could not read jobs for run $run_id; not waiving"
+              exit 0
+            fi
+            if echo "$job_statuses" | grep -q '^in_progress$'; then
+              echo "::notice::integration run executing; deferring to its result"
+              exit 0
+            fi
+          done
+
+          # 4. WAIVE
+          gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" \
+            -f state=success \
+            -f context=integration \
+            -f description="Integration tests waived by @$REVIEWER's approval" \
+            -f target_url="$PR_URL"

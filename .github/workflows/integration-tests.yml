@@ -2,28 +2,41 @@ name: Integration Tests
 
 # Owner-gated integration tests against a real Snowflake test account.
 #
-# Flow (requires "required reviewers" on the snowflake-* environments):
-#   - Every code PR queues an `integration` job that WAITS for an environment
-#     reviewer decision.
-#   - Approve  -> tests run. If they fail, the `verdict` job fails and blocks merge.
-#   - Reject   -> dismissed. The `verdict` job passes and the PR can merge.
-#   - No decision -> `verdict` stays pending and the PR cannot merge.
+# Merge gate: the `integration` commit status (not a required-check job).
+# `pending` posts it on PR open/push; a maintainer resolves it one of three
+# ways, and .github/workflows/integration-waiver.yml can also resolve it via
+# PR review approval:
+#   - Run    -> approve the environment deployment. Pass -> success.
+#               Fail -> failure, which blocks merge even after the PR is
+#               later approved; only a new commit (fresh pending) clears it.
+#   - Skip   -> reject the pending deployment -> success ("skipped by
+#               maintainer decision").
+#   - Waive  -> a reviewer with maintain/admin repo role approves the PR
+#               (integration-waiver.yml) -> success ("waived"), unless a
+#               failure is already recorded for this commit (sticky) or an
+#               integration run is actively executing (defers to `report`).
 #
-# `verdict` (not `integration`) is the job to mark as a required status check:
-# it distinguishes "reviewer dismissed the run" (job rejected before any step
-# ran -> outputs empty -> pass) from "tests ran and failed" (test step outcome
-# captured via continue-on-error -> fail).
+# `report` (not `integration`) posts the final status: it distinguishes
+# "unit failed / run cancelled" (nothing posted, status stays pending) from
+# "reviewer rejected the deployment" (started output empty -> success) from
+# "tests ran" (decision output from a final always() step, based on the
+# continue-on-error pytest outcome).
 #
-# NOTE: use Reject to dismiss, not Cancel — a cancelled run leaves `verdict`
-# incomplete, which keeps the PR blocked until the workflow is re-run.
+# NOTE: use Reject to dismiss a run, not Cancel — a cancelled run is
+# excluded from `report`'s logic, so the status stays pending until re-run.
 #
-# SECURITY: `pull_request_target` is used (instead of `pull_request`) so that
-# fork PRs — the normal contribution flow for this repo — can access the
-# environment secrets after approval. The workflow definition always comes
-# from the base repo; untrusted PR code is checked out and executed ONLY
-# inside the `integration` job, which cannot start until an environment
-# reviewer has approved it. Reviewers: read the PR diff (including changes to
-# conftest/tests) before approving.
+# `unit` must pass on the latest commit before `integration` becomes
+# available (needs: unit); workflow_dispatch's `force: true` overrides this.
+#
+# SECURITY: pull_request_target is used (instead of pull_request) so fork
+# PRs — the normal contribution flow for this repo — can access environment
+# secrets after approval. The workflow definition always comes from the
+# base repo. Top-level permissions are read-only; `unit` checks out
+# untrusted PR code but references no secrets; `secrets.*` is read only
+# inside the environment-gated `integration` job; `pending`/`report` never
+# check out any code and hold only statuses: write. Reviewers: read the PR
+# diff (including changes to conftest/tests) before approving the
+# deployment.
 
 on:
   pull_request_target:
@@ -56,27 +69,63 @@ on:
         description: Extra pytest args (e.g. -k warehouse)
         required: false
         default: ""
+      force:
+        description: Run integration tests even if the unit job fails
+        type: boolean
+        default: false
 
-# One run per test account at a time. A run waiting for reviewer decision can
-# hold the queue; dismiss (Reject) stale runs to release it.
-concurrency:
-  group: integration-${{ inputs.environment || 'snowflake-aws-enterprise' }}
-  cancel-in-progress: false
+permissions:
+  contents: read
 
 jobs:
-  integration:
-    name: integration
+  pending:
+    name: pending
+    if: github.event_name == 'pull_request_target'
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment || 'snowflake-aws-enterprise' }}
-    outputs:
-      started: ${{ steps.mark.outputs.started }}
-      tests: ${{ steps.tests.outcome }}
+    permissions:
+      statuses: write
+    concurrency:
+      group: integration-status-${{ github.event.pull_request.head.sha }}
+      cancel-in-progress: false
     steps:
-      # Runs only after reviewer approval; its absence in outputs means the
-      # run was rejected (dismissed) and verdict must not block the PR.
-      - name: Mark run as approved
-        id: mark
-        run: echo "started=true" >> "$GITHUB_OUTPUT"
+      - name: Post pending status (fail closed)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          count=$(gh api "repos/${{ github.repository }}/commits/${{ github.event.pull_request.head.sha }}/status" \
+            --jq '[.statuses[] | select(.context == "integration")] | length') || {
+            echo "::notice::could not read existing integration status; not posting pending (fail closed)"
+            exit 0
+          }
+          if [ "$count" -ne 0 ]; then
+            echo "::notice::integration status already recorded for this commit; not resetting"
+            exit 0
+          fi
+          gh api "repos/${{ github.repository }}/statuses/${{ github.event.pull_request.head.sha }}" \
+            -f state=pending \
+            -f context=integration \
+            -f description="Waiting for a maintainer decision (run, skip, or approve the PR)" \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+  unit:
+    name: unit
+    runs-on: ubuntu-latest
+    outputs:
+      head_sha: ${{ steps.sha.outputs.head_sha }}
+    steps:
+      - name: Resolve head sha
+        id: sha
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request_target" ]; then
+            sha="${{ github.event.pull_request.head.sha }}"
+          elif [ -n "${{ inputs.pr_number }}" ]; then
+            sha=$(gh api "repos/${{ github.repository }}/pulls/${{ inputs.pr_number }}" --jq .head.sha)
+          else
+            sha=""
+          fi
+          echo "head_sha=$sha" >> "$GITHUB_OUTPUT"
 
       # PR events check out the PR *merge* ref (PR code merged into main),
       # which lives in the base repo even for fork PRs.
@@ -90,6 +139,52 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
+          cache-dependency-path: setup.py
+
+      - name: Install dependencies
+        run: |
+          python -m venv .venv
+          source ./.venv/bin/activate
+          python -m pip install --upgrade pip
+          make install-dev
+
+      - name: Run unit tests
+        run: |
+          source ./.venv/bin/activate
+          python -m pytest --ignore=tests/integration
+
+  integration:
+    name: integration
+    needs: unit
+    if: ${{ !cancelled() && (needs.unit.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.force == true)) }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'snowflake-aws-enterprise' }}
+    concurrency:
+      group: integration-${{ inputs.environment || 'snowflake-aws-enterprise' }}
+      cancel-in-progress: false
+    outputs:
+      started: ${{ steps.mark.outputs.started }}
+      decision: ${{ steps.decide.outputs.decision }}
+    steps:
+      # Runs only after reviewer approval; its absence in outputs means the
+      # run was rejected (dismissed) and report must not block the PR.
+      - name: Mark run as approved
+        id: mark
+        run: echo "started=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: >-
+            ${{ github.event_name == 'pull_request_target'
+                && format('refs/pull/{0}/merge', github.event.pull_request.number)
+                || (inputs.pr_number != '' && format('refs/pull/{0}/merge', inputs.pr_number) || github.ref) }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: setup.py
 
       - name: Install dependencies
         run: |
@@ -116,26 +211,70 @@ jobs:
         run: |
           echo "pytest outcome: ${{ steps.tests.outcome }}"
           if [ "${{ steps.tests.outcome }}" != "success" ]; then
-            echo "::error::Integration tests failed — see 'Run integration tests' step. Merge will be blocked by the verdict job."
+            echo "::error::Integration tests failed — see 'Run integration tests' step. Merge will be blocked by the report job."
           fi
 
-  verdict:
-    name: integration verdict
-    needs: integration
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Decide merge gate
+      - name: Decide job outcome
+        id: decide
+        if: always()
         run: |
-          started='${{ needs.integration.outputs.started }}'
-          tests='${{ needs.integration.outputs.tests }}'
-          if [ "$started" != "true" ]; then
-            echo "::notice::Integration run was dismissed by a reviewer — not blocking merge."
+          if [ "${{ steps.tests.outcome }}" = "success" ]; then
+            echo "decision=pass" >> "$GITHUB_OUTPUT"
+          else
+            echo "decision=fail" >> "$GITHUB_OUTPUT"
+          fi
+
+  report:
+    name: report
+    needs: [unit, integration]
+    if: ${{ always() && (github.event_name == 'pull_request_target' || (github.event_name == 'workflow_dispatch' && inputs.pr_number != '')) }}
+    runs-on: ubuntu-latest
+    permissions:
+      statuses: write
+    concurrency:
+      group: integration-status-${{ github.event.pull_request.head.sha || github.run_id }}
+      cancel-in-progress: false
+    steps:
+      - name: Post integration result
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ needs.unit.outputs.head_sha }}
+          RESULT: ${{ needs.integration.result }}
+          STARTED: ${{ needs.integration.outputs.started }}
+          DECISION: ${{ needs.integration.outputs.decision }}
+          ENVIRONMENT: ${{ inputs.environment || 'snowflake-aws-enterprise' }}
+        run: |
+          if [ -z "$HEAD_SHA" ]; then
+            echo "::notice::no head sha resolved; nothing to report"
             exit 0
           fi
-          if [ "$tests" = "success" ]; then
-            echo "Integration tests passed."
+
+          target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          if [ "$RESULT" = "skipped" ] || [ "$RESULT" = "cancelled" ]; then
+            echo "::notice::integration job $RESULT; leaving status pending"
             exit 0
           fi
-          echo "::error::Integration tests ran and failed — blocking merge."
-          exit 1
+
+          if [ "$STARTED" != "true" ]; then
+            gh api "repos/${{ github.repository }}/statuses/$HEAD_SHA" \
+              -f state=success \
+              -f context=integration \
+              -f description="Integration tests skipped by maintainer decision" \
+              -f target_url="$target_url"
+            exit 0
+          fi
+
+          if [ "$DECISION" = "pass" ]; then
+            gh api "repos/${{ github.repository }}/statuses/$HEAD_SHA" \
+              -f state=success \
+              -f context=integration \
+              -f description="Integration tests passed on $ENVIRONMENT" \
+              -f target_url="$target_url"
+          else
+            gh api "repos/${{ github.repository }}/statuses/$HEAD_SHA" \
+              -f state=failure \
+              -f context=integration \
+              -f description="Integration tests failed on $ENVIRONMENT — push a new commit for a fresh decision" \
+              -f target_url="$target_url"
+          fi
