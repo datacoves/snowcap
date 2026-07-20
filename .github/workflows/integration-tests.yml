@@ -1,0 +1,122 @@
+name: Integration Tests
+
+# Owner-gated integration tests against a real Snowflake test account.
+#
+# Flow (requires "required reviewers" on the snowflake-* environments):
+#   - Every code PR queues an `integration` job that WAITS for an environment
+#     reviewer decision.
+#   - Approve  -> tests run. If they fail, the `verdict` job fails and blocks merge.
+#   - Reject   -> dismissed. The `verdict` job passes and the PR can merge.
+#   - No decision -> `verdict` stays pending and the PR cannot merge.
+#
+# `verdict` (not `integration`) is the job to mark as a required status check:
+# it distinguishes "reviewer dismissed the run" (job rejected before any step
+# ran -> outputs empty -> pass) from "tests ran and failed" (test step outcome
+# captured via continue-on-error -> fail).
+#
+# NOTE: use Reject to dismiss, not Cancel — a cancelled run leaves `verdict`
+# incomplete, which keeps the PR blocked until the workflow is re-run.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "snowcap/**"
+      - "tests/**"
+      - "conftest.py"
+      - "requirements*.txt"
+      - "pyproject.toml"
+      - "setup.py"
+      - ".github/workflows/integration-tests.yml"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Snowflake test account
+        type: choice
+        default: snowflake-aws-enterprise
+        options:
+          - snowflake-aws-standard
+          - snowflake-aws-enterprise
+          - snowflake-aws-business-critical
+          - snowflake-azure-standard
+          - snowflake-gcp-standard
+      pytest_args:
+        description: Extra pytest args (e.g. -k warehouse)
+        required: false
+        default: ""
+
+# One run per test account at a time. A run waiting for reviewer decision can
+# hold the queue; dismiss (Reject) stale runs to release it.
+concurrency:
+  group: integration-${{ inputs.environment || 'snowflake-aws-enterprise' }}
+  cancel-in-progress: false
+
+jobs:
+  integration:
+    name: integration
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'snowflake-aws-enterprise' }}
+    outputs:
+      started: ${{ steps.mark.outputs.started }}
+      tests: ${{ steps.tests.outcome }}
+    steps:
+      # Runs only after reviewer approval; its absence in outputs means the
+      # run was rejected (dismissed) and verdict must not block the PR.
+      - name: Mark run as approved
+        id: mark
+        run: echo "started=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run integration tests
+        id: tests
+        continue-on-error: true
+        run: python -m pytest tests/ --snowflake -m standard ${{ inputs.pytest_args }}
+        env:
+          TEST_SNOWFLAKE_ACCOUNT: ${{ secrets.TEST_SNOWFLAKE_ACCOUNT }}
+          TEST_SNOWFLAKE_USER: ${{ secrets.TEST_SNOWFLAKE_USER }}
+          TEST_SNOWFLAKE_PASSWORD: ${{ secrets.TEST_SNOWFLAKE_PASSWORD }}
+          TEST_SNOWFLAKE_ROLE: ACCOUNTADMIN
+          TEST_SNOWFLAKE_WAREHOUSE: STATIC_WAREHOUSE
+          VAR_STORAGE_BASE_URL: ${{ secrets.VAR_STORAGE_BASE_URL }}
+          VAR_STORAGE_ROLE_ARN: ${{ secrets.VAR_STORAGE_ROLE_ARN }}
+          VAR_STORAGE_AWS_EXTERNAL_ID: ${{ secrets.VAR_STORAGE_AWS_EXTERNAL_ID }}
+          VAR_STATIC_USER_RSA_PUBLIC_KEY: ${{ secrets.STATIC_USER_RSA_PUBLIC_KEY }}
+          VAR_STATIC_USER_MFA_PASSWORD: ${{ secrets.STATIC_USER_MFA_PASSWORD }}
+
+      - name: Report test outcome
+        run: |
+          echo "pytest outcome: ${{ steps.tests.outcome }}"
+          if [ "${{ steps.tests.outcome }}" != "success" ]; then
+            echo "::error::Integration tests failed — see 'Run integration tests' step. Merge will be blocked by the verdict job."
+          fi
+
+  verdict:
+    name: integration verdict
+    needs: integration
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Decide merge gate
+        run: |
+          started='${{ needs.integration.outputs.started }}'
+          tests='${{ needs.integration.outputs.tests }}'
+          if [ "$started" != "true" ]; then
+            echo "::notice::Integration run was dismissed by a reviewer — not blocking merge."
+            exit 0
+          fi
+          if [ "$tests" = "success" ]; then
+            echo "Integration tests passed."
+            exit 0
+          fi
+          echo "::error::Integration tests ran and failed — blocking merge."
+          exit 1

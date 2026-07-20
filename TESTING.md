@@ -59,6 +59,35 @@ pytest tests/integration/ --snowflake -v
 pytest tests/ --snowflake -v -m "not slow"
 ```
 
+## Continuous Integration
+
+Two tiers of CI run on pull requests:
+
+1. **Unit tests** (`run-tests.yml`) run automatically on every PR open and push.
+   A failure blocks merging (enforced via branch protection required checks:
+   `build (3.10)`, `build (3.11)`, `build (3.12)`).
+2. **Integration tests** (`integration-tests.yml`) queue automatically on code
+   PRs but wait for a repository owner's decision (GitHub environment
+   *required reviewers* on the `snowflake-*` environments):
+   - **Approve** — tests run against the selected Snowflake test account.
+     If they fail, the `integration verdict` required check fails and blocks merge.
+   - **Reject** — the run is dismissed. `integration verdict` passes and the
+     PR can merge without integration testing.
+   - Until an owner decides, `integration verdict` stays pending and the PR
+     cannot merge. Use **Reject** to dismiss — cancelling the run leaves the
+     check incomplete and keeps the PR blocked.
+
+Maintainers can also run integration tests against any of the five test
+accounts on demand via `workflow_dispatch`:
+
+```bash
+gh workflow run integration-tests.yml -f environment=snowflake-aws-enterprise -f pytest_args="-k warehouse"
+```
+
+Note: PRs from forks cannot access environment secrets on `pull_request`
+events; an approved run from a fork will fail to connect. Maintainers should
+push the fork branch to this repository to integration-test it.
+
 ## Environment Configuration
 
 ### Required Variables
