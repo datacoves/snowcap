@@ -49,6 +49,7 @@ setup(
             "black",
             "build",
             "codespell==2.2.6",
+            "cryptography",
             "mypy",
             "pytest-cov",
             "pytest-profiling!=1.8.0",
