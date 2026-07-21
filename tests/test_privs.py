@@ -348,6 +348,25 @@ class TestCortexSearchServicePriv:
 
 
 #############################################################################
+# StreamlitPriv Tests
+#############################################################################
+
+
+class TestStreamlitPriv:
+    """Tests for StreamlitPriv enum values (Snowflake Streamlit apps)."""
+
+    def test_all_privilege(self):
+        assert StreamlitPriv.ALL.value == "ALL"
+
+    def test_usage_privilege(self):
+        """USAGE is the priv needed to open and run a Streamlit app."""
+        assert StreamlitPriv.USAGE.value == "USAGE"
+
+    def test_ownership_privilege(self):
+        assert StreamlitPriv.OWNERSHIP.value == "OWNERSHIP"
+
+
+#############################################################################
 # is_ownership_priv() Tests
 #############################################################################
 

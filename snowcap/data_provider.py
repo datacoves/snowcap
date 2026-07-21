@@ -2773,6 +2773,37 @@ def fetch_stream(session: SnowflakeConnection, fqn: FQN):
         raise NotImplementedError(f"Unsupported stream source type {data['source_type']}")
 
 
+def fetch_streamlit(session: SnowflakeConnection, fqn: FQN):
+    streamlits = _show_resources(session, "STREAMLITS", fqn)
+    if len(streamlits) == 0:
+        return None
+    if len(streamlits) > 1:
+        raise Exception(f"Found multiple streamlits matching {fqn}")
+
+    data = streamlits[0]
+    desc_result = execute(session, f"DESC STREAMLIT {fqn}", cacheable=True)
+    properties = desc_result[0]
+    return {
+        "name": data["name"],
+        # from_ is omitted (like fetch_notebook): DESC STREAMLIT returns
+        # root_location as a fully-qualified, uppercased stage path, which
+        # never matches the declared from_ (e.g. "@my_stage") and would show
+        # perpetual drift. The spec marks from_ non-fetchable instead.
+        # version is only settable for repo-based apps and isn't returned by
+        # DESC STREAMLIT in a comparable form, so it's always None here —
+        # repo-based apps (from_="https://...", version="main") may drift on
+        # version. Known limitation.
+        "version": None,
+        # Snowflake's default main_file is streamlit_app.py; map it to None so
+        # an omitted field doesn't drift (same as fetch_notebook).
+        "main_file": None if properties.get("main_file") == "streamlit_app.py" else properties.get("main_file"),
+        "title": properties.get("title") or None,
+        "query_warehouse": data.get("query_warehouse") or None,
+        "comment": data.get("comment") or None,
+        "owner": _get_owner_identifier(data),
+    }
+
+
 def fetch_tag(session: SnowflakeConnection, fqn: FQN):
     try:
         show_result = execute(session, "SHOW TAGS IN ACCOUNT", cacheable=True)

@@ -70,3 +70,41 @@ streamlit_repo = Streamlit(
 * `comment` (string) - A comment or description for the Streamlit app.
 * `owner` (string or Role) - The role that owns the Streamlit app. Defaults to "SYSADMIN".
 * `tags` (dict) - A dictionary of tags to associate with the Streamlit app.
+
+## Granting access
+
+A Streamlit app is a schema-scoped object. Grant `USAGE` on the app to let a
+role open and run it — this is the whole access story for viewers when the app
+uses owner's rights (all app queries execute as the app owner, so viewers need
+no privileges on the underlying tables):
+
+```yaml
+grants:
+  # Let a viewer role open and run the app.
+  - priv: USAGE
+    on: streamlit my_db.my_schema.my_streamlit
+    to: app_viewer_role
+
+  # Schema-scope privilege to allow a role to create Streamlit apps.
+  - priv: CREATE STREAMLIT
+    on: schema my_db.my_schema
+    to: app_developer_role
+```
+
+```python
+# Grant USAGE so a role can open the app
+grant = Grant(
+    priv="USAGE",
+    on_streamlit="my_db.my_schema.my_streamlit",
+    to="app_viewer_role",
+)
+```
+
+| Privilege         | Purpose                                                                  |
+|-------------------|--------------------------------------------------------------------------|
+| `USAGE`           | Open, view, and run the Streamlit app (and `DESCRIBE` it).               |
+| `OWNERSHIP`       | Full control. Set at create/deploy time — Snowflake does not support transferring streamlit ownership via `GRANT OWNERSHIP`. |
+| `ALL`             | All privileges above.                                                    |
+
+The schema-scope privilege `CREATE STREAMLIT` lets a role create apps in that
+schema; creating an app with a `ROOT_LOCATION` stage also needs `CREATE STAGE`.

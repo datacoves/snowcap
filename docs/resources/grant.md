@@ -45,6 +45,11 @@ grants:
     on: warehouse some_warehouse
     to: some_role
 
+  # Apps: USAGE on a Streamlit app so a role can open and run it
+  - priv: USAGE
+    on: streamlit somedb.someschema.some_streamlit
+    to: app_viewer_role
+
   # AI: account-level privilege for Cortex AI SQL functions
   - priv: USE AI FUNCTIONS
     on: ACCOUNT

@@ -174,6 +174,24 @@ def test_grant_on_cortex_search_service():
     assert "MONITOR ON CORTEX SEARCH SERVICE" in monitor_grant.create_sql()
 
 
+def test_grant_on_streamlit():
+    """USAGE on a STREAMLIT parses and renders correctly.
+
+    Streamlit is a schema-scoped app object. Granting USAGE lets a viewer
+    role open and run the app:
+        GRANT USAGE ON STREAMLIT <db>.<schema>.<app> TO ROLE r
+    OWNERSHIP is established at create/deploy time, not transferred via GRANT.
+    """
+    grant = res.Grant(
+        priv="USAGE",
+        on_streamlit="somedb.someschema.someapp",
+        to="somerole",
+    )
+    assert grant._data.on == "SOMEDB.SOMESCHEMA.SOMEAPP"
+    assert grant._data.on_type == ResourceType.STREAMLIT
+    assert "USAGE ON STREAMLIT" in grant.create_sql()
+
+
 def test_grant_database_role_to_database_role():
     database = res.Database(name="somedb")
     parent = res.DatabaseRole(name="parent", database=database)
