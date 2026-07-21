@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from ..enums import ResourceType
@@ -17,7 +17,10 @@ class _Streamlit(ResourceSpec):
     """
 
     name: ResourceName
-    from_: str
+    # DESC STREAMLIT returns root_location as a fully-qualified, uppercased
+    # stage path that never matches the declared from_ (e.g. "@my_stage"), so
+    # from_ is not fetchable — YAML is authoritative (same as Notebook).
+    from_: str = field(metadata={"fetchable": False})
     version: Optional[str] = None
     main_file: Optional[str] = None
     title: Optional[str] = None
