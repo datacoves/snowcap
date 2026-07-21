@@ -1,5 +1,6 @@
-.PHONY: install install-dev test integration style check clean build docs coverage
+.PHONY: install install-dev test integration style check clean build docs coverage provision-test-account drop-test-account
 EDITION ?= standard or enterprise
+EMAIL ?=
 
 install:
 	pip install -e .
@@ -16,6 +17,16 @@ integration:
 setup-test-resources:
 	@echo "Setting up static resources for integration tests..."
 	./tests/fixtures/static_resources/apply.sh
+
+provision-test-account:
+	@if [ -z "$(EMAIL)" ]; then \
+		echo "EMAIL is required, e.g. make provision-test-account EMAIL=you@example.com"; \
+		exit 1; \
+	fi
+	python tools/manage_test_account.py provision --email $(EMAIL)
+
+drop-test-account:
+	python tools/manage_test_account.py drop
 
 style:
 	python -m black .

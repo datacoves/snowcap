@@ -131,6 +131,11 @@ ENV/
 env.bak/
 venv.bak/
 
+# snowcap test account provisioning artifacts (see tools/manage_test_account.py)
+tests/.env.bak*
+tests/.env.dropped*
+tests/.snowcap_test_account_rsa_key.p8*
+
 # Spyder project settings
 .spyderproject
 .spyproject
