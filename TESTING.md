@@ -59,7 +59,69 @@ pytest tests/integration/ --snowflake -v
 pytest tests/ --snowflake -v -m "not slow"
 ```
 
+## Provisioning a Dedicated Test Account
+
+Never run integration tests against a personal or employer Snowflake account. Integration tests create and drop databases, users, roles, warehouses, and other account-level objects — provision a disposable account dedicated to Snowcap testing instead.
+
+### Prerequisites
+
+You need a Snowflake organization with ORGADMIN enabled on at least one account. If you don't have one, sign up for a free trial account, which enables ORGADMIN by default.
+
+Export ORGADMIN credentials for the organization account. These are used only by the `provision` and `drop` commands (to run `CREATE ACCOUNT` / `DROP ACCOUNT`) and are never written to `tests/.env` or any other file:
+
+```bash
+export SNOWFLAKE_ORG_ACCOUNT=<your-org-account>
+export SNOWFLAKE_ORG_USER=<your-org-user>
+export SNOWFLAKE_ORG_PASSWORD=<your-org-password>
+```
+
+Your normal `SNOWFLAKE_ACCOUNT` / `SNOWFLAKE_USER` / `SNOWFLAKE_PASSWORD` / `SNOWFLAKE_ROLE` connection (whatever you'd normally use with `snowsql` or the Python connector) must also be set — `provision` uses it to detect the edition, cloud, and region to mirror for the new account.
+
+### Provision the account
+
+```bash
+make provision-test-account EMAIL=you@example.com
+```
+
+This calls `python tools/manage_test_account.py provision --email you@example.com`. By default it names the new account `SNOWCAP_TEST` and mirrors the edition, cloud, and region detected from your current connection. Override any of these:
+
+```bash
+python tools/manage_test_account.py provision --email you@example.com \
+  --edition enterprise --cloud aws --region us_west_2
+```
+
+`--cloud` requires `--region` to also be given. `--edition` defaults to your detected edition; `--admin-name` defaults to `SNOWCAP_ADMIN`; `--key-path` defaults to `tests/.snowcap_test_account_rsa_key.p8`.
+
+Provisioning:
+
+1. Issues `CREATE ACCOUNT` via ORGADMIN, with a freshly generated RSA key pair for a `SERVICE` admin user (no password).
+2. Polls the new account until it accepts connections (usually well under a minute, up to 10 minutes before timing out).
+3. Bootstraps the account: runs the same `reset_test_account` flow used by `make reset` and applies the static resources fixtures.
+4. Writes a ready-to-use `tests/.env` pointing at the new account, backing up any existing `tests/.env` first.
+
+If you re-run `provision` for an account that already exists, it skips `CREATE ACCOUNT` and resumes from wherever the account is — reusing the local key at `--key-path` — rather than failing or recreating it.
+
+When it finishes, run the test suite:
+
+```bash
+pytest tests/ --snowflake
+```
+
+### Tear down
+
+```bash
+make drop-test-account
+```
+
+This calls `python tools/manage_test_account.py drop`, which drops the `SNOWCAP_TEST` account (or whatever `--name` you provisioned) with a grace period. The grace period defaults to 3 days (Snowflake's minimum) and can be raised up to 90 days with `--grace-period-in-days`. While the grace period is active, the dropped account is locked, restorable via ORGADMIN, and still counts against your organization's account quota — it only stops counting once the grace period lapses. Pass `--yes` to skip the `tests/.env` agreement check and confirmation prompt (needed if `tests/.env` doesn't match the account being dropped, or is missing).
+
+### Expected cost
+
+An idle test account costs approximately nothing. Test runs use an XSMALL warehouse (`STATIC_WAREHOUSE`). On AWS with Enterprise or Business Critical edition, the mirrored bootstrap also creates a compute pool, but it's created suspended with auto-resume disabled, so it costs nothing unless something explicitly resumes it.
+
 ## Environment Configuration
+
+The steps above are the recommended path. To point tests at an account you've already set up yourself instead, configure it manually:
 
 ### Required Variables
 
@@ -90,7 +152,7 @@ openssl genrsa 2048 | openssl pkcs8 -topk8 -inform PEM -out rsa_key.p8 -nocrypt
 
 **Option 2: Password Authentication**
 ```bash
-TEST_SNOWFLAKE_PASSWORD=your_password
+TEST_SNOWFLAKE_PASSWORD=<your-password>
 ```
 
 ### Blueprint Variables
