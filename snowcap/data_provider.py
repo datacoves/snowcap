@@ -1633,7 +1633,7 @@ def fetch_dbt_project(session: SnowflakeConnection, fqn: FQN):
     return {
         "name": data["name"],
         "owner": _get_owner_identifier(data),
-        "comment": data["comment"] or None,
+        "comment": data.get("comment") or None,
     }
 
 

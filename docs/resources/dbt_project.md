@@ -65,7 +65,7 @@ grant = Grant(
 | `OWNERSHIP`        | Full control of the object. Exclusive to a single role (like tasks).                         |
 | `ALL`              | All privileges above.                                                                        |
 
-The schema-scope privilege `CREATE DBT PROJECT` (see [Schema](#) grants) lets a
+The schema-scope privilege `CREATE DBT PROJECT` (see [Schema](schema.md) grants) lets a
 role create dbt project objects in that schema.
 
 ## Minimal example
