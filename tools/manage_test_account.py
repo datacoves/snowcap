@@ -247,7 +247,7 @@ def _generate_mfa_password(length: int = 20) -> str:
 def poll_for_connection(
     account: str,
     user: str,
-    private_key_path,
+    private_key_path: str | pathlib.Path,
     timeout: int = POLL_TIMEOUT_SECONDS,
     interval: int = POLL_INTERVAL_SECONDS,
 ):
@@ -267,7 +267,15 @@ def poll_for_connection(
     raise click.ClickException(f"Timed out after {timeout}s waiting for {account} to accept connections: {last_error}")
 
 
-def provision_test_account(name, email, edition, cloud, region, admin_name, key_path):
+def provision_test_account(
+    name: str,
+    email: str,
+    edition: str | None,
+    cloud: str | None,
+    region: str | None,
+    admin_name: str,
+    key_path: str | pathlib.Path,
+) -> None:
     key_path = pathlib.Path(key_path)
 
     # Validate every input feeding create_account_sql up front, before any file or ORGADMIN
@@ -283,52 +291,57 @@ def provision_test_account(name, email, edition, cloud, region, admin_name, key_
         conn.close()
     detected_region_group = parse_region(next(iter(region_row.values()))).get("region_group")
     composed_region = resolve_region(session_ctx["cloud"], session_ctx["cloud_region"], cloud, region)
+    _validate_identifier(composed_region)
+    if detected_region_group:
+        _validate_identifier(detected_region_group)
     resolved_edition = (edition or session_ctx["account_edition"].value).upper()
     if resolved_edition not in VALID_EDITIONS:
         raise click.ClickException(f"Invalid edition {resolved_edition!r}: must be one of {sorted(VALID_EDITIONS)}")
 
-    org_conn = get_org_connection()
-    try:
-        org_cursor = org_conn.cursor()
-        org_name = org_cursor.execute("SELECT CURRENT_ORGANIZATION_NAME()").fetchone()[0]
-        target_identifier = f"{org_name}-{name}"
-
-        dict_cursor = org_conn.cursor(snowflake.connector.DictCursor)
-        dict_cursor.execute("SHOW ACCOUNTS")
-        existing_names = {row["name"].upper() for row in dict_cursor.fetchall()}
-        account_exists = name.upper() in existing_names
-
-        key_backup_path = None
-        if account_exists:
-            click.echo(f"Account {target_identifier} already exists — resuming (skipping CREATE ACCOUNT).")
-            if not key_path.exists():
-                raise click.ClickException(
-                    f"Account {target_identifier} exists but no admin key was found at {key_path}. "
-                    "Recover the key out-of-band, or run "
-                    f"`python tools/manage_test_account.py drop --name {name}` and recreate the account."
-                )
-        else:
-            key_backup_path = _archive_if_exists(key_path, "bak")
-            if key_backup_path:
-                click.echo(f"Backed up existing key to {key_backup_path}")
-            admin_rsa_public_key = generate_rsa_keypair(key_path)
-            sql = create_account_sql(
-                name, admin_name, admin_rsa_public_key, email, resolved_edition, composed_region,
-                detected_region_group,
-            )
-            org_cursor.execute(sql)
-            click.echo(f"CREATE ACCOUNT issued for {target_identifier}")
-    finally:
-        org_conn.close()
-
+    # Every input is now known-good; only ORGADMIN/filesystem mutation follows, so from here
+    # on any failure should surface this hint before propagating.
     recovery_hint = (
         f"Recovery: re-run `python tools/manage_test_account.py provision --name {name} --email {email}` to "
         f"resume, or `python tools/manage_test_account.py drop --name {name}` to abandon this account."
     )
 
     new_conn = None
+    key_backup_path = None
     env_backup_path = None
     try:
+        org_conn = get_org_connection()
+        try:
+            org_cursor = org_conn.cursor()
+            org_name = org_cursor.execute("SELECT CURRENT_ORGANIZATION_NAME()").fetchone()[0]
+            target_identifier = f"{org_name}-{name}"
+
+            dict_cursor = org_conn.cursor(snowflake.connector.DictCursor)
+            dict_cursor.execute("SHOW ACCOUNTS")
+            existing_names = {row["account_name"].upper() for row in dict_cursor.fetchall()}
+            account_exists = name.upper() in existing_names
+
+            if account_exists:
+                click.echo(f"Account {target_identifier} already exists — resuming (skipping CREATE ACCOUNT).")
+                if not key_path.exists():
+                    raise click.ClickException(
+                        f"Account {target_identifier} exists but no admin key was found at {key_path}. "
+                        "Recover the key out-of-band, or run "
+                        f"`python tools/manage_test_account.py drop --name {name}` and recreate the account."
+                    )
+            else:
+                key_backup_path = _archive_if_exists(key_path, "bak")
+                if key_backup_path:
+                    click.echo(f"Backed up existing key to {key_backup_path}")
+                admin_rsa_public_key = generate_rsa_keypair(key_path)
+                sql = create_account_sql(
+                    name, admin_name, admin_rsa_public_key, email, resolved_edition, composed_region,
+                    detected_region_group,
+                )
+                org_cursor.execute(sql)
+                click.echo(f"CREATE ACCOUNT issued for {target_identifier}")
+        finally:
+            org_conn.close()
+
         click.echo(f"Waiting for {target_identifier} to accept connections (up to {POLL_TIMEOUT_SECONDS}s)...")
         new_conn = poll_for_connection(target_identifier, admin_name, key_path)
 
@@ -371,7 +384,7 @@ def provision_test_account(name, email, edition, cloud, region, admin_name, key_
     click.echo("Next: pytest tests/ --snowflake")
 
 
-def drop_test_account(name, grace_period_in_days, yes):
+def drop_test_account(name: str, grace_period_in_days: int, yes: bool) -> None:
     org_conn = get_org_connection()
     try:
         org_name = org_conn.cursor().execute("SELECT CURRENT_ORGANIZATION_NAME()").fetchone()[0]
@@ -462,7 +475,13 @@ def provision(name, email, edition, cloud, region, admin_name, key_path):
 
 @main.command()
 @click.option("--name", default=DEFAULT_ACCOUNT_NAME, show_default=True, help="Account name to drop.")
-@click.option("--grace-period-in-days", type=click.IntRange(3, 90), default=3, show_default=True)
+@click.option(
+    "--grace-period-in-days",
+    type=click.IntRange(3, 90),
+    default=3,
+    show_default=True,
+    help="Days before the dropped account is permanently purged (Snowflake minimum is 3).",
+)
 @click.option("--yes", is_flag=True, help="Skip the tests/.env agreement check and confirmation prompt.")
 def drop(name, grace_period_in_days, yes):
     drop_test_account(name, grace_period_in_days, yes)

@@ -317,40 +317,41 @@ def _org_connection(org_name="ORG"):
     return conn
 
 
-def test_drop_test_account_env_mismatch_without_yes_raises(tmp_path, monkeypatch):
+@pytest.fixture
+def drop_deps(tmp_path, monkeypatch):
+    """Wires every external dependency of drop_test_account to in-memory mocks."""
     monkeypatch.setattr(manage_test_account, "REPO_ROOT", tmp_path)
+    org_conn = _org_connection()
+    monkeypatch.setattr(manage_test_account, "get_org_connection", lambda: org_conn)
+    return SimpleNamespace(org_conn=org_conn)
+
+
+def test_drop_test_account_env_mismatch_without_yes_raises(drop_deps, tmp_path):
     env_path = tmp_path / "tests" / ".env"
     env_path.parent.mkdir(parents=True)
     env_path.write_text("TEST_SNOWFLAKE_ACCOUNT=ORG-OTHER_ACCT\n")
 
-    with patch.object(manage_test_account, "get_org_connection", return_value=_org_connection()):
-        with pytest.raises(click.ClickException):
-            manage_test_account.drop_test_account("TEST_ACCT", 3, yes=False)
+    with pytest.raises(click.ClickException):
+        manage_test_account.drop_test_account("TEST_ACCT", 3, yes=False)
 
 
-def test_drop_test_account_missing_env_without_yes_raises(tmp_path, monkeypatch):
-    monkeypatch.setattr(manage_test_account, "REPO_ROOT", tmp_path)
-
-    with patch.object(manage_test_account, "get_org_connection", return_value=_org_connection()):
-        with pytest.raises(click.ClickException):
-            manage_test_account.drop_test_account("TEST_ACCT", 3, yes=False)
+def test_drop_test_account_missing_env_without_yes_raises(drop_deps):
+    with pytest.raises(click.ClickException):
+        manage_test_account.drop_test_account("TEST_ACCT", 3, yes=False)
 
 
-def test_drop_test_account_with_yes_executes_drop_and_archives_matching_env(tmp_path, monkeypatch):
-    monkeypatch.setattr(manage_test_account, "REPO_ROOT", tmp_path)
+def test_drop_test_account_with_yes_executes_drop_and_archives_matching_env(drop_deps, tmp_path):
     tests_dir = tmp_path / "tests"
     tests_dir.mkdir()
     env_path = tests_dir / ".env"
     env_path.write_text("TEST_SNOWFLAKE_ACCOUNT=ORG-TEST_ACCT\n")
-    org_conn = _org_connection()
 
-    with patch.object(manage_test_account, "get_org_connection", return_value=org_conn):
-        manage_test_account.drop_test_account("TEST_ACCT", 3, yes=True)
+    manage_test_account.drop_test_account("TEST_ACCT", 3, yes=True)
 
     assert not env_path.exists()
     dropped = list(tests_dir.glob(".env.dropped.*"))
     assert len(dropped) == 1
-    executed_sql = [call.args[0] for call in org_conn.cursor.return_value.execute.call_args_list]
+    executed_sql = [call.args[0] for call in drop_deps.org_conn.cursor.return_value.execute.call_args_list]
     assert "DROP ACCOUNT TEST_ACCT GRACE_PERIOD_IN_DAYS = 3" in executed_sql
 
 
@@ -410,10 +411,8 @@ def provision_deps(tmp_path, monkeypatch):
     monkeypatch.setattr(manage_test_account, "poll_for_connection", poll_for_connection)
     monkeypatch.setattr(manage_test_account, "reset_test_account", MagicMock())
 
-    fake_subprocess = MagicMock()
-    fake_subprocess.CalledProcessError = subprocess.CalledProcessError
-    fake_subprocess.run.return_value = MagicMock(returncode=0)
-    monkeypatch.setattr(manage_test_account, "subprocess", fake_subprocess)
+    subprocess_run = MagicMock(return_value=MagicMock(returncode=0))
+    monkeypatch.setattr(manage_test_account.subprocess, "run", subprocess_run)
 
     return SimpleNamespace(
         conn=conn,
@@ -422,7 +421,7 @@ def provision_deps(tmp_path, monkeypatch):
         dict_cursor=dict_cursor,
         new_conn=new_conn,
         poll_for_connection=poll_for_connection,
-        subprocess=fake_subprocess,
+        subprocess_run=subprocess_run,
     )
 
 
@@ -435,7 +434,7 @@ def _provision(key_path, name="SNOWCAP_TEST"):
 def test_provision_resume_skips_create_and_does_not_regenerate_key(provision_deps, tmp_path):
     key_path = tmp_path / "key.p8"
     key_path.write_text("EXISTING_KEY_CONTENTS")
-    provision_deps.dict_cursor.fetchall.return_value = [{"name": "SNOWCAP_TEST"}]
+    provision_deps.dict_cursor.fetchall.return_value = [{"account_name": "SNOWCAP_TEST"}]
 
     _provision(key_path)
 
@@ -472,7 +471,7 @@ def test_provision_backs_up_existing_tests_env(provision_deps, tmp_path):
 
 def test_provision_surfaces_apply_sh_failure(provision_deps, tmp_path, capsys):
     key_path = tmp_path / "key.p8"
-    provision_deps.subprocess.run.side_effect = subprocess.CalledProcessError(
+    provision_deps.subprocess_run.side_effect = subprocess.CalledProcessError(
         1, ["apply.sh"], output="stdout contents", stderr="stderr contents"
     )
 
@@ -496,9 +495,35 @@ def test_provision_invalid_name_fails_before_touching_key_file(provision_deps, t
 
 def test_provision_resume_without_key_file_fails_fast_without_polling(provision_deps, tmp_path):
     key_path = tmp_path / "key.p8"
-    provision_deps.dict_cursor.fetchall.return_value = [{"name": "SNOWCAP_TEST"}]
+    provision_deps.dict_cursor.fetchall.return_value = [{"account_name": "SNOWCAP_TEST"}]
 
     with pytest.raises(click.ClickException, match="no admin key was found"):
         _provision(key_path)
 
     provision_deps.poll_for_connection.assert_not_called()
+
+
+def test_provision_invalid_region_fails_before_touching_key_file(provision_deps, tmp_path):
+    key_path = tmp_path / "key.p8"
+
+    with pytest.raises(click.ClickException):
+        manage_test_account.provision_test_account(
+            "SNOWCAP_TEST", "a@example.com", None, None, "us-west-2", "SNOWCAP_ADMIN", str(key_path)
+        )
+
+    assert not key_path.exists()
+    provision_deps.org_conn.cursor.assert_not_called()
+
+
+def test_provision_create_account_failure_surfaces_with_recovery_hint(provision_deps, tmp_path, capsys):
+    key_path = tmp_path / "key.p8"
+    select_result = provision_deps.org_cursor.execute.return_value
+    provision_deps.org_cursor.execute.side_effect = [
+        select_result,
+        snowflake.connector.errors.ProgrammingError("duplicate account name"),
+    ]
+
+    with pytest.raises(click.ClickException):
+        _provision(key_path)
+
+    assert "Recovery" in capsys.readouterr().err
