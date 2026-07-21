@@ -20,7 +20,7 @@ class _Streamlit(ResourceSpec):
     # DESC STREAMLIT returns root_location as a fully-qualified, uppercased
     # stage path that never matches the declared from_ (e.g. "@my_stage"), so
     # from_ is not fetchable — YAML is authoritative (same as Notebook).
-    from_: str = field(metadata={"fetchable": False})
+    from_: str = field(default=None, metadata={"fetchable": False})
     version: Optional[str] = None
     main_file: Optional[str] = None
     title: Optional[str] = None
@@ -30,7 +30,7 @@ class _Streamlit(ResourceSpec):
 
     def __post_init__(self):
         super().__post_init__()
-        if self.from_.startswith("@"):
+        if self.from_ is not None and self.from_.startswith("@"):
             if self.version is not None:
                 raise ValueError("Version should not be set when the source is a stage")
 
@@ -107,10 +107,10 @@ class Streamlit(NamedResource, TaggableResource, Resource):
     scope = SchemaScope()
     spec = _Streamlit
 
-    def init(
+    def __init__(
         self,
         name: str,
-        from_: str,
+        from_: str = None,
         version: Optional[str] = None,
         main_file: Optional[str] = None,
         title: Optional[str] = None,
