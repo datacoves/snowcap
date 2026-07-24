@@ -2385,7 +2385,9 @@ def fetch_inherited_grant(session: SnowflakeConnection, fqn: FQN):
 def fetch_grant(session: SnowflakeConnection, fqn: FQN):
     priv = fqn.params["priv"]
     on_type, on = fqn.params["on"].split("/", 1)
-    on_type = on_type.upper()
+    # Normalize to Snowflake's SHOW GRANTS form: multi-word types are reported
+    # with spaces ('CATALOG INTEGRATION'), not underscores ('CATALOG_INTEGRATION')
+    on_type = on_type.upper().replace("_", " ")
     to_type, to = fqn.params["to"].split("/", 1)
     to_type = resource_type_for_label(to_type)
     # Default to OBJECT grant type if not specified
@@ -2402,7 +2404,13 @@ def fetch_grant(session: SnowflakeConnection, fqn: FQN):
         if on_type != "ACCOUNT":
             filters["name"] = on
 
-        grants = _show_grants_to_role(session, to, role_type=to_type, cacheable=True)
+        if grant_type == GrantType.FUTURE:
+            if to_type == ResourceType.DATABASE_ROLE:
+                grants = _show_future_grants_to_database_role(session, str(to), cacheable=True)
+            else:
+                grants = _show_future_grants_to_role(session, to, cacheable=True)
+        else:
+            grants = _show_grants_to_role(session, to, role_type=to_type, cacheable=True)
         grants = _filter_result(grants, **filters)
 
         if len(grants) == 0:

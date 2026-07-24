@@ -34,9 +34,9 @@ from snowcap.data_provider import (
     options_result_to_list,
     remove_none_values,
     # Dispatcher functions
+    fetch_grant,
     fetch_resource,
     fetch_database,
-    fetch_grant,
     fetch_shared_database,
     fetch_security_integration,
     fetch_task,
@@ -2766,3 +2766,115 @@ class TestGrantFetchMatchesOnObjectType:
             )
             is None
         )
+class TestFetchGrant:
+    """Tests for fetch_grant grant-matching logic with mocked SHOW results."""
+
+    def _fqn(self, priv, on, to, grant_type=None):
+        params = {"priv": priv, "on": on, "to": to}
+        if grant_type is not None:
+            params["grant_type"] = grant_type
+        return FQN(name=ResourceName("GRANT"), params=params)
+
+    def _show_grant_row(self, privilege, granted_on, name, granted_to="ROLE", grantee_name="SOME_ROLE"):
+        return {
+            "created_on": datetime.datetime(2024, 1, 1, 12, 0, 0),
+            "privilege": privilege,
+            "granted_on": granted_on,
+            "name": name,
+            "granted_to": granted_to,
+            "grantee_name": grantee_name,
+            "grant_option": "false",
+            "granted_by": "SYSADMIN",
+        }
+
+    def _future_grant_row(self, privilege, name, granted_on):
+        """Row shape of _show_future_grants_to_role output (granted_on already inferred)."""
+        return {
+            "created_on": datetime.datetime(2024, 1, 1, 12, 0, 0),
+            "privilege": privilege,
+            "grant_on": granted_on,
+            "name": name,
+            "grant_to": "ROLE",
+            "grantee_name": "DBT_DEVELOPER",
+            "grant_option": "false",
+            "granted_on": granted_on,
+        }
+
+    @patch("snowcap.data_provider._show_grants_to_role")
+    @patch("snowcap.data_provider._show_future_grants_to_role")
+    def test_fetch_grant_all_future_schemas_in_database(self, mock_future_grants, mock_show_grants):
+        """ALL on FUTURE SCHEMAS in DATABASE must query SHOW FUTURE GRANTS, not SHOW GRANTS."""
+        fqn = self._fqn(
+            priv="ALL",
+            on="database/DB_DEV.<SCHEMA>",
+            to="role/DBT_DEVELOPER",
+            grant_type="FUTURE",
+        )
+        mock_future_grants.return_value = [
+            self._future_grant_row("MONITOR", "DB_DEV.<SCHEMA>", "DATABASE"),
+            self._future_grant_row("USAGE", "DB_DEV.<SCHEMA>", "DATABASE"),
+        ]
+
+        result = fetch_grant(MagicMock(), fqn)
+
+        assert result is not None
+        assert result["priv"] == "ALL"
+        assert result["_privs"] == ["MONITOR", "USAGE"]
+        assert result["grant_type"] == "FUTURE"
+        mock_future_grants.assert_called_once()
+        mock_show_grants.assert_not_called()
+
+    @patch("snowcap.data_provider._show_grants_to_role")
+    def test_fetch_grant_usage_on_catalog_integration(self, mock_show_grants):
+        """Snowflake reports multi-word granted_on with spaces ('CATALOG INTEGRATION')."""
+        fqn = self._fqn(priv="USAGE", on="catalog_integration/MY_CATALOG", to="role/SOME_ROLE")
+        mock_show_grants.return_value = [
+            self._show_grant_row("USAGE", "CATALOG INTEGRATION", "MY_CATALOG"),
+        ]
+
+        result = fetch_grant(MagicMock(), fqn)
+
+        assert result is not None
+        assert result["priv"] == "USAGE"
+        assert result["on"] == "MY_CATALOG"
+        assert result["on_type"] == "CATALOG INTEGRATION"
+
+    @patch("snowcap.data_provider._show_grants_to_role")
+    def test_fetch_grant_usage_on_storage_integration(self, mock_show_grants):
+        fqn = self._fqn(priv="USAGE", on="storage_integration/MY_STORAGE", to="role/SOME_ROLE")
+        mock_show_grants.return_value = [
+            self._show_grant_row("USAGE", "STORAGE INTEGRATION", "MY_STORAGE"),
+        ]
+
+        result = fetch_grant(MagicMock(), fqn)
+
+        assert result is not None
+        assert result["on_type"] == "STORAGE INTEGRATION"
+
+    @patch("snowcap.data_provider._show_grants_to_role")
+    def test_fetch_grant_audit_on_account_still_matches(self, mock_show_grants):
+        fqn = self._fqn(priv="AUDIT", on="account/ACCOUNT", to="role/SOME_ROLE")
+        mock_show_grants.return_value = [
+            self._show_grant_row("AUDIT", "ACCOUNT", "ACCOUNT"),
+        ]
+
+        result = fetch_grant(MagicMock(), fqn)
+
+        assert result is not None
+        assert result["priv"] == "AUDIT"
+        assert result["on"] == "ACCOUNT"
+        assert result["on_type"] == "ACCOUNT"
+
+    @patch("snowcap.data_provider._show_grants_to_role")
+    def test_fetch_grant_usage_on_schema_still_matches(self, mock_show_grants):
+        fqn = self._fqn(priv="USAGE", on="schema/DB_DEV.PUBLIC", to="role/SOME_ROLE")
+        mock_show_grants.return_value = [
+            self._show_grant_row("USAGE", "SCHEMA", "DB_DEV.PUBLIC"),
+        ]
+
+        result = fetch_grant(MagicMock(), fqn)
+
+        assert result is not None
+        assert result["priv"] == "USAGE"
+        assert result["on"] == "DB_DEV.PUBLIC"
+        assert result["on_type"] == "SCHEMA"
