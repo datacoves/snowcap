@@ -2766,6 +2766,8 @@ class TestGrantFetchMatchesOnObjectType:
             )
             is None
         )
+
+
 class TestFetchGrant:
     """Tests for fetch_grant grant-matching logic with mocked SHOW results."""
 
@@ -2826,10 +2828,11 @@ class TestFetchGrant:
 
     @patch("snowcap.data_provider._show_grants_to_role")
     def test_fetch_grant_usage_on_catalog_integration(self, mock_show_grants):
-        """Snowflake reports multi-word granted_on with spaces ('CATALOG INTEGRATION')."""
+        """SHOW GRANTS collapses all *-integration types to granted_on='INTEGRATION'
+        (verified live 2026-07-24); the returned on_type stays canonical."""
         fqn = self._fqn(priv="USAGE", on="catalog_integration/MY_CATALOG", to="role/SOME_ROLE")
         mock_show_grants.return_value = [
-            self._show_grant_row("USAGE", "CATALOG INTEGRATION", "MY_CATALOG"),
+            self._show_grant_row("USAGE", "INTEGRATION", "MY_CATALOG"),
         ]
 
         result = fetch_grant(MagicMock(), fqn)
@@ -2843,13 +2846,27 @@ class TestFetchGrant:
     def test_fetch_grant_usage_on_storage_integration(self, mock_show_grants):
         fqn = self._fqn(priv="USAGE", on="storage_integration/MY_STORAGE", to="role/SOME_ROLE")
         mock_show_grants.return_value = [
-            self._show_grant_row("USAGE", "STORAGE INTEGRATION", "MY_STORAGE"),
+            self._show_grant_row("USAGE", "INTEGRATION", "MY_STORAGE"),
         ]
 
         result = fetch_grant(MagicMock(), fqn)
 
         assert result is not None
         assert result["on_type"] == "STORAGE INTEGRATION"
+
+    @patch("snowcap.data_provider._show_grants_to_role")
+    def test_fetch_grant_read_on_git_repository(self, mock_show_grants):
+        """GIT REPOSITORY is reported with an underscore ('GIT_REPOSITORY') — must
+        still match, and round-trips to the canonical spaced form."""
+        fqn = self._fqn(priv="READ", on="git_repository/DB_PROD.PUBLIC.DBT_PLATFORM_REPO", to="role/SOME_ROLE")
+        mock_show_grants.return_value = [
+            self._show_grant_row("READ", "GIT_REPOSITORY", "DB_PROD.PUBLIC.DBT_PLATFORM_REPO"),
+        ]
+
+        result = fetch_grant(MagicMock(), fqn)
+
+        assert result is not None
+        assert result["on_type"] == "GIT REPOSITORY"
 
     @patch("snowcap.data_provider._show_grants_to_role")
     def test_fetch_grant_audit_on_account_still_matches(self, mock_show_grants):

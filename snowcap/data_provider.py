@@ -2385,8 +2385,13 @@ def fetch_inherited_grant(session: SnowflakeConnection, fqn: FQN):
 def fetch_grant(session: SnowflakeConnection, fqn: FQN):
     priv = fqn.params["priv"]
     on_type, on = fqn.params["on"].split("/", 1)
-    # Normalize to Snowflake's SHOW GRANTS form: multi-word types are reported
-    # with spaces ('CATALOG INTEGRATION'), not underscores ('CATALOG_INTEGRATION')
+    # Two forms of on_type are in play (verified live 2026-07-24):
+    #   - canonical (spec/diff) form: spaced, e.g. 'CATALOG INTEGRATION',
+    #     'GIT REPOSITORY' — what the Grant model stores and what we return.
+    #   - SHOW GRANTS query form: all *-integration types collapse to the bare
+    #     word 'INTEGRATION'; everything else keeps the underscored label
+    #     uppercased ('GIT_REPOSITORY', 'SCHEMA', ...).
+    query_on_type = "INTEGRATION" if on_type.lower().endswith("_integration") else on_type.upper()
     on_type = on_type.upper().replace("_", " ")
     to_type, to = fqn.params["to"].split("/", 1)
     to_type = resource_type_for_label(to_type)
@@ -2398,10 +2403,10 @@ def fetch_grant(session: SnowflakeConnection, fqn: FQN):
 
     if priv == "ALL":
         filters = {
-            "granted_on": on_type,
+            "granted_on": query_on_type,
         }
 
-        if on_type != "ACCOUNT":
+        if query_on_type != "ACCOUNT":
             filters["name"] = on
 
         if grant_type == GrantType.FUTURE:
@@ -2424,7 +2429,7 @@ def fetch_grant(session: SnowflakeConnection, fqn: FQN):
             session,
             grant_type=grant_type,
             role=to,
-            granted_on=on_type,
+            granted_on=query_on_type,
             on_name=on,
             privilege=priv,
             role_type=to_type,
