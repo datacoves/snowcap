@@ -123,6 +123,8 @@ nav:
       - ResourceMonitor: resources/resource_monitor.md
     - Apps:
       - Streamlit: resources/streamlit.md
+    - Data Engineering:
+      - DbtProject: resources/dbt_project.md
     - Data Loading:
       - File Formats:
         - JSONFileFormat: resources/json_file_format.md

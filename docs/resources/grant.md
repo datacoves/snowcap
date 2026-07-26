@@ -59,6 +59,16 @@ grants:
   - priv: MONITOR
     on: cortex search service somedb.someschema.someservice
     to: search_observability_role
+
+  # Data Engineering: USAGE on a dbt project object to EXECUTE DBT PROJECT
+  - priv: USAGE
+    on: dbt project somedb.someschema.analytics_dbt
+    to: transformer_role
+
+  # Data Engineering: MONITOR on a dbt project for Snowsight run history
+  - priv: MONITOR
+    on: dbt project somedb.someschema.analytics_dbt
+    to: analytics_observer
 ```
 
 #### Future Grants

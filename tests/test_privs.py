@@ -10,6 +10,7 @@ from snowcap.privs import (
     CortexSearchServicePriv,
     DatabasePriv,
     DatabaseRolePriv,
+    DbtProjectPriv,
     DirectoryTablePriv,
     EventTablePriv,
     ExternalVolumePriv,
@@ -345,6 +346,29 @@ class TestCortexSearchServicePriv:
 
     def test_ownership_privilege(self):
         assert CortexSearchServicePriv.OWNERSHIP.value == "OWNERSHIP"
+
+
+#############################################################################
+# DbtProjectPriv Tests
+#############################################################################
+
+
+class TestDbtProjectPriv:
+    """Tests for DbtProjectPriv enum values (dbt Projects on Snowflake)."""
+
+    def test_all_privilege(self):
+        assert DbtProjectPriv.ALL.value == "ALL"
+
+    def test_usage_privilege(self):
+        """USAGE is the priv needed to execute a dbt project + list its files."""
+        assert DbtProjectPriv.USAGE.value == "USAGE"
+
+    def test_monitor_privilege(self):
+        """MONITOR is the priv needed for project details + run history."""
+        assert DbtProjectPriv.MONITOR.value == "MONITOR"
+
+    def test_ownership_privilege(self):
+        assert DbtProjectPriv.OWNERSHIP.value == "OWNERSHIP"
 
 
 #############################################################################

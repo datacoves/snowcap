@@ -310,6 +310,12 @@ RESOURCE_SCOPES = {
     # `priv: USAGE on cortex search service <db>.<schema>.<name>` in YAML to
     # manage access to services they create out-of-band (e.g. via dbt or DDL).
     ResourceType.CORTEX_SEARCH_SERVICE: SchemaScope(),
+    # DBT PROJECT — dbt Projects on Snowflake, schema-scoped. No concrete
+    # resource class yet (CREATE DBT PROJECT wraps a workspace/git source +
+    # profiles config that warrants its own PR). Registering a SchemaScope here
+    # lets users write `priv: USAGE on dbt project <db>.<schema>.<name>` in YAML
+    # to manage access to projects they create out-of-band (Workspaces / DDL).
+    ResourceType.DBT_PROJECT: SchemaScope(),
 }
 
 

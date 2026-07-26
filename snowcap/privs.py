@@ -119,6 +119,13 @@ class CortexSearchServicePriv(Priv):
     USAGE = "USAGE"
 
 
+class DbtProjectPriv(Priv):
+    ALL = "ALL"
+    MONITOR = "MONITOR"
+    OWNERSHIP = "OWNERSHIP"
+    USAGE = "USAGE"
+
+
 class DirectoryTablePriv(Priv):
     OWNERSHIP = "OWNERSHIP"
 
@@ -240,6 +247,7 @@ class SchemaPriv(Priv):
     CREATE_AUTHENTICATION_POLICY = "CREATE AUTHENTICATION POLICY"
     CREATE_CORTEX_SEARCH_SERVICE = "CREATE CORTEX SEARCH SERVICE"
     CREATE_DATASET = "CREATE DATASET"
+    CREATE_DBT_PROJECT = "CREATE DBT PROJECT"
     CREATE_DYNAMIC_TABLE = "CREATE DYNAMIC TABLE"
     CREATE_EVENT_TABLE = "CREATE EVENT TABLE"
     CREATE_EXTERNAL_TABLE = "CREATE EXTERNAL TABLE"
@@ -395,6 +403,7 @@ PRIVS_FOR_RESOURCE_TYPE: dict[ResourceType, Optional[type[Priv]]] = {
     ResourceType.CORTEX_SEARCH_SERVICE: CortexSearchServicePriv,
     ResourceType.DATABASE_ROLE: DatabaseRolePriv,
     ResourceType.DATABASE: DatabasePriv,
+    ResourceType.DBT_PROJECT: DbtProjectPriv,
     ResourceType.DIRECTORY_TABLE: DirectoryTablePriv,
     ResourceType.DYNAMIC_TABLE: TablePriv,
     ResourceType.EVENT_TABLE: EventTablePriv,

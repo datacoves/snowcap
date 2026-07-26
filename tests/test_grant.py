@@ -174,6 +174,33 @@ def test_grant_on_cortex_search_service():
     assert "MONITOR ON CORTEX SEARCH SERVICE" in monitor_grant.create_sql()
 
 
+def test_grant_on_dbt_project():
+    """USAGE/MONITOR on a DBT PROJECT parses and renders correctly.
+
+    A dbt project object (dbt Projects on Snowflake) is schema-scoped. USAGE
+    lets a role execute the project and list/retrieve its files; MONITOR
+    exposes project details + run history in Snowsight:
+        GRANT USAGE   ON DBT PROJECT <db>.<schema>.<proj> TO ROLE r
+        GRANT MONITOR ON DBT PROJECT <db>.<schema>.<proj> TO ROLE observer
+    """
+    grant = res.Grant(
+        priv="USAGE",
+        on_dbt_project="somedb.someschema.someproject",
+        to="somerole",
+    )
+    assert grant._data.on == "SOMEDB.SOMESCHEMA.SOMEPROJECT"
+    assert grant._data.on_type == ResourceType.DBT_PROJECT
+    assert "USAGE ON DBT PROJECT" in grant.create_sql()
+
+    monitor_grant = res.Grant(
+        priv="MONITOR",
+        on_dbt_project="somedb.someschema.someproject",
+        to="observer",
+    )
+    assert monitor_grant._data.on_type == ResourceType.DBT_PROJECT
+    assert "MONITOR ON DBT PROJECT" in monitor_grant.create_sql()
+
+
 def test_grant_database_role_to_database_role():
     database = res.Database(name="somedb")
     parent = res.DatabaseRole(name="parent", database=database)
