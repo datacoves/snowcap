@@ -935,15 +935,6 @@ class TestFetchRegion:
 class TestHasAccountUsageAccess:
     """Tests for _has_account_usage_access function."""
 
-    def setup_method(self):
-        """Clear caches before each test."""
-        from snowcap.data_provider import (
-            _ACCOUNT_USAGE_ACCESS_CACHE,
-            _ACCOUNT_USAGE_FALLBACK_CACHE,
-        )
-        _ACCOUNT_USAGE_ACCESS_CACHE.clear()
-        _ACCOUNT_USAGE_FALLBACK_CACHE.clear()
-
     @patch("snowcap.data_provider.execute")
     def test_returns_true_when_access_granted(self, mock_execute):
         """When ACCOUNT_USAGE query succeeds, function returns True."""
@@ -1017,15 +1008,6 @@ class TestHasAccountUsageAccess:
 
 class TestFetchGrantsFromAccountUsage:
     """Tests for _fetch_grants_from_account_usage function."""
-
-    def setup_method(self):
-        """Clear caches before each test."""
-        from snowcap.data_provider import (
-            _ACCOUNT_USAGE_ACCESS_CACHE,
-            _ACCOUNT_USAGE_FALLBACK_CACHE,
-        )
-        _ACCOUNT_USAGE_ACCESS_CACHE.clear()
-        _ACCOUNT_USAGE_FALLBACK_CACHE.clear()
 
     @patch("snowcap.data_provider.execute")
     def test_returns_normalized_grants(self, mock_execute):
@@ -1132,15 +1114,6 @@ class TestFetchGrantsFromAccountUsage:
 class TestFetchRoleGrantsToUsersFromAccountUsage:
     """Tests for _fetch_role_grants_to_users_from_account_usage function."""
 
-    def setup_method(self):
-        """Clear caches before each test."""
-        from snowcap.data_provider import (
-            _ACCOUNT_USAGE_ACCESS_CACHE,
-            _ACCOUNT_USAGE_FALLBACK_CACHE,
-        )
-        _ACCOUNT_USAGE_ACCESS_CACHE.clear()
-        _ACCOUNT_USAGE_FALLBACK_CACHE.clear()
-
     @patch("snowcap.data_provider.execute")
     def test_returns_normalized_user_grants(self, mock_execute):
         """User grants should be normalized to match SHOW GRANTS OF ROLE structure."""
@@ -1183,15 +1156,6 @@ class TestFetchRoleGrantsToUsersFromAccountUsage:
 
 class TestShouldUseAccountUsage:
     """Tests for _should_use_account_usage helper function."""
-
-    def setup_method(self):
-        """Clear caches before each test."""
-        from snowcap.data_provider import (
-            _ACCOUNT_USAGE_ACCESS_CACHE,
-            _ACCOUNT_USAGE_FALLBACK_CACHE,
-        )
-        _ACCOUNT_USAGE_ACCESS_CACHE.clear()
-        _ACCOUNT_USAGE_FALLBACK_CACHE.clear()
 
     @patch("snowcap.data_provider._has_account_usage_access")
     def test_returns_false_when_config_disabled(self, mock_has_access):
@@ -1248,11 +1212,6 @@ class TestShouldUseAccountUsage:
 class TestMarkAccountUsageFallback:
     """Tests for _mark_account_usage_fallback function."""
 
-    def setup_method(self):
-        """Clear caches before each test."""
-        from snowcap.data_provider import _ACCOUNT_USAGE_FALLBACK_CACHE
-        _ACCOUNT_USAGE_FALLBACK_CACHE.clear()
-
     def test_marks_session_for_fallback(self):
         """Should mark session ID in fallback cache."""
         from snowcap.data_provider import (
@@ -1268,15 +1227,6 @@ class TestMarkAccountUsageFallback:
 
 class TestFetchRolePrivilegesAccountUsage:
     """Tests for fetch_role_privileges with ACCOUNT_USAGE integration."""
-
-    def setup_method(self):
-        """Clear caches before each test."""
-        from snowcap.data_provider import (
-            _ACCOUNT_USAGE_ACCESS_CACHE,
-            _ACCOUNT_USAGE_FALLBACK_CACHE,
-        )
-        _ACCOUNT_USAGE_ACCESS_CACHE.clear()
-        _ACCOUNT_USAGE_FALLBACK_CACHE.clear()
 
     @patch("snowcap.data_provider._should_use_account_usage")
     @patch("snowcap.data_provider._fetch_grants_from_account_usage")

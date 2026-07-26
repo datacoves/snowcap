@@ -146,6 +146,21 @@ def dummy_cursor(request):
 
 
 @pytest.fixture(autouse=True)
+def reset_account_usage_caches_between_tests():
+    """
+    The ACCOUNT_USAGE caches in data_provider are keyed by id(session). CPython reuses the
+    addresses of freed objects, so a mock session in one test can land on the address of a
+    previous test's session and inherit its cached grants. Reset all four caches around every
+    test so cache state never leaks between them.
+    """
+    from snowcap.data_provider import reset_account_usage_caches
+
+    reset_account_usage_caches()
+    yield
+    reset_account_usage_caches()
+
+
+@pytest.fixture(autouse=True)
 def reset_cursor_context(dummy_cursor, test_db):
     """
     This fixture resets the cursor's context to the initial test database before each test.
