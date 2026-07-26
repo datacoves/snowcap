@@ -98,6 +98,51 @@ If your configuration includes any of these, you have two options:
 
 Most teams choose Option B as they mature their setup.
 
+## System roles and ORGADMIN
+
+Snowflake's built-in roles (ACCOUNTADMIN, SECURITYADMIN, USERADMIN, SYSADMIN, PUBLIC, ORGADMIN) are never created by Snowcap. You can reference them and grant them, but they have to already exist in the account.
+
+That last part matters for **ORGADMIN**, which is the one system role Snowflake does not enable everywhere. It is enabled in an organization's *primary* account only. In any other account the role simply does not exist, so a config that grants it fails at plan time:
+
+```yaml
+role_grants:
+  - to_user: someuser
+    roles:
+      - ORGADMIN   # fails unless ORGADMIN is enabled in this account
+```
+
+```
+Role "ORGADMIN" not found.
+  Referenced by: role grant to user "SOMEUSER"
+  Note: ORGADMIN is only enabled in an organization's primary account. Snowcap
+  cannot enable it for you, because it does not manage accounts. Enable it manually
+  by running `ALTER ACCOUNT <this_account> SET IS_ORG_ADMIN = TRUE` as ORGADMIN,
+  from the primary account (or any account where ORGADMIN is already enabled), then
+  re-run. Otherwise remove the reference.
+```
+
+### Enabling ORGADMIN in another account
+
+This has to be done from an account that already holds the role, and it is not something Snowcap manages (see below):
+
+```sql
+USE ROLE ORGADMIN;
+ALTER ACCOUNT my_account SET IS_ORG_ADMIN = TRUE;
+```
+
+Two constraints worth knowing:
+
+- `ALTER ACCOUNT` here accepts only the **account name** form of the identifier, not the account locator.
+- ORGADMIN can be enabled in at most **eight accounts** per organization by default. Contact Snowflake Support if you need more.
+
+Once the role exists in the account, granting it is an ordinary role grant and Snowcap handles it like any other.
+
+### Known limitation: Snowcap cannot enable ORGADMIN
+
+Snowcap has no resource for the `IS_ORG_ADMIN` account property. [AccountParameter](resources/account_parameter.md) is not a substitute: it emits `ALTER ACCOUNT SET <parameter> = <value>` against the account in the current session, while enabling ORGADMIN requires `ALTER ACCOUNT <name> SET IS_ORG_ADMIN = TRUE`, a different statement targeting a *named* account, run from a *different* account.
+
+Enable it out of band with the SQL above, then manage the grants declaratively.
+
 ## What ACCOUNTADMIN can do that SNOWCAP_ADMIN cannot
 
 This is the full list of ACCOUNTADMIN-exclusive capabilities that have nothing to do with Snowcap. It's useful context when explaining the custom role to a security team.
