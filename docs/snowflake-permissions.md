@@ -139,7 +139,7 @@ Once the role exists in the account, granting it is an ordinary role grant and S
 
 ### Known limitation: Snowcap cannot enable ORGADMIN
 
-Snowcap has no resource for the `IS_ORG_ADMIN` account property. [AccountParameter](resources/account_parameter.md) is not a substitute: it emits `ALTER ACCOUNT SET <parameter> = <value>` against the account in the current session, while enabling ORGADMIN requires `ALTER ACCOUNT <name> SET IS_ORG_ADMIN = TRUE` — a different statement, targeting a *named* account, run from a *different* account.
+Snowcap has no resource for the `IS_ORG_ADMIN` account property. [AccountParameter](resources/account_parameter.md) is not a substitute: it emits `ALTER ACCOUNT SET <parameter> = <value>` against the account in the current session, while enabling ORGADMIN requires `ALTER ACCOUNT <name> SET IS_ORG_ADMIN = TRUE`, a different statement targeting a *named* account, run from a *different* account.
 
 Enable it out of band with the SQL above, then manage the grants declaratively.
 
