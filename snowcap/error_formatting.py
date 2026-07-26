@@ -5,7 +5,46 @@ User-friendly error message formatting for Snowcap exceptions.
 import difflib
 from typing import Optional
 
+from .builtins import SYSTEM_ROLES
 from .identifiers import URN
+
+# System roles that Snowflake does not enable in every account. Referencing one
+# of these fails with the same "not found" error as a typo, even though the
+# cause and the fix are entirely different, so we explain them specifically.
+_CONDITIONAL_SYSTEM_ROLE_HINTS = {
+    "ORGADMIN": (
+        "ORGADMIN is only enabled in an organization's primary account. Snowcap cannot "
+        "enable it for you, because it does not manage accounts. Enable it manually by "
+        "running `ALTER ACCOUNT <this_account> SET IS_ORG_ADMIN = TRUE` as ORGADMIN, "
+        "from the primary account (or any account where ORGADMIN is already enabled), "
+        "then re-run. Otherwise remove the reference."
+    ),
+}
+
+_GENERIC_SYSTEM_ROLE_HINT = (
+    "{name} is a Snowflake system role, so this is unlikely to be a typo. It is either "
+    "not enabled in this account or not visible to the session role."
+)
+
+
+def _system_role_hint(urn: URN) -> Optional[str]:
+    """
+    Explain why a built-in system role might be missing.
+
+    System roles are never created by Snowcap, so the usual "did you mean" suggestion
+    is misleading for them: the reference is spelled correctly and the fix is to enable
+    the role or grant visibility, not to rename anything.
+
+    Returns None for ordinary roles and for every other resource type.
+    """
+    if urn.resource_label != "role":
+        return None
+
+    name = str(urn.fqn.name).strip('"').upper()
+    if name not in SYSTEM_ROLES:
+        return None
+
+    return _CONDITIONAL_SYSTEM_ROLE_HINTS.get(name, _GENERIC_SYSTEM_ROLE_HINT.format(name=name))
 
 
 def _get_resource_display_name(urn: URN) -> str:
@@ -60,6 +99,12 @@ def format_missing_resource_error(
     # Add context about what references it
     if required_by_urn:
         msg += f"\n  Referenced by: {_format_reference(required_by_urn)}"
+
+    # System roles are spelled correctly by definition, so explain the real cause
+    # instead of offering near-miss names the user did not mean.
+    system_role_hint = _system_role_hint(missing_urn)
+    if system_role_hint:
+        return msg + f"\n  Note: {system_role_hint}"
 
     # Add suggestions if available
     if available_names:
@@ -140,6 +185,10 @@ def format_missing_pointer_error(
     resource_name = _get_resource_display_name(urn)
 
     msg = f'{resource_type} "{resource_name}" not found.'
+
+    system_role_hint = _system_role_hint(urn)
+    if system_role_hint:
+        return msg + f"\n  Note: {system_role_hint}"
 
     # Add suggestions if available
     if available_names:
