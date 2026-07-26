@@ -12,6 +12,7 @@ from snowflake.connector import SnowflakeConnection
 from snowflake.connector.errors import ProgrammingError
 
 from .builtins import (
+    ROOT_ACCOUNT_NAME,
     SYSTEM_DATABASES,
     SYSTEM_ROLES,
     SYSTEM_SECURITY_INTEGRATIONS,
@@ -355,6 +356,25 @@ def _parse_storage_location(storage_location_str: str) -> Optional[dict]:
         ):
             storage_location[key] = value
     return storage_location
+
+
+def _cast_snowflake_bool(raw_value: Any) -> Optional[bool]:
+    """
+    Coerce a boolean-ish column from a SHOW command into a bool.
+
+    SHOW output is not consistent about how it spells booleans: some columns use
+    "Y"/"N", others "true"/"false", and some are already native bools. Returns None
+    when the value is absent or unrecognized, which the diff treats as "unmanaged"
+    rather than as False.
+    """
+    if raw_value is None or isinstance(raw_value, bool):
+        return raw_value
+    normalized = str(raw_value).strip().upper()
+    if normalized in ("Y", "YES", "TRUE", "T", "1"):
+        return True
+    if normalized in ("N", "NO", "FALSE", "F", "0"):
+        return False
+    return None
 
 
 def _cast_param_value(raw_value: str, param_type: str) -> Any:
@@ -1281,9 +1301,35 @@ def _fetch_future_grants_for_all_database_roles(
 
 
 def fetch_account(session: SnowflakeConnection, fqn: FQN):
+    # ACCOUNT is the blueprint's root container, not a real account. Looking it up
+    # would either fail or, worse, match an unrelated account, so keep returning the
+    # placeholder that the root has always been given.
+    if ResourceName(str(fqn.name)) == ResourceName(ROOT_ACCOUNT_NAME):
+        return {
+            "name": None,
+            "locator": None,
+        }
+
+    # SHOW ACCOUNTS requires ORGADMIN. Callers that only manage account-scoped
+    # resources never reach this path, so surface the error rather than masking a
+    # real permissions problem as a missing account.
+    show_result = execute(session, "SHOW ACCOUNTS", cacheable=True)
+    accounts = _filter_result(show_result, account_name=str(fqn.name))
+
+    if len(accounts) == 0:
+        return None
+    if len(accounts) > 1:
+        raise Exception(f"Found multiple accounts matching {fqn}")
+
+    data = accounts[0]
+
     return {
-        "name": None,
-        "locator": None,
+        "name": _quote_snowflake_identifier(data["account_name"]),
+        "locator": data.get("account_locator"),
+        "edition": data.get("edition"),
+        "region": data.get("snowflake_region"),
+        "comment": data.get("comment") or None,
+        "is_org_admin": _cast_snowflake_bool(data.get("is_org_admin")),
     }
 
 

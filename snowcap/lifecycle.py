@@ -35,6 +35,15 @@ def create__default(urn: URN, data: dict, props: Props, if_not_exists: bool = Fa
     )
 
 
+def create_account(urn: URN, data: dict, props: Props, if_not_exists: bool = False) -> str:
+    raise NotImplementedError(
+        f"Snowcap does not create Snowflake accounts (attempted for {urn.fqn}). "
+        "The Account resource manages properties on accounts that already exist. "
+        "Check that the account name is spelled correctly and that the session role "
+        "is ORGADMIN, which is required to see accounts via SHOW ACCOUNTS."
+    )
+
+
 def create_account_parameter(urn: URN, data: dict, props: Props, if_not_exists: bool = False) -> str:
     value = data["value"]
     if isinstance(value, str):
@@ -392,6 +401,31 @@ def update_masking_policy(urn: URN, data: dict, props: Props) -> str:
         return update__default(urn, {attr: new_value}, props)
 
 
+def update_account(urn: URN, data: dict, props: Props) -> str:
+    # is_org_admin is the only account property Snowcap manages. The rest of the
+    # spec (locator, edition, region) is read-only metadata, so a delta on any of
+    # them means the config disagrees with Snowflake about an immutable fact.
+    unsupported = sorted(attr for attr in data if attr != "is_org_admin")
+    if unsupported:
+        raise NotImplementedError(
+            f"Account properties {unsupported} cannot be altered by Snowcap for {urn.fqn}. "
+            "Only is_org_admin is managed; locator, edition and region are read-only."
+        )
+
+    if "is_org_admin" not in data:
+        raise NotImplementedError(f"No supported account property to update for {urn.fqn}")
+
+    if not data["is_org_admin"]:
+        raise NotImplementedError(
+            f"Snowflake does not allow IS_ORG_ADMIN to be set to FALSE from the current "
+            f"account, so Snowcap cannot disable ORGADMIN on {urn.fqn}. Disable it by "
+            "enabling ORGADMIN from a different account, or remove is_org_admin from the "
+            "config to leave the property unmanaged."
+        )
+
+    return tidy_sql("ALTER ACCOUNT", urn.fqn.name, "SET IS_ORG_ADMIN = TRUE")
+
+
 def update_account_parameter(urn: URN, data: dict, props: Props) -> str:
     return create_account_parameter(urn, data, props)
 
@@ -529,6 +563,14 @@ def drop__default(urn: URN, data: dict, if_exists: bool) -> str:
         urn.resource_type,
         "IF EXISTS" if if_exists else "",
         fqn_to_sql(urn.fqn),
+    )
+
+
+def drop_account(urn: URN, data: dict, if_exists: bool) -> str:
+    raise NotImplementedError(
+        f"Snowcap does not drop Snowflake accounts (attempted for {urn.fqn}). "
+        "Remove the Account resource from your config instead; dropping an account "
+        "is a destructive organization-level operation that must be done deliberately."
     )
 
 
