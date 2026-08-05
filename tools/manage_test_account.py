@@ -42,25 +42,62 @@ POLL_INTERVAL_SECONDS = 10
 POLL_TIMEOUT_SECONDS = 600
 
 
+def _auth_kwargs(prefix: str) -> dict:
+    """Connector auth kwargs from `<prefix>PASSWORD`, `<prefix>PRIVATE_KEY_PATH` (+ optional
+    `<prefix>PRIVATE_KEY_PASSPHRASE`), or `<prefix>AUTHENTICATOR` (e.g. externalbrowser for SSO,
+    an Okta URL composed with the password, SNOWFLAKE_JWT composed with the key path).
+    Password and key path are mutually exclusive."""
+    password = os.environ.get(f"{prefix}PASSWORD")
+    key_path = os.environ.get(f"{prefix}PRIVATE_KEY_PATH")
+    authenticator = os.environ.get(f"{prefix}AUTHENTICATOR")
+    if password and key_path:
+        raise click.ClickException(f"Set only one of {prefix}PASSWORD or {prefix}PRIVATE_KEY_PATH, not both")
+
+    kwargs = {}
+    if authenticator:
+        kwargs["authenticator"] = authenticator
+    if password:
+        kwargs["password"] = password
+    if key_path:
+        kwargs["private_key_file"] = key_path
+        passphrase = os.environ.get(f"{prefix}PRIVATE_KEY_PASSPHRASE")
+        if passphrase:
+            kwargs["private_key_file_pwd"] = passphrase
+    if not kwargs:
+        raise click.ClickException(
+            f"Missing required environment variable(s): "
+            f"{prefix}PASSWORD, {prefix}PRIVATE_KEY_PATH, or {prefix}AUTHENTICATOR"
+        )
+    return kwargs
+
+
+def _require_connection_env(prefix: str, extra: list[str] | None = None) -> None:
+    """Raise one error naming every missing var, so a bare environment isn't fixed one var at a time."""
+    missing = [var for var in [f"{prefix}ACCOUNT", f"{prefix}USER", *(extra or [])] if var not in os.environ]
+    auth_vars = (f"{prefix}PASSWORD", f"{prefix}PRIVATE_KEY_PATH", f"{prefix}AUTHENTICATOR")
+    if not any(os.environ.get(var) for var in auth_vars):
+        missing.append(" or ".join(auth_vars))
+    if missing:
+        raise click.ClickException(f"Missing required environment variable(s): {', '.join(missing)}")
+
+
 def get_connection():
+    _require_connection_env("SNOWFLAKE_", extra=["SNOWFLAKE_ROLE"])
     return snowflake.connector.connect(
         account=os.environ["SNOWFLAKE_ACCOUNT"],
         user=os.environ["SNOWFLAKE_USER"],
-        password=os.environ["SNOWFLAKE_PASSWORD"],
         role=os.environ["SNOWFLAKE_ROLE"],
+        **_auth_kwargs("SNOWFLAKE_"),
     )
 
 
 def get_org_connection():
-    required = ["SNOWFLAKE_ORG_ACCOUNT", "SNOWFLAKE_ORG_USER", "SNOWFLAKE_ORG_PASSWORD"]
-    missing = [var for var in required if var not in os.environ]
-    if missing:
-        raise click.ClickException(f"Missing required environment variable(s): {', '.join(missing)}")
+    _require_connection_env("SNOWFLAKE_ORG_")
     return snowflake.connector.connect(
         account=os.environ["SNOWFLAKE_ORG_ACCOUNT"],
         user=os.environ["SNOWFLAKE_ORG_USER"],
-        password=os.environ["SNOWFLAKE_ORG_PASSWORD"],
         role="ORGADMIN",
+        **_auth_kwargs("SNOWFLAKE_ORG_"),
     )
 
 
@@ -334,7 +371,12 @@ def provision_test_account(
                     click.echo(f"Backed up existing key to {key_backup_path}")
                 admin_rsa_public_key = generate_rsa_keypair(key_path)
                 sql = create_account_sql(
-                    name, admin_name, admin_rsa_public_key, email, resolved_edition, composed_region,
+                    name,
+                    admin_name,
+                    admin_rsa_public_key,
+                    email,
+                    resolved_edition,
+                    composed_region,
                     detected_region_group,
                 )
                 org_cursor.execute(sql)

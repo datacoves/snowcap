@@ -75,7 +75,14 @@ export SNOWFLAKE_ORG_USER=<your-org-user>
 export SNOWFLAKE_ORG_PASSWORD=<your-org-password>
 ```
 
-Your normal `SNOWFLAKE_ACCOUNT` / `SNOWFLAKE_USER` / `SNOWFLAKE_PASSWORD` / `SNOWFLAKE_ROLE` connection (whatever you'd normally use with `snowsql` or the Python connector) must also be set — `provision` uses it to detect the edition, cloud, and region to mirror for the new account.
+Two alternatives to the password are supported:
+
+- **Key pair**: set `SNOWFLAKE_ORG_PRIVATE_KEY_PATH` (and `SNOWFLAKE_ORG_PRIVATE_KEY_PASSPHRASE` if the key is encrypted) instead of `SNOWFLAKE_ORG_PASSWORD`. Password and key path are mutually exclusive.
+- **SSO / custom authenticator**: set `SNOWFLAKE_ORG_AUTHENTICATOR=externalbrowser` for browser-based SSO (no password or key needed). An Okta URL authenticator composes with `SNOWFLAKE_ORG_PASSWORD`; `SNOWFLAKE_JWT` composes with `SNOWFLAKE_ORG_PRIVATE_KEY_PATH`.
+
+The `SNOWFLAKE_ORG_USER` needs ORGADMIN in its role hierarchy — a role that has been granted ORGADMIN (directly or transitively) is enough.
+
+Your normal `SNOWFLAKE_ACCOUNT` / `SNOWFLAKE_USER` / `SNOWFLAKE_ROLE` connection (whatever you'd normally use with `snowsql` or the Python connector) must also be set, authenticated the same way (`SNOWFLAKE_PASSWORD`, `SNOWFLAKE_PRIVATE_KEY_PATH` + optional `SNOWFLAKE_PRIVATE_KEY_PASSPHRASE`, or `SNOWFLAKE_AUTHENTICATOR`) — `provision` uses it to detect the edition, cloud, and region to mirror for the new account.
 
 ### Provision the account
 

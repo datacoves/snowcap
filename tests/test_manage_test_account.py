@@ -27,15 +27,12 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 
 REPO_ROOT = pathlib.Path(__file__).parent.parent.resolve()
 
-_spec = importlib.util.spec_from_file_location(
-    "manage_test_account", REPO_ROOT / "tools" / "manage_test_account.py"
-)
+_spec = importlib.util.spec_from_file_location("manage_test_account", REPO_ROOT / "tools" / "manage_test_account.py")
 manage_test_account = importlib.util.module_from_spec(_spec)
 sys.modules["manage_test_account"] = manage_test_account
 _spec.loader.exec_module(manage_test_account)
 
 from snowcap.enums import AccountEdition  # noqa: E402
-
 
 # =============================================================================
 # create_account_sql
@@ -84,9 +81,7 @@ def test_create_account_sql_rejects_invalid_account_name(name):
 
 def test_create_account_sql_rejects_invalid_admin_name():
     with pytest.raises(click.ClickException):
-        manage_test_account.create_account_sql(
-            "ACCT", "BAD-ADMIN", "KEY", "a@example.com", "STANDARD", "US_WEST_2"
-        )
+        manage_test_account.create_account_sql("ACCT", "BAD-ADMIN", "KEY", "a@example.com", "STANDARD", "US_WEST_2")
 
 
 def test_create_account_sql_rejects_invalid_edition():
@@ -251,8 +246,162 @@ def test_archive_if_exists_renames_present_file(tmp_path):
 
 
 # =============================================================================
+# _auth_kwargs
+# =============================================================================
+
+
+def test_auth_kwargs_password_only_returns_password():
+    with patch.dict(os.environ, {"SNOWFLAKE_PASSWORD": "pw-placeholder"}, clear=True):
+        assert manage_test_account._auth_kwargs("SNOWFLAKE_") == {"password": "pw-placeholder"}
+
+
+def test_auth_kwargs_key_only_returns_private_key_file():
+    with patch.dict(os.environ, {"SNOWFLAKE_PRIVATE_KEY_PATH": "/keys/rsa.p8"}, clear=True):
+        assert manage_test_account._auth_kwargs("SNOWFLAKE_") == {"private_key_file": "/keys/rsa.p8"}
+
+
+def test_auth_kwargs_key_with_passphrase_includes_pwd():
+    env = {
+        "SNOWFLAKE_PRIVATE_KEY_PATH": "/keys/rsa.p8",
+        "SNOWFLAKE_PRIVATE_KEY_PASSPHRASE": "passphrase-placeholder",
+    }
+    with patch.dict(os.environ, env, clear=True):
+        assert manage_test_account._auth_kwargs("SNOWFLAKE_") == {
+            "private_key_file": "/keys/rsa.p8",
+            "private_key_file_pwd": "passphrase-placeholder",
+        }
+
+
+def test_auth_kwargs_both_methods_set_raises_naming_both():
+    env = {"SNOWFLAKE_PASSWORD": "pw-placeholder", "SNOWFLAKE_PRIVATE_KEY_PATH": "/keys/rsa.p8"}
+    with patch.dict(os.environ, env, clear=True):
+        with pytest.raises(click.ClickException) as exc_info:
+            manage_test_account._auth_kwargs("SNOWFLAKE_")
+
+    assert "SNOWFLAKE_PASSWORD" in str(exc_info.value)
+    assert "SNOWFLAKE_PRIVATE_KEY_PATH" in str(exc_info.value)
+
+
+def test_auth_kwargs_neither_method_set_raises_naming_every_option():
+    with patch.dict(os.environ, {}, clear=True):
+        with pytest.raises(click.ClickException) as exc_info:
+            manage_test_account._auth_kwargs("SNOWFLAKE_ORG_")
+
+    assert "SNOWFLAKE_ORG_PASSWORD" in str(exc_info.value)
+    assert "SNOWFLAKE_ORG_PRIVATE_KEY_PATH" in str(exc_info.value)
+    assert "SNOWFLAKE_ORG_AUTHENTICATOR" in str(exc_info.value)
+
+
+def test_auth_kwargs_sso_authenticator_alone():
+    with patch.dict(os.environ, {"SNOWFLAKE_AUTHENTICATOR": "externalbrowser"}, clear=True):
+        assert manage_test_account._auth_kwargs("SNOWFLAKE_") == {"authenticator": "externalbrowser"}
+
+
+def test_auth_kwargs_okta_authenticator_composes_with_password():
+    env = {
+        "SNOWFLAKE_AUTHENTICATOR": "https://example.okta.com",
+        "SNOWFLAKE_PASSWORD": "pw-placeholder",
+    }
+    with patch.dict(os.environ, env, clear=True):
+        assert manage_test_account._auth_kwargs("SNOWFLAKE_") == {
+            "authenticator": "https://example.okta.com",
+            "password": "pw-placeholder",
+        }
+
+
+def test_auth_kwargs_jwt_authenticator_composes_with_key():
+    env = {
+        "SNOWFLAKE_AUTHENTICATOR": "SNOWFLAKE_JWT",
+        "SNOWFLAKE_PRIVATE_KEY_PATH": "/keys/rsa.p8",
+    }
+    with patch.dict(os.environ, env, clear=True):
+        assert manage_test_account._auth_kwargs("SNOWFLAKE_") == {
+            "authenticator": "SNOWFLAKE_JWT",
+            "private_key_file": "/keys/rsa.p8",
+        }
+
+
+# =============================================================================
+# get_connection
+# =============================================================================
+
+
+def test_get_connection_missing_env_names_every_missing_var():
+    with patch.dict(os.environ, {}, clear=True):
+        with pytest.raises(click.ClickException) as exc_info:
+            manage_test_account.get_connection()
+
+    for var in ["SNOWFLAKE_ACCOUNT", "SNOWFLAKE_USER", "SNOWFLAKE_ROLE"]:
+        assert var in str(exc_info.value)
+
+
+def test_get_connection_with_password_auth():
+    env = {
+        "SNOWFLAKE_ACCOUNT": "ACCT",
+        "SNOWFLAKE_USER": "USER",
+        "SNOWFLAKE_PASSWORD": "pw-placeholder",
+        "SNOWFLAKE_ROLE": "SYSADMIN",
+    }
+    with patch.dict(os.environ, env, clear=True):
+        with patch("manage_test_account.snowflake.connector.connect") as mock_connect:
+            manage_test_account.get_connection()
+
+    mock_connect.assert_called_once_with(account="ACCT", user="USER", role="SYSADMIN", password="pw-placeholder")
+
+
+def test_get_connection_with_keypair_auth():
+    env = {
+        "SNOWFLAKE_ACCOUNT": "ACCT",
+        "SNOWFLAKE_USER": "USER",
+        "SNOWFLAKE_PRIVATE_KEY_PATH": "/keys/rsa.p8",
+        "SNOWFLAKE_PRIVATE_KEY_PASSPHRASE": "passphrase-placeholder",
+        "SNOWFLAKE_ROLE": "SYSADMIN",
+    }
+    with patch.dict(os.environ, env, clear=True):
+        with patch("manage_test_account.snowflake.connector.connect") as mock_connect:
+            manage_test_account.get_connection()
+
+    mock_connect.assert_called_once_with(
+        account="ACCT",
+        user="USER",
+        role="SYSADMIN",
+        private_key_file="/keys/rsa.p8",
+        private_key_file_pwd="passphrase-placeholder",
+    )
+
+
+def test_get_connection_with_sso_auth():
+    env = {
+        "SNOWFLAKE_ACCOUNT": "ACCT",
+        "SNOWFLAKE_USER": "USER",
+        "SNOWFLAKE_AUTHENTICATOR": "externalbrowser",
+        "SNOWFLAKE_ROLE": "SYSADMIN",
+    }
+    with patch.dict(os.environ, env, clear=True):
+        with patch("manage_test_account.snowflake.connector.connect") as mock_connect:
+            manage_test_account.get_connection()
+
+    mock_connect.assert_called_once_with(account="ACCT", user="USER", role="SYSADMIN", authenticator="externalbrowser")
+
+
+# =============================================================================
 # get_org_connection
 # =============================================================================
+
+
+def test_get_org_connection_with_keypair_auth_uses_orgadmin_role():
+    org_env = {
+        "SNOWFLAKE_ORG_ACCOUNT": "ORG_ACCT",
+        "SNOWFLAKE_ORG_USER": "ORG_USER",
+        "SNOWFLAKE_ORG_PRIVATE_KEY_PATH": "/keys/org_rsa.p8",
+    }
+    with patch.dict(os.environ, org_env, clear=True):
+        with patch("manage_test_account.snowflake.connector.connect") as mock_connect:
+            manage_test_account.get_org_connection()
+
+    mock_connect.assert_called_once_with(
+        account="ORG_ACCT", user="ORG_USER", role="ORGADMIN", private_key_file="/keys/org_rsa.p8"
+    )
 
 
 def test_get_org_connection_missing_env_names_every_missing_var():
@@ -426,9 +575,7 @@ def provision_deps(tmp_path, monkeypatch):
 
 
 def _provision(key_path, name="SNOWCAP_TEST"):
-    manage_test_account.provision_test_account(
-        name, "a@example.com", None, None, None, "SNOWCAP_ADMIN", str(key_path)
-    )
+    manage_test_account.provision_test_account(name, "a@example.com", None, None, None, "SNOWCAP_ADMIN", str(key_path))
 
 
 def test_provision_resume_skips_create_and_does_not_regenerate_key(provision_deps, tmp_path):
