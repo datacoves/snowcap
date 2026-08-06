@@ -114,6 +114,10 @@ When it finishes, run the test suite:
 pytest tests/ --snowflake
 ```
 
+### Web UI access
+
+The bootstrap creates a `WEBUI_ADMIN` user (type `PERSON`, role ACCOUNTADMIN) for human logins. Open `https://app.snowflake.com/<org>/<account-name>` and log in as `WEBUI_ADMIN` with the `VAR_WEBUI_ADMIN_PASSWORD` value from `tests/.env`. Snowflake forces a password change on the first login. Resets never rotate the password or drop the user: the config marks the password `ignore_changes` and the user `prevent_destroy`.
+
 ### Reuse the account
 
 The account is long-lived. Provision it once, then reuse it for every test run. You do not tear it down between runs. To reset drifted state inside the account, run `make reset-test-account` — the same sync flow that provision uses, connected via `tests/.env`. Re-running `make provision-test-account` also works: it detects the existing account and re-syncs it. The `reset` and `teardown` commands read `tests/.env` only — they never touch the account your `SNOWFLAKE_*` variables point at.

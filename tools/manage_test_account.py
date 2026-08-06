@@ -426,6 +426,7 @@ def provision_test_account(
         fixture_vars = {
             "static_user_rsa_public_key": generate_rsa_keypair(None),
             "static_user_mfa_password": _generate_mfa_password(),
+            "webui_admin_password": _generate_mfa_password(),
             "storage_base_url": "s3://snowcap-test-placeholder/",
             "storage_role_arn": "arn:aws:iam::000000000000:role/snowcap-test-placeholder",
             "storage_aws_external_id": "snowcap-test",
@@ -458,6 +459,8 @@ def provision_test_account(
         click.echo(f"Previous key backed up to: {key_backup_path}")
     if env_backup_path:
         click.echo(f"Previous tests/.env backed up to: {env_backup_path}")
+    click.echo(f"Web UI: https://app.snowflake.com/{org_name}/{name} — log in as WEBUI_ADMIN with the")
+    click.echo("VAR_WEBUI_ADMIN_PASSWORD value from tests/.env (first login forces a password change).")
     click.echo("Next: pytest tests/ --snowflake")
 
 

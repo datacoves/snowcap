@@ -642,6 +642,24 @@ def _provision(key_path, name="SNOWCAP_TESTING"):
     manage_test_account.provision_test_account(name, "a@example.com", None, None, None, "SNOWCAP_ADMIN", str(key_path))
 
 
+def test_provision_bootstrap_vars_are_generated_only_and_include_webui_password(provision_deps, tmp_path):
+    _provision(tmp_path / "key.p8")
+
+    vars_passed = manage_test_account.reset_test_account.call_args.args[1]
+    assert set(vars_passed) == {
+        "static_user_rsa_public_key",
+        "static_user_mfa_password",
+        "webui_admin_password",
+        "storage_base_url",
+        "storage_role_arn",
+        "storage_aws_external_id",
+    }
+    # The WEBUI_ADMIN password must be generated, non-empty, and land in tests/.env
+    assert len(vars_passed["webui_admin_password"]) >= 20
+    env_text = (tmp_path / "tests" / ".env").read_text()
+    assert f"VAR_WEBUI_ADMIN_PASSWORD={vars_passed['webui_admin_password']}" in env_text
+
+
 def test_provision_resume_skips_create_and_does_not_regenerate_key(provision_deps, tmp_path):
     key_path = tmp_path / "key.p8"
     key_path.write_text("EXISTING_KEY_CONTENTS")
