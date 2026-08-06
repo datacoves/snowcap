@@ -356,8 +356,8 @@ def test_blueprint_polymorphic_resource_resolution(session_ctx, remote_state):
 
     role = res.Role(name="DEMO_ROLE")
     sysad_grant = res.RoleGrant(role=role, to_role="SYSADMIN")
-    test_db = res.Database(name="TEST_TITAN", transient=False, data_retention_time_in_days=1, comment="Test Titan")
-    schema = res.Schema(name="TEST_SCHEMA", database=test_db, transient=False, comment="Test Titan Schema")
+    test_db = res.Database(name="TEST_SNOWCAP", transient=False, data_retention_time_in_days=1, comment="Test Snowcap")
+    schema = res.Schema(name="TEST_SCHEMA", database=test_db, transient=False, comment="Test Snowcap Schema")
     warehouse = res.Warehouse(name="FAKER_LOADER", auto_suspend=60)
 
     future_schema_grant = res.Grant(priv="usage", on=["FUTURE", "SCHEMAS", test_db], to=role)
@@ -543,9 +543,7 @@ def test_blueprint_dump_plan_create(session_ctx, remote_state):
         }
     ]
     plan_str = strip_ansi(dump_plan(plan, format="text"))
-    assert (
-        plan_str
-        == """
+    assert plan_str == """
 » snowcap
 » Plan: 1 to create, 0 to update, 0 to transfer, 0 to drop.
 
@@ -553,7 +551,6 @@ def test_blueprint_dump_plan_create(session_ctx, remote_state):
 + CREATE: ROLE1 (owner: USERADMIN)
 
 """
-    )
 
 
 def test_blueprint_dump_plan_update(session_ctx):
@@ -580,9 +577,7 @@ def test_blueprint_dump_plan_update(session_ctx):
         }
     ]
     plan_str = strip_ansi(dump_plan(plan, format="text"))
-    assert (
-        plan_str
-        == """
+    assert plan_str == """
 » snowcap
 » Plan: 0 to create, 1 to update, 0 to transfer, 0 to drop.
 
@@ -595,7 +590,6 @@ def test_blueprint_dump_plan_update(session_ctx):
   └──────────┴────────┴───────┘
 
 """
-    )
 
 
 def test_blueprint_dump_plan_transfer(session_ctx):
@@ -621,9 +615,7 @@ def test_blueprint_dump_plan_transfer(session_ctx):
         }
     ]
     plan_str = strip_ansi(dump_plan(plan, format="text"))
-    assert (
-        plan_str
-        == """
+    assert plan_str == """
 » snowcap
 » Plan: 0 to create, 0 to update, 1 to transfer, 0 to drop.
 
@@ -636,7 +628,6 @@ def test_blueprint_dump_plan_transfer(session_ctx):
   └──────────┴──────────────┴───────────┘
 
 """
-    )
 
 
 def test_blueprint_dump_plan_drop(session_ctx):
@@ -661,9 +652,7 @@ def test_blueprint_dump_plan_drop(session_ctx):
     }
 
     plan_str = strip_ansi(dump_plan(plan, format="text"))
-    assert (
-        plan_str
-        == """
+    assert plan_str == """
 » snowcap
 » Plan: 0 to create, 0 to update, 0 to transfer, 1 to drop.
 
@@ -671,7 +660,6 @@ def test_blueprint_dump_plan_drop(session_ctx):
 - DROP:   ROLE1
 
 """
-    )
 
 
 def test_blueprint_vars(session_ctx):

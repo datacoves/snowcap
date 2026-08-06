@@ -310,7 +310,7 @@ def test_resource_with_named_nested_dependency():
     represents a different resource?
 
     In this case, we have an ExternalAccessIntegration. As input it takes a list of
-    NetworkRules. Titan tries to support as many common-sense compositions of this input
+    NetworkRules. Snowcap tries to support as many common-sense compositions of this input
     as possible.
 
     1. Pass in a NetworkRules resource object
@@ -327,14 +327,14 @@ def test_resource_with_named_nested_dependency():
     should be serialized. This example represents the default behavior and the majority of
     cases: we want to serialize this reference or pointer into a fully qualified name.
 
-    Unfortunately for titan, we're not a database. In Snowflake, name resolution always happens
+    Unfortunately for snowcap, we're not a database. In Snowflake, name resolution always happens
     in the context of a session, where any name, qualified or not, can be looked up using standard
     SQL name resolution. Specifically, if a resource name doesn't specify a database or a schema,
     it is looked up in the user's search PATH and the session's current database and schema.
 
-    Titan serializes resources far before a session is initiated, so we don't have that luxury.
+    Snowcap serializes resources far before a session is initiated, so we don't have that luxury.
 
-    Why can't we just keep the string? Titan automatically managed implied references. Titan
+    Why can't we just keep the string? Snowcap automatically managed implied references. Snowcap
     needs to know that this ExternalAccessIntegration relies on a NetworkRules resource.
 
     So what should happen here:
@@ -480,4 +480,3 @@ class TestTagMaskingPolicyReferenceNormalization:
         )
         assert ref_mixed._data.tag_name == ref_lower._data.tag_name
         assert ref_mixed._data.masking_policy_name == ref_lower._data.masking_policy_name
-

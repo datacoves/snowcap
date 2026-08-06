@@ -226,8 +226,8 @@ def _filter_result(result, **kwargs):
 #     else:
 #         if granted_on == "procedure" or granted_on == "function":
 #             # This needs a special function because Snowflake gives an incorrect FQN for functions/sprocs
-#             # eg. TITAN_DEV.PUBLIC."FETCH_DATABASE(NAME VARCHAR):OBJECT"
-#             # The correct FQN is TITAN_DEV.PUBLIC."FETCH_DATABASE"(VARCHAR)
+#             # eg. SNOWCAP_DEV.PUBLIC."FETCH_DATABASE(NAME VARCHAR):OBJECT"
+#             # The correct FQN is SNOWCAP_DEV.PUBLIC."FETCH_DATABASE"(VARCHAR)
 #             id_parts = list(FullyQualifiedIdentifier.parse_string(row["name"], parse_all=True))
 #             name = parse_function_name(id_parts[-1])
 #             fqn = FQN(database=id_parts[0], schema=id_parts[1], name=name)
@@ -2862,8 +2862,9 @@ def fetch_tag(session: SnowflakeConnection, fqn: FQN):
         "owner": _get_owner_identifier(data),
         "comment": data["comment"] or None,
         "allowed_values": json.loads(data["allowed_values"]) if data["allowed_values"] else None,
-        "propagate": data.get("propagate") or None,
-        "on_conflict": data.get("on_conflict") or None,
+        # Snowflake reports the literal string 'NONE' for tags without propagation settings
+        "propagate": None if data.get("propagate") in (None, "", "NONE") else data["propagate"],
+        "on_conflict": None if data.get("on_conflict") in (None, "", "NONE") else data["on_conflict"],
     }
 
 
@@ -2990,7 +2991,7 @@ def fetch_resource_tags(session: SnowflakeConnection, resource_type: ResourceTyp
     +----------------------+------------+-------------+-----------+--------+----------------------+---------------+-------------+--------+-------------+
     |     TAG_DATABASE     | TAG_SCHEMA |  TAG_NAME   | TAG_VALUE | LEVEL  |   OBJECT_DATABASE    | OBJECT_SCHEMA | OBJECT_NAME | DOMAIN | COLUMN_NAME |
     +----------------------+------------+-------------+-----------+--------+----------------------+---------------+-------------+--------+-------------+
-    | TITAN                | SOMESCH    | TASTY_TREAT | muffin    | SCHEMA | TEST_DB_RUN_13287C56 |               | SOMESCH     | SCHEMA |             |
+    | SNOWCAP                | SOMESCH    | TASTY_TREAT | muffin    | SCHEMA | TEST_DB_RUN_13287C56 |               | SOMESCH     | SCHEMA |             |
     | TEST_DB_RUN_13287C56 | PUBLIC     | TRASH       | true      | SCHEMA | TEST_DB_RUN_13287C56 |               | SOMESCH     | SCHEMA |             |
     +----------------------+------------+-------------+-----------+--------+----------------------+---------------+-------------+--------+-------------+
 
@@ -3793,9 +3794,7 @@ def list_grants(
         else:
             db_roles_to_query = get_database_roles()
             if db_roles_to_query:
-                logger.debug(
-                    f"list_grants: fetching future grants for {len(db_roles_to_query)} database roles"
-                )
+                logger.debug(f"list_grants: fetching future grants for {len(db_roles_to_query)} database roles")
 
         if db_roles_to_query:
             future_grants_by_db_role = _fetch_future_grants_for_all_database_roles(session, db_roles_to_query)

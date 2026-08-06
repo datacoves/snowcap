@@ -5,8 +5,15 @@ import re
 import secrets
 import string
 import subprocess
+import sys
 import time
 from datetime import datetime, timezone
+
+# This tool must exercise the snowcap checkout it lives in. Running it as a script puts
+# tools/ (not the repo root) on sys.path, so `import snowcap` would otherwise resolve to
+# whatever editable/site-packages install the venv points at — which can be a different
+# checkout (e.g. a shared venv in a git worktree setup).
+sys.path.insert(0, str(pathlib.Path(__file__).parent.parent.resolve()))
 
 import click
 import snowflake.connector

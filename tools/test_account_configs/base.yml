@@ -1,13 +1,11 @@
 name: reset-test-account
-run_mode: SYNC
-allowlist:
+sync_resources:
   - "account parameter"
   - "catalog integration"
   - "database role"
   - "database role grant"
   - "database"
   - "external volume"
-  - "future grant"
   - "grant"
   - "iceberg table"
   - "network rule"
@@ -36,9 +34,13 @@ account_parameters:
 
 users:
   - name: static_user
-    email: info@datacoves.com
+    email: static-user@example.com
     comment: This is a static user
-  - name: TITAN_ADMIN
+  # SNOWCAP_ADMIN is the account admin created by `provision` (a SERVICE user with key-pair
+  # auth). This entry must mirror how provision creates it: sync would otherwise drop or
+  # mutate the very user running the bootstrap.
+  - name: SNOWCAP_ADMIN
+    type: SERVICE
     default_warehouse: CI
     default_role: SYSADMIN
     default_secondary_roles: []
@@ -49,7 +51,11 @@ users:
         - first_name
         - last_name
         - owner
-  - name: TITAN_CI
+        - login_name
+        - display_name
+        - must_change_password
+        - rsa_public_key
+  - name: SNOWCAP_CI
     type: SERVICE
   - name: STATIC_USER_KEYPAIR
     type: SERVICE
@@ -77,9 +83,9 @@ roles:
     comment: This role must be quoted
   - name: EVERY_PRIVILEGE
     comment: This role has every privilege
-  - name: TITAN_GRANT_ADMIN
+  - name: SNOWCAP_GRANT_ADMIN
     comment: This role has MANAGE GRANTS privileges
-  - name: TITAN_SHARE_ADMIN
+  - name: SNOWCAP_SHARE_ADMIN
     comment: This role has CREATE SHARE privilege
 
 databases:
@@ -91,23 +97,27 @@ database_roles:
     database: static_database
 
 role_grants:
+  # The provisioned admin must keep ACCOUNTADMIN: without this entry, role-grant sync
+  # prunes the grant and locks the bootstrap connection out of its own account.
+  - role: ACCOUNTADMIN
+    to_user: SNOWCAP_ADMIN
   - role: CI
-    roles:
+    to_roles:
       - SYSADMIN
   - role: EMPTY
-    roles:
+    to_roles:
       - SYSADMIN
   - role: static_role
-    roles:
+    to_roles:
       - SYSADMIN
   - role: EVERY_PRIVILEGE
-    roles:
+    to_roles:
       - SYSADMIN
-  - role: TITAN_GRANT_ADMIN
-    roles:
+  - role: SNOWCAP_GRANT_ADMIN
+    to_roles:
       - SYSADMIN
-  - role: TITAN_SHARE_ADMIN
-    roles:
+  - role: SNOWCAP_SHARE_ADMIN
+    to_roles:
       - SYSADMIN
 
 database_role_grants:
@@ -116,10 +126,14 @@ database_role_grants:
       - SYSADMIN
 
 network_rules:
+  # Must match tests/fixtures/static_resources/static_resources.yml exactly: TYPE and MODE
+  # are immutable in Snowflake, so drift between the two configs generates an ALTER that
+  # always fails.
   - name: static_network_rule
-    type: HOST_PORT
-    value_list: ["example.com:443"]
-    mode: EGRESS
+    type: IPV4
+    value_list: ["0.0.0.0/0"]
+    mode: INGRESS
+    comment: Network rule for integration tests
     database: static_database
     schema: public
   - name: static_network_rule_ingress_allow_all
@@ -137,11 +151,17 @@ network_rules:
 
 
 grants:
-  # TITAN_GRANT_ADMIN grants
-  - GRANT MANAGE GRANTS ON ACCOUNT TO ROLE TITAN_GRANT_ADMIN
+  # Future grants
+  - GRANT USAGE ON FUTURE SCHEMAS IN DATABASE static_database TO ROLE EVERY_PRIVILEGE
+  - GRANT SELECT ON FUTURE TABLES IN SCHEMA static_database.public TO ROLE EVERY_PRIVILEGE
+  - GRANT USAGE ON FUTURE STAGES IN SCHEMA static_database.public TO ROLE EVERY_PRIVILEGE
+  - GRANT USAGE ON FUTURE GIT REPOSITORIES IN SCHEMA static_database.public TO ROLE EVERY_PRIVILEGE
 
-  # TITAN_SHARE_ADMIN grants
-  - GRANT CREATE SHARE ON ACCOUNT TO ROLE TITAN_SHARE_ADMIN
+  # SNOWCAP_GRANT_ADMIN grants
+  - GRANT MANAGE GRANTS ON ACCOUNT TO ROLE SNOWCAP_GRANT_ADMIN
+
+  # SNOWCAP_SHARE_ADMIN grants
+  - GRANT CREATE SHARE ON ACCOUNT TO ROLE SNOWCAP_SHARE_ADMIN
 
   # CI grants
   - GRANT USAGE ON WAREHOUSE STATIC_WAREHOUSE TO ROLE CI
@@ -217,12 +237,6 @@ grants:
   # - GRANT ALL ON STREAM static_database.public.static_stream TO ROLE EVERY_PRIVILEGE
   # - GRANT ALL ON NETWORK RULE static_database.public.static_network_rule TO ROLE EVERY_PRIVILEGE
 
-future_grants:
-  - GRANT USAGE ON FUTURE SCHEMAS IN DATABASE static_database TO ROLE EVERY_PRIVILEGE
-  - GRANT SELECT ON FUTURE TABLES IN SCHEMA static_database.public TO ROLE EVERY_PRIVILEGE
-  - GRANT USAGE ON FUTURE STAGES IN SCHEMA static_database.public TO ROLE EVERY_PRIVILEGE
-  - GRANT USAGE ON FUTURE GIT REPOSITORIES IN SCHEMA static_database.public TO ROLE EVERY_PRIVILEGE
-
 schemas:
   - name: static_schema
     database: static_database
@@ -264,7 +278,6 @@ tasks:
     suspend_task_after_num_failures: 3
     allow_overlapping_execution: false
     state: STARTED
-    when: "1=1"
     as_: SELECT 1
   - name: static_task
     database: static_database
@@ -275,15 +288,18 @@ tasks:
     suspend_task_after_num_failures: 3
     allow_overlapping_execution: false
     state: STARTED
-    when: "1=1"
     as_: SELECT 1
 
 views:
+  # `as_` and `comment` must match tests/fixtures/static_resources/static_resources.yml
+  # byte-for-byte (including case): any drift makes snowcap emit an ALTER VIEW that
+  # Snowflake rejects.
   - name: static_view
     columns:
       - name: id
         data_type: NUMBER(38,0)
-    as_: SELECT id FROM STATIC_DATABASE.public.static_table
+    as_: SELECT ID FROM STATIC_DATABASE.PUBLIC.STATIC_TABLE
+    comment: View for integration tests
     change_tracking: true
     requires:
       - name: static_table

@@ -1,4 +1,4 @@
-allowlist:
+sync_resources:
   - "tag"
   - "tag reference"
   - "masking policy"
@@ -15,13 +15,16 @@ schemas:
     tags:
       static_database.public.static_tag: STATIC_TAG_VALUE
 
+# Must match tests/fixtures/static_resources/static_resources.yml exactly: drift between
+# the two configs generates ALTER TAG statements that snowcap cannot yet render correctly.
 tags:
   - name: static_tag
     database: static_database
     schema: PUBLIC
-    comment: This is a static tag
+    comment: Tag for integration tests
     allowed_values:
       - STATIC_TAG_VALUE
+      - OTHER_VALUE
 
 masking_policies:
   - name: static_masking_policy

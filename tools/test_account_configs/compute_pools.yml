@@ -1,4 +1,4 @@
-allowlist:
+sync_resources:
   - "compute pool"
 
 compute_pools:

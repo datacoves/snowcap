@@ -518,7 +518,7 @@ The following tests were fixed by addressing the underlying issues:
 #### Share Custom Owner Test
 - **File:** `tests/integration/test_blueprint.py`
 - **Test:** `test_blueprint_share_custom_owner`
-- **Fix:** Changed owner from `TITAN_SHARE_ADMIN` to `ACCOUNTADMIN` which exists in all accounts.
+- **Fix:** Changed owner from `SNOWCAP_SHARE_ADMIN` to `ACCOUNTADMIN` which exists in all accounts.
 
 ### US-021: Final Verification Cleanup
 
