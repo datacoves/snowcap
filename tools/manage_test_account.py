@@ -37,7 +37,7 @@ SCRIPT_DIR = pathlib.Path(__file__).parent.resolve()
 REPO_ROOT = SCRIPT_DIR.parent
 
 # Shared default so `provision --name` and `drop --name` always agree.
-DEFAULT_ACCOUNT_NAME = "SNOWCAP_TEST"
+DEFAULT_ACCOUNT_NAME = "SNOWCAP_CI"
 
 # Snowflake's unquoted-identifier grammar; also doubles as our SQL-injection guard.
 IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*$")

@@ -90,7 +90,7 @@ Your normal `SNOWFLAKE_ACCOUNT` / `SNOWFLAKE_USER` / `SNOWFLAKE_ROLE` connection
 make provision-test-account EMAIL=you@example.com
 ```
 
-This calls `python tools/manage_test_account.py provision --email you@example.com`. By default it names the new account `SNOWCAP_TEST` and mirrors the edition, cloud, and region detected from your current connection. Override any of these:
+This calls `python tools/manage_test_account.py provision --email you@example.com`. By default it names the new account `SNOWCAP_CI` and mirrors the edition, cloud, and region detected from your current connection. Override any of these:
 
 ```bash
 python tools/manage_test_account.py provision --email you@example.com \
@@ -120,7 +120,7 @@ pytest tests/ --snowflake
 make drop-test-account
 ```
 
-This calls `python tools/manage_test_account.py drop`, which drops the `SNOWCAP_TEST` account (or whatever `--name` you provisioned) with a grace period. The grace period defaults to 3 days (Snowflake's minimum) and can be raised up to 90 days with `--grace-period-in-days`. While the grace period is active, the dropped account is locked, restorable via ORGADMIN, and still counts against your organization's account quota — it only stops counting once the grace period lapses. Pass `--yes` to skip the `tests/.env` agreement check and confirmation prompt (needed if `tests/.env` doesn't match the account being dropped, or is missing).
+This calls `python tools/manage_test_account.py drop`, which drops the `SNOWCAP_CI` account (or whatever `--name` you provisioned) with a grace period. The grace period defaults to 3 days (Snowflake's minimum) and can be raised up to 90 days with `--grace-period-in-days`. While the grace period is active, the dropped account is locked, restorable via ORGADMIN, and still counts against your organization's account quota — it only stops counting once the grace period lapses. Pass `--yes` to skip the `tests/.env` agreement check and confirmation prompt (needed if `tests/.env` doesn't match the account being dropped, or is missing).
 
 ### Expected cost
 

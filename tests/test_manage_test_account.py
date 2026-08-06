@@ -514,9 +514,9 @@ def _param_default(command, param_name):
 
 
 def test_provision_and_drop_name_defaults_match():
-    assert manage_test_account.DEFAULT_ACCOUNT_NAME == "SNOWCAP_TEST"
-    assert _param_default(manage_test_account.main.commands["provision"], "name") == "SNOWCAP_TEST"
-    assert _param_default(manage_test_account.main.commands["drop"], "name") == "SNOWCAP_TEST"
+    assert manage_test_account.DEFAULT_ACCOUNT_NAME == "SNOWCAP_CI"
+    assert _param_default(manage_test_account.main.commands["provision"], "name") == "SNOWCAP_CI"
+    assert _param_default(manage_test_account.main.commands["drop"], "name") == "SNOWCAP_CI"
 
 
 def test_provision_cli_without_email_exits_nonzero():
@@ -574,14 +574,14 @@ def provision_deps(tmp_path, monkeypatch):
     )
 
 
-def _provision(key_path, name="SNOWCAP_TEST"):
+def _provision(key_path, name="SNOWCAP_CI"):
     manage_test_account.provision_test_account(name, "a@example.com", None, None, None, "SNOWCAP_ADMIN", str(key_path))
 
 
 def test_provision_resume_skips_create_and_does_not_regenerate_key(provision_deps, tmp_path):
     key_path = tmp_path / "key.p8"
     key_path.write_text("EXISTING_KEY_CONTENTS")
-    provision_deps.dict_cursor.fetchall.return_value = [{"account_name": "SNOWCAP_TEST"}]
+    provision_deps.dict_cursor.fetchall.return_value = [{"account_name": "SNOWCAP_CI"}]
 
     _provision(key_path)
 
@@ -642,7 +642,7 @@ def test_provision_invalid_name_fails_before_touching_key_file(provision_deps, t
 
 def test_provision_resume_without_key_file_fails_fast_without_polling(provision_deps, tmp_path):
     key_path = tmp_path / "key.p8"
-    provision_deps.dict_cursor.fetchall.return_value = [{"account_name": "SNOWCAP_TEST"}]
+    provision_deps.dict_cursor.fetchall.return_value = [{"account_name": "SNOWCAP_CI"}]
 
     with pytest.raises(click.ClickException, match="no admin key was found"):
         _provision(key_path)
@@ -655,7 +655,7 @@ def test_provision_invalid_region_fails_before_touching_key_file(provision_deps,
 
     with pytest.raises(click.ClickException):
         manage_test_account.provision_test_account(
-            "SNOWCAP_TEST", "a@example.com", None, None, "us-west-2", "SNOWCAP_ADMIN", str(key_path)
+            "SNOWCAP_CI", "a@example.com", None, None, "us-west-2", "SNOWCAP_ADMIN", str(key_path)
         )
 
     assert not key_path.exists()
