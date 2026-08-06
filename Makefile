@@ -18,6 +18,9 @@ setup-test-resources:
 	@echo "Setting up static resources for integration tests..."
 	./tests/fixtures/static_resources/apply.sh
 
+reset-test-account:
+	python tools/manage_test_account.py reset
+
 provision-test-account:
 	@if [ -z "$(EMAIL)" ]; then \
 		echo "EMAIL is required, e.g. make provision-test-account EMAIL=you@example.com"; \

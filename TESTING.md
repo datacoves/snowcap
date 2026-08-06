@@ -90,7 +90,7 @@ Your normal `SNOWFLAKE_ACCOUNT` / `SNOWFLAKE_USER` / `SNOWFLAKE_ROLE` connection
 make provision-test-account EMAIL=you@example.com
 ```
 
-This calls `python tools/manage_test_account.py provision --email you@example.com`. By default it names the new account `SNOWCAP_CI` and mirrors the edition, cloud, and region detected from your current connection. Override any of these:
+This calls `python tools/manage_test_account.py provision --email you@example.com`. By default it names the new account `SNOWCAP_TESTING` and mirrors the edition, cloud, and region detected from your current connection. Override any of these:
 
 ```bash
 python tools/manage_test_account.py provision --email you@example.com \
@@ -103,7 +103,7 @@ Provisioning:
 
 1. Issues `CREATE ACCOUNT` via ORGADMIN, with a freshly generated RSA key pair for a `SERVICE` admin user (no password).
 2. Polls the new account until it accepts connections (usually well under a minute, up to 10 minutes before timing out).
-3. Bootstraps the account: runs the same `reset_test_account` flow used by `make reset` and applies the static resources fixtures.
+3. Bootstraps the account: runs the same `reset_test_account` flow used by `make reset-test-account` and applies the static resources fixtures.
 4. Writes a ready-to-use `tests/.env` pointing at the new account, backing up any existing `tests/.env` first.
 
 If you re-run `provision` for an account that already exists, it skips `CREATE ACCOUNT` and resumes from wherever the account is — reusing the local key at `--key-path` — rather than failing or recreating it.
@@ -114,13 +114,19 @@ When it finishes, run the test suite:
 pytest tests/ --snowflake
 ```
 
-### Tear down
+### Reuse the account
+
+The account is long-lived. Provision it once, then reuse it for every test run. You do not tear it down between runs. To reset drifted state inside the account, run `make reset-test-account` — the same sync flow that provision uses, connected via `tests/.env`. Re-running `make provision-test-account` also works: it detects the existing account and re-syncs it. The `reset` and `teardown` commands read `tests/.env` only — they never touch the account your `SNOWFLAKE_*` variables point at.
+
+### Tear down (optional)
+
+If you want to retire the account — for example, to stop it counting against your organization's account quota — run:
 
 ```bash
 make drop-test-account
 ```
 
-This calls `python tools/manage_test_account.py drop`, which drops the `SNOWCAP_CI` account (or whatever `--name` you provisioned) with a grace period. The grace period defaults to 3 days (Snowflake's minimum) and can be raised up to 90 days with `--grace-period-in-days`. While the grace period is active, the dropped account is locked, restorable via ORGADMIN, and still counts against your organization's account quota — it only stops counting once the grace period lapses. Pass `--yes` to skip the `tests/.env` agreement check and confirmation prompt (needed if `tests/.env` doesn't match the account being dropped, or is missing).
+This calls `python tools/manage_test_account.py drop`, which drops the `SNOWCAP_TESTING` account (or whatever `--name` you provisioned) with a grace period. The grace period defaults to 3 days (Snowflake's minimum) and can be raised up to 90 days with `--grace-period-in-days`. While the grace period is active, the dropped account is locked, restorable via ORGADMIN, and still counts against your organization's account quota — it only stops counting once the grace period lapses. Pass `--yes` to skip the `tests/.env` agreement check and confirmation prompt (needed if `tests/.env` doesn't match the account being dropped, or is missing).
 
 ### Expected cost
 

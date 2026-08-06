@@ -505,6 +505,70 @@ def test_drop_test_account_with_yes_executes_drop_and_archives_matching_env(drop
 
 
 # =============================================================================
+# get_test_connection
+# =============================================================================
+
+
+def test_get_test_connection_uses_tests_env_when_present(tmp_path, monkeypatch):
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / ".env").write_text(
+        "TEST_SNOWFLAKE_ACCOUNT=ORG-TEST_ACCT\n"
+        "TEST_SNOWFLAKE_USER=TEST_ADMIN\n"
+        "TEST_SNOWFLAKE_ROLE=ACCOUNTADMIN\n"
+        "TEST_SNOWFLAKE_PRIVATE_KEY_PATH=/keys/test.p8\n"
+    )
+    monkeypatch.setattr(manage_test_account, "REPO_ROOT", tmp_path)
+    # A contributor's real connection must never win over tests/.env.
+    real_env = {
+        "SNOWFLAKE_ACCOUNT": "REAL_PROD_ACCT",
+        "SNOWFLAKE_USER": "REAL_USER",
+        "SNOWFLAKE_PASSWORD": "real-pw-placeholder",
+        "SNOWFLAKE_ROLE": "REAL_ROLE",
+    }
+    with patch.dict(os.environ, real_env, clear=True):
+        with patch("manage_test_account.snowflake.connector.connect") as mock_connect:
+            manage_test_account.get_test_connection()
+
+    mock_connect.assert_called_once_with(
+        account="ORG-TEST_ACCT", user="TEST_ADMIN", role="ACCOUNTADMIN", private_key_file="/keys/test.p8"
+    )
+
+
+def test_get_test_connection_supports_password_from_tests_env(tmp_path, monkeypatch):
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / ".env").write_text(
+        "TEST_SNOWFLAKE_ACCOUNT=ORG-TEST_ACCT\n"
+        "TEST_SNOWFLAKE_USER=TEST_ADMIN\n"
+        "TEST_SNOWFLAKE_PASSWORD=test-pw-placeholder\n"
+    )
+    monkeypatch.setattr(manage_test_account, "REPO_ROOT", tmp_path)
+    with patch.dict(os.environ, {}, clear=True):
+        with patch("manage_test_account.snowflake.connector.connect") as mock_connect:
+            manage_test_account.get_test_connection()
+
+    mock_connect.assert_called_once_with(
+        account="ORG-TEST_ACCT", user="TEST_ADMIN", role="ACCOUNTADMIN", password="test-pw-placeholder"
+    )
+
+
+def test_get_test_connection_without_tests_env_raises(tmp_path, monkeypatch):
+    monkeypatch.setattr(manage_test_account, "REPO_ROOT", tmp_path)
+    real_env = {
+        "SNOWFLAKE_ACCOUNT": "REAL_PROD_ACCT",
+        "SNOWFLAKE_USER": "REAL_USER",
+        "SNOWFLAKE_PASSWORD": "real-pw-placeholder",
+        "SNOWFLAKE_ROLE": "REAL_ROLE",
+    }
+    with patch.dict(os.environ, real_env, clear=True):
+        with pytest.raises(click.ClickException) as exc_info:
+            manage_test_account.get_test_connection()
+
+    assert "tests/.env" in str(exc_info.value)
+
+
+# =============================================================================
 # CLI defaults
 # =============================================================================
 
@@ -514,9 +578,9 @@ def _param_default(command, param_name):
 
 
 def test_provision_and_drop_name_defaults_match():
-    assert manage_test_account.DEFAULT_ACCOUNT_NAME == "SNOWCAP_CI"
-    assert _param_default(manage_test_account.main.commands["provision"], "name") == "SNOWCAP_CI"
-    assert _param_default(manage_test_account.main.commands["drop"], "name") == "SNOWCAP_CI"
+    assert manage_test_account.DEFAULT_ACCOUNT_NAME == "SNOWCAP_TESTING"
+    assert _param_default(manage_test_account.main.commands["provision"], "name") == "SNOWCAP_TESTING"
+    assert _param_default(manage_test_account.main.commands["drop"], "name") == "SNOWCAP_TESTING"
 
 
 def test_provision_cli_without_email_exits_nonzero():
@@ -574,14 +638,14 @@ def provision_deps(tmp_path, monkeypatch):
     )
 
 
-def _provision(key_path, name="SNOWCAP_CI"):
+def _provision(key_path, name="SNOWCAP_TESTING"):
     manage_test_account.provision_test_account(name, "a@example.com", None, None, None, "SNOWCAP_ADMIN", str(key_path))
 
 
 def test_provision_resume_skips_create_and_does_not_regenerate_key(provision_deps, tmp_path):
     key_path = tmp_path / "key.p8"
     key_path.write_text("EXISTING_KEY_CONTENTS")
-    provision_deps.dict_cursor.fetchall.return_value = [{"account_name": "SNOWCAP_CI"}]
+    provision_deps.dict_cursor.fetchall.return_value = [{"account_name": "SNOWCAP_TESTING"}]
 
     _provision(key_path)
 
@@ -642,7 +706,7 @@ def test_provision_invalid_name_fails_before_touching_key_file(provision_deps, t
 
 def test_provision_resume_without_key_file_fails_fast_without_polling(provision_deps, tmp_path):
     key_path = tmp_path / "key.p8"
-    provision_deps.dict_cursor.fetchall.return_value = [{"account_name": "SNOWCAP_CI"}]
+    provision_deps.dict_cursor.fetchall.return_value = [{"account_name": "SNOWCAP_TESTING"}]
 
     with pytest.raises(click.ClickException, match="no admin key was found"):
         _provision(key_path)
@@ -655,7 +719,7 @@ def test_provision_invalid_region_fails_before_touching_key_file(provision_deps,
 
     with pytest.raises(click.ClickException):
         manage_test_account.provision_test_account(
-            "SNOWCAP_CI", "a@example.com", None, None, "us-west-2", "SNOWCAP_ADMIN", str(key_path)
+            "SNOWCAP_TESTING", "a@example.com", None, None, "us-west-2", "SNOWCAP_ADMIN", str(key_path)
         )
 
     assert not key_path.exists()

@@ -37,7 +37,7 @@ SCRIPT_DIR = pathlib.Path(__file__).parent.resolve()
 REPO_ROOT = SCRIPT_DIR.parent
 
 # Shared default so `provision --name` and `drop --name` always agree.
-DEFAULT_ACCOUNT_NAME = "SNOWCAP_CI"
+DEFAULT_ACCOUNT_NAME = "SNOWCAP_TESTING"
 
 # Snowflake's unquoted-identifier grammar; also doubles as our SQL-injection guard.
 IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*$")
@@ -98,6 +98,34 @@ def get_connection():
     )
 
 
+def get_test_connection():
+    """Connection to the test account, from tests/.env only.
+
+    reset/teardown must never run against the contributor's normal SNOWFLAKE_* connection:
+    with the provisioning workflow, those variables point at a real account, and the sync
+    flow drops objects. No tests/.env means no test account — raise instead of falling back.
+    """
+    env_path = REPO_ROOT / "tests" / ".env"
+    env = dotenv_values(env_path) if env_path.exists() else {}
+    if not env.get("TEST_SNOWFLAKE_ACCOUNT"):
+        raise click.ClickException(
+            "tests/.env with TEST_SNOWFLAKE_ACCOUNT is required. Run "
+            "`python tools/manage_test_account.py provision` to create the test account first."
+        )
+    kwargs = {
+        "account": env["TEST_SNOWFLAKE_ACCOUNT"],
+        "user": env["TEST_SNOWFLAKE_USER"],
+        "role": env.get("TEST_SNOWFLAKE_ROLE") or "ACCOUNTADMIN",
+    }
+    if env.get("TEST_SNOWFLAKE_PRIVATE_KEY_PATH"):
+        kwargs["private_key_file"] = env["TEST_SNOWFLAKE_PRIVATE_KEY_PATH"]
+        if env.get("TEST_SNOWFLAKE_PRIVATE_KEY_PASSPHRASE"):
+            kwargs["private_key_file_pwd"] = env["TEST_SNOWFLAKE_PRIVATE_KEY_PASSPHRASE"]
+    else:
+        kwargs["password"] = env["TEST_SNOWFLAKE_PASSWORD"]
+    return snowflake.connector.connect(**kwargs)
+
+
 def get_org_connection():
     _require_connection_env("SNOWFLAKE_ORG_")
     return snowflake.connector.connect(
@@ -137,7 +165,7 @@ def get_config(session_ctx):
 
 
 def reset_test_account(conn=None, snowcap_vars=None):
-    conn = conn if conn is not None else get_connection()
+    conn = conn if conn is not None else get_test_connection()
     session_ctx = fetch_session(conn)
     config = get_config(session_ctx)
     snowcap_vars = snowcap_vars if snowcap_vars is not None else collect_vars_from_environment()
@@ -151,7 +179,7 @@ def reset_test_account(conn=None, snowcap_vars=None):
 
 
 def teardown_test_account():
-    conn = get_connection()
+    conn = get_test_connection()
     session_ctx = fetch_session(conn)
     config = get_config(session_ctx)
     snowcap_vars = collect_vars_from_environment()
