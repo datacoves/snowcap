@@ -14,7 +14,7 @@ from snowcap.resources.grant import grant_yaml
 
 logger = logging.getLogger("snowcap")
 
-DEFAULT_EXPORT_THREADS = 4
+DEFAULT_EXPORT_THREADS = 16
 
 
 def export_resources(
@@ -22,6 +22,7 @@ def export_resources(
     include: Optional[list[ResourceType]] = None,
     exclude: Optional[list[ResourceType]] = None,
     threads: int = DEFAULT_EXPORT_THREADS,
+    use_account_usage: bool = True,
 ) -> dict[str, list]:
     if session is None:
         session = connect()
@@ -41,7 +42,11 @@ def export_resources(
         if exclude and resource_type in exclude:
             continue
         try:
-            config.update(export_resource(session, resource_type, threads=threads))
+            config.update(
+                export_resource(
+                    session, resource_type, threads=threads, use_account_usage=use_account_usage
+                )
+            )
         # No list method for resource
         except AttributeError:
             logger.warning(f"Skipping {resource_type} because it has no list method")
@@ -73,10 +78,15 @@ def _fetch_resource_safe(session, urn: URN):
 
 
 def export_resource(
-    session, resource_type: ResourceType, threads: int = DEFAULT_EXPORT_THREADS
+    session,
+    resource_type: ResourceType,
+    threads: int = DEFAULT_EXPORT_THREADS,
+    use_account_usage: bool = True,
 ) -> dict[str, list]:
     resource_label = resource_label_for_type(resource_type)
-    resource_names = list_resource(session, resource_label)
+    # list_resource forwards only the kwargs a given list_* function declares, so this is a
+    # no-op for listers that don't support it (currently only list_grants does).
+    resource_names = list_resource(session, resource_label, use_account_usage=use_account_usage)
     if len(resource_names) == 0:
         return {}
 

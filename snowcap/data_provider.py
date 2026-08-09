@@ -3,6 +3,7 @@ import inspect
 import json
 import logging
 import sys
+import threading
 from functools import cache
 from typing import Any, Optional, TypedDict, Union
 
@@ -173,6 +174,69 @@ def _fail_if_not_granted(result, *args):
         raise Exception(result[0]["status"], *args)
 
 
+# Lookup index over a single role's grants, keyed by
+# (session id, role, role type, grant type) -> {(granted_on, privilege, name key): grant}.
+#
+# Without it _fetch_grant_to_role scans the role's entire grant list and builds two
+# ResourceName objects per candidate. Exporting an account with ~91k grants therefore does
+# tens of millions of scans and hundreds of millions of ResourceName constructions -- pure
+# CPU, GIL-bound, so --threads cannot help. Indexing makes each lookup O(1).
+_GRANT_LOOKUP_INDEX_CACHE: dict[tuple, dict[tuple, dict[str, Any]]] = {}
+_GRANT_LOOKUP_INDEX_LOCK = threading.Lock()
+
+
+def _grant_name_key(name: str) -> str:
+    """
+    Canonical key for a grant target name, matching ResourceName equality semantics.
+
+    ResourceName.__hash__ is hash(str(self)), but str() keeps the quotes for quoted names
+    while __eq__ treats quoted "FOO" and unquoted FOO as equal -- so ResourceName is unsafe
+    as a dict key here. Normalising to "exact if quoted, upper-cased if not" reproduces
+    __eq__ exactly across all four quoted/unquoted combinations.
+    """
+    rendered = str(ResourceName(name))
+    return rendered[1:-1] if rendered.startswith('"') else rendered
+
+
+def _grant_lookup_index(
+    session: SnowflakeConnection,
+    grant_type: GrantType,
+    role: ResourceName,
+    role_type: ResourceType,
+) -> dict[tuple, dict[str, Any]]:
+    """Return (building if needed) the (granted_on, privilege, name) index for one role."""
+    cache_key = (id(session), str(role), role_type, grant_type)
+    index = _GRANT_LOOKUP_INDEX_CACHE.get(cache_key)
+    if index is not None:
+        return index
+
+    if grant_type == GrantType.FUTURE:
+        if role_type == ResourceType.DATABASE_ROLE:
+            grants = _show_future_grants_to_database_role(session, str(role), cacheable=True)
+        else:
+            grants = _show_future_grants_to_role(session, role, cacheable=True)
+    else:
+        grants = _show_grants_to_role(session, role, role_type=role_type, cacheable=True)
+
+    with _GRANT_LOOKUP_INDEX_LOCK:
+        index = _GRANT_LOOKUP_INDEX_CACHE.get(cache_key)
+        if index is None:
+            index = {}
+            for grant in grants:
+                is_account = grant["granted_on"] == "ACCOUNT"
+                name = "ACCOUNT" if is_account else grant["name"]
+                key = (
+                    grant["granted_on"],
+                    grant["privilege"],
+                    name if is_account else _grant_name_key(name),
+                )
+                # First match wins, preserving the original linear scan's behaviour when
+                # duplicate grants exist (e.g. granted by two different roles).
+                index.setdefault(key, grant)
+            _GRANT_LOOKUP_INDEX_CACHE[cache_key] = index
+    return index
+
+
 def _fetch_grant_to_role(
     session: SnowflakeConnection,
     grant_type: GrantType,
@@ -182,20 +246,9 @@ def _fetch_grant_to_role(
     privilege: str,
     role_type: ResourceType = ResourceType.ROLE,
 ):
-    if grant_type == GrantType.FUTURE:
-        if role_type == ResourceType.DATABASE_ROLE:
-            grants = _show_future_grants_to_database_role(session, str(role), cacheable=True)
-        else:
-            grants = _show_future_grants_to_role(session, role, cacheable=True)
-    else:
-        grants = _show_grants_to_role(session, role, role_type=role_type, cacheable=True)
-    for grant in grants:
-        name = "ACCOUNT" if grant["granted_on"] == "ACCOUNT" else grant["name"]
-        # Use ResourceName for comparison to handle quoted identifiers correctly
-        name_matches = ResourceName(name) == ResourceName(on_name) if name != "ACCOUNT" else name == on_name
-        if grant["granted_on"] == granted_on and grant["privilege"] == privilege and name_matches:
-            return grant
-    return None
+    index = _grant_lookup_index(session, grant_type, role, role_type)
+    name_key = on_name if granted_on == "ACCOUNT" else _grant_name_key(on_name)
+    return index.get((granted_on, privilege, name_key))
 
 
 def _filter_result(result, **kwargs):
@@ -588,13 +641,9 @@ def _show_grants_to_role(
     if role_type == ResourceType.ROLE:
         session_id = id(session)
         if session_id in _ACCOUNT_USAGE_GRANTS_CACHE:
-            # Filter cached grants by role name (case-insensitive)
-            role_upper = str(role).upper()
-            filtered_grants = [
-                grant
-                for grant in _ACCOUNT_USAGE_GRANTS_CACHE[session_id]
-                if grant["grantee_name"].upper() == role_upper and grant["granted_to"] == "ROLE"
-            ]
+            # O(1) lookup via the role index -- see _grants_by_role_index for why a plain
+            # scan here is not viable on large accounts.
+            filtered_grants = _grants_by_role_index(session_id).get(str(role).upper(), [])
             logger.debug(f"Using ACCOUNT_USAGE cache for grants to role {role} ({len(filtered_grants)} grants)")
             return filtered_grants
 
@@ -879,6 +928,32 @@ _ACCOUNT_USAGE_GRANTS_CACHE: dict[int, list[dict[str, Any]]] = {}
 # Stores the normalized grant list from GRANTS_TO_USERS
 _ACCOUNT_USAGE_USER_GRANTS_CACHE: dict[int, list[dict[str, Any]]] = {}
 
+# Role-name index over _ACCOUNT_USAGE_GRANTS_CACHE (keyed by session id, then upper-cased
+# grantee name). Without it, every grant lookup rescans the whole grant list: on an account
+# with ~30k grants, exporting grants is O(n^2) and spends minutes in pure Python with no
+# database activity at all. Built once per session, on first use.
+_ACCOUNT_USAGE_GRANTS_BY_ROLE_CACHE: dict[int, dict[str, list[dict[str, Any]]]] = {}
+_ACCOUNT_USAGE_GRANTS_INDEX_LOCK = threading.Lock()
+
+
+def _grants_by_role_index(session_id: int) -> dict[str, list[dict[str, Any]]]:
+    """Return (building if needed) the role -> grants index for a session's grant cache."""
+    index = _ACCOUNT_USAGE_GRANTS_BY_ROLE_CACHE.get(session_id)
+    if index is not None:
+        return index
+    with _ACCOUNT_USAGE_GRANTS_INDEX_LOCK:
+        # Re-check: another thread may have built it while we waited for the lock.
+        index = _ACCOUNT_USAGE_GRANTS_BY_ROLE_CACHE.get(session_id)
+        if index is None:
+            index = {}
+            for grant in _ACCOUNT_USAGE_GRANTS_CACHE.get(session_id, []):
+                if grant["granted_to"] != "ROLE":
+                    continue
+                index.setdefault(grant["grantee_name"].upper(), []).append(grant)
+            _ACCOUNT_USAGE_GRANTS_BY_ROLE_CACHE[session_id] = index
+            logger.debug(f"Built ACCOUNT_USAGE grant index: {len(index)} roles")
+    return index
+
 
 def reset_account_usage_caches() -> None:
     """
@@ -889,11 +964,16 @@ def reset_account_usage_caches() -> None:
     """
     global _ACCOUNT_USAGE_ACCESS_CACHE, _ACCOUNT_USAGE_FALLBACK_CACHE
     global _ACCOUNT_USAGE_GRANTS_CACHE, _ACCOUNT_USAGE_USER_GRANTS_CACHE
+    global _ACCOUNT_USAGE_GRANTS_BY_ROLE_CACHE, _GRANT_LOOKUP_INDEX_CACHE
 
     _ACCOUNT_USAGE_ACCESS_CACHE.clear()
     _ACCOUNT_USAGE_FALLBACK_CACHE.clear()
     _ACCOUNT_USAGE_GRANTS_CACHE.clear()
     _ACCOUNT_USAGE_USER_GRANTS_CACHE.clear()
+    # Derived from _ACCOUNT_USAGE_GRANTS_CACHE, so it must be invalidated alongside it --
+    # otherwise a stale index would outlive the data it was built from.
+    _ACCOUNT_USAGE_GRANTS_BY_ROLE_CACHE.clear()
+    _GRANT_LOOKUP_INDEX_CACHE.clear()
 
 
 def _mark_account_usage_fallback(session: SnowflakeConnection) -> None:
@@ -4019,7 +4099,69 @@ def list_shares(session: SnowflakeConnection) -> list[FQN]:
     return shares
 
 
+def _list_schema_scoped_from_account_usage(session: SnowflakeConnection, sql: str) -> Optional[list[FQN]]:
+    """
+    List schema-scoped objects from SNOWFLAKE.ACCOUNT_USAGE instead of SHOW ... IN ACCOUNT.
+
+    Snowflake caps SHOW output at 10,000 rows (error 090153), which makes SHOW ... IN ACCOUNT
+    unusable on large accounts -- listing simply fails and takes the whole export/plan with it.
+    ACCOUNT_USAGE has no such cap and answers in one query.
+
+    The query must alias its columns to the lowercase names SHOW uses ("database_name",
+    "schema_name", "name") so callers can share row-handling code.
+
+    Returns None when ACCOUNT_USAGE is unavailable or the query fails, so callers can fall
+    back to SHOW.
+
+    CAVEAT: ACCOUNT_USAGE lags live state (commonly up to ~2 hours, occasionally more), so
+    objects created very recently may be missing. SHOW is real-time. This is a deliberate
+    trade-off: on an account past the 10k cap, a slightly stale answer beats no answer.
+    """
+    if not _has_account_usage_access(session):
+        return None
+    try:
+        rows = execute(session, sql, cacheable=True)
+    except Exception as e:  # noqa: BLE001 - any failure should fall back to SHOW
+        logger.warning(f"ACCOUNT_USAGE listing failed, falling back to SHOW: {e}")
+        _mark_account_usage_fallback(session)
+        return None
+
+    user_databases = {str(db) for db in _list_databases(session)}
+    results = []
+    for row in rows:
+        database = row["database_name"]
+        if database in SYSTEM_DATABASES or database not in user_databases:
+            continue
+        if row["schema_name"] == "INFORMATION_SCHEMA":
+            continue
+        results.append(
+            FQN(
+                database=resource_name_from_snowflake_metadata(database),
+                schema=resource_name_from_snowflake_metadata(row["schema_name"]),
+                name=resource_name_from_snowflake_metadata(row["name"]),
+            )
+        )
+    return results
+
+
 def list_stages(session: SnowflakeConnection) -> list[FQN]:
+    # Named stages only. SHOW STAGES IN ACCOUNT also returns one implicit stage per table,
+    # so on this shape of account it returns thousands of rows to discard; ACCOUNT_USAGE.STAGES
+    # holds named stages only.
+    from_account_usage = _list_schema_scoped_from_account_usage(
+        session,
+        """
+        SELECT stage_catalog AS "database_name",
+               stage_schema  AS "schema_name",
+               stage_name    AS "name"
+        FROM SNOWFLAKE.ACCOUNT_USAGE.STAGES
+        WHERE deleted IS NULL
+          AND stage_type IN ('Internal Named', 'External Named')
+        """,
+    )
+    if from_account_usage is not None:
+        return from_account_usage
+
     show_result = execute(session, "SHOW STAGES IN ACCOUNT", cacheable=True)
     stages = []
     for row in show_result:
@@ -4046,6 +4188,25 @@ def list_streams(session: SnowflakeConnection) -> list[FQN]:
 
 
 def list_tables(session: SnowflakeConnection) -> list[FQN]:
+    # ACCOUNT_USAGE.TABLES covers every table type, so the exclusions below (external,
+    # hybrid, iceberg, dynamic, event) map onto table_type plus the is_* flags.
+    from_account_usage = _list_schema_scoped_from_account_usage(
+        session,
+        """
+        SELECT table_catalog AS "database_name",
+               table_schema  AS "schema_name",
+               table_name    AS "name"
+        FROM SNOWFLAKE.ACCOUNT_USAGE.TABLES
+        WHERE deleted IS NULL
+          AND table_type = 'BASE TABLE'
+          AND COALESCE(is_iceberg, 'NO') = 'NO'
+          AND COALESCE(is_dynamic, 'NO') = 'NO'
+          AND COALESCE(is_hybrid,  'NO') = 'NO'
+        """,
+    )
+    if from_account_usage is not None:
+        return from_account_usage
+
     show_result = execute(session, "SHOW TABLES IN ACCOUNT", cacheable=True)
     user_databases = _list_databases(session)
     tables = []
@@ -4271,6 +4432,22 @@ def list_users(session: SnowflakeConnection) -> list[FQN]:
 
 
 def list_views(session: SnowflakeConnection) -> list[FQN]:
+    # Read from ACCOUNT_USAGE.TABLES rather than .VIEWS: table_type distinguishes plain
+    # views from materialized ones, which is the exclusion the SHOW path applies below.
+    from_account_usage = _list_schema_scoped_from_account_usage(
+        session,
+        """
+        SELECT table_catalog AS "database_name",
+               table_schema  AS "schema_name",
+               table_name    AS "name"
+        FROM SNOWFLAKE.ACCOUNT_USAGE.TABLES
+        WHERE deleted IS NULL
+          AND table_type = 'VIEW'
+        """,
+    )
+    if from_account_usage is not None:
+        return from_account_usage
+
     show_result = execute(session, "SHOW VIEWS IN ACCOUNT", cacheable=True)
     views = []
     for row in show_result:
