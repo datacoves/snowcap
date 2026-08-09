@@ -150,5 +150,13 @@ def _format_resource_config(urn: URN, resource: dict, resource_type: ResourceTyp
 
     if resource_type == ResourceType.SCHEMA:
         first_fields["database"] = str(urn.database().fqn)
+    elif urn.fqn.schema is not None and "schema" not in resource:
+        # Schema-scoped resources (file formats, stages, procedures, ...) were exported
+        # without their location, even though the URN carries it. That makes the output
+        # ambiguous whenever two schemas hold the same object name -- and unusable as
+        # plan/apply input, which rejects unqualified resources once a config spans more
+        # than one database. Emit the location we already know.
+        first_fields["database"] = str(urn.fqn.database)
+        first_fields["schema"] = str(urn.fqn.schema)
 
     return {**first_fields, **resource}
