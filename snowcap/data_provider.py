@@ -41,6 +41,7 @@ from .resource_name import (
     attribute_is_resource_name,
     resource_name_from_snowflake_metadata,
 )
+from .resources.authentication_policy import _PAT_POLICY_DEFAULT
 from .resources.warehouse import ADAPTIVE_UNSUPPORTED_FIELDS
 
 __this__ = sys.modules[__name__]
@@ -1503,14 +1504,10 @@ def _parse_enum_map(value):
     return out
 
 
-# Snowflake's documented AUTHENTICATION POLICY pat_policy defaults. This constant is the single
-# source of truth for the fetch layer's pat_policy key schema (used to filter out sub-keys like
-# REQUIRE_ROLE_RESTRICTION_FOR_SERVICE_USERS) and doubles as the suppression sentinel below.
-_PAT_POLICY_DEFAULT = {
-    "network_policy_evaluation": "ENFORCED_REQUIRED",
-    "default_expiry_in_days": 15,
-    "max_expiry_in_days": 365,
-}
+# _PAT_POLICY_DEFAULT (imported from resources.authentication_policy, shared with the
+# resource's __post_init__ so the declared spec and the fetched state suppress defaults
+# identically) is the fetch layer's pat_policy key schema (used to filter out sub-keys like
+# REQUIRE_ROLE_RESTRICTION_FOR_SERVICE_USERS) and the suppression sentinel below.
 
 
 def _parse_pat_policy_property(prop_value: Optional[str]) -> Optional[dict]:

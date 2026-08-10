@@ -523,6 +523,31 @@ class TestSuppressDefaultPatPolicy:
     def test_none_returns_none(self):
         assert _suppress_default_pat_policy(None) is None
 
+    def test_declared_defaults_match_fetched_defaults(self):
+        """Test the declared spec and the fetch layer suppress the exact defaults identically.
+
+        Regression test: __post_init__ previously kept a declared-defaults dict while fetch
+        suppressed the echoed defaults to None, so the comparison never converged (permanent
+        drift, contradicting the AuthenticationPolicy docstring).
+        """
+        import snowcap.resources as res
+
+        fetched = _suppress_default_pat_policy(
+            _parse_pat_policy_property(
+                "{NETWORK_POLICY_EVALUATION=ENFORCED_REQUIRED, DEFAULT_EXPIRY_IN_DAYS=15, MAX_EXPIRY_IN_DAYS=365}"
+            )
+        )
+        declared = res.AuthenticationPolicy(
+            name="p",
+            pat_policy={
+                "network_policy_evaluation": "ENFORCED_REQUIRED",
+                "default_expiry_in_days": 15,
+                "max_expiry_in_days": 365,
+            },
+        ).to_dict()["pat_policy"]
+        assert fetched is None
+        assert declared is None
+
 
 class TestParseSignature:
     """Tests for _parse_signature helper function."""

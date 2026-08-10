@@ -43,6 +43,17 @@ _PAT_POLICY_PROPS = Props(
     max_expiry_in_days=IntProp("max_expiry_in_days"),
 )
 
+# Snowflake's documented PAT_POLICY defaults. Snowflake echoes these values even when
+# pat_policy was never explicitly set, so both sides of the drift comparison must treat an
+# exact-default dict as unset: __post_init__ suppresses it on the declared spec, and the
+# fetch layer's _suppress_default_pat_policy (data_provider.py, which imports this constant)
+# suppresses it on the remote state.
+_PAT_POLICY_DEFAULT = {
+    "network_policy_evaluation": "ENFORCED_REQUIRED",
+    "default_expiry_in_days": 15,
+    "max_expiry_in_days": 365,
+}
+
 
 @dataclass(unsafe_hash=True)
 class _AuthenticationPolicy(ResourceSpec):
@@ -96,6 +107,13 @@ class _AuthenticationPolicy(ResourceSpec):
                 self.pat_policy[key] = prop.typecheck(self.pat_policy[key])
             if self.pat_policy["default_expiry_in_days"] > self.pat_policy["max_expiry_in_days"]:
                 raise ValueError("pat_policy.default_expiry_in_days cannot exceed pat_policy.max_expiry_in_days")
+
+            # Mirror the fetch layer's _suppress_default_pat_policy: declaring exactly the
+            # Snowflake defaults must compare as unset, or the spec keeps the dict while
+            # fetch returns None, producing permanent drift. NetworkPolicyEvaluation is a
+            # str-Enum, so this equality check holds after typecheck.
+            if self.pat_policy == _PAT_POLICY_DEFAULT:
+                self.pat_policy = None
 
 
 class AuthenticationPolicy(NamedResource, Resource):

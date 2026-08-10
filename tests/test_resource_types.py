@@ -1357,13 +1357,56 @@ class TestAuthenticationPolicy:
         policy = res.AuthenticationPolicy(
             name="test_policy",
             pat_policy={
-                "network_policy_evaluation": "ENFORCED_REQUIRED",
-                "default_expiry_in_days": 15,
-                "max_expiry_in_days": 365,
+                "network_policy_evaluation": "ENFORCED_NOT_REQUIRED",
+                "default_expiry_in_days": 30,
+                "max_expiry_in_days": 180,
                 "require_role_restriction_for_service_users": True,
             },
         )
         assert "require_role_restriction_for_service_users" not in policy._data.pat_policy
+
+    def test_pat_policy_exact_defaults_compare_as_unset(self):
+        """Test declaring exactly the Snowflake defaults suppresses pat_policy to None.
+
+        The fetch side suppresses the echoed defaults to None (_suppress_default_pat_policy),
+        so the declared spec must do the same or the plan shows permanent drift.
+        """
+        policy = res.AuthenticationPolicy(
+            name="test_policy",
+            pat_policy={
+                "network_policy_evaluation": "ENFORCED_REQUIRED",
+                "default_expiry_in_days": 15,
+                "max_expiry_in_days": 365,
+            },
+        )
+        assert policy._data.pat_policy is None
+        assert policy.to_dict()["pat_policy"] is None
+        assert "PAT_POLICY" not in policy.create_sql()
+
+    def test_pat_policy_exact_defaults_as_strings_compare_as_unset(self):
+        """Test default suppression applies after typecheck, so string-typed defaults also suppress."""
+        policy = res.AuthenticationPolicy(
+            name="test_policy",
+            pat_policy={
+                "network_policy_evaluation": "ENFORCED_REQUIRED",
+                "default_expiry_in_days": "15",
+                "max_expiry_in_days": "365",
+            },
+        )
+        assert policy._data.pat_policy is None
+
+    def test_pat_policy_near_defaults_not_suppressed(self):
+        """Test a pat_policy differing from the defaults in one field is kept."""
+        policy = res.AuthenticationPolicy(
+            name="test_policy",
+            pat_policy={
+                "network_policy_evaluation": "ENFORCED_REQUIRED",
+                "default_expiry_in_days": 15,
+                "max_expiry_in_days": 364,
+            },
+        )
+        assert policy._data.pat_policy is not None
+        assert policy._data.pat_policy["max_expiry_in_days"] == 364
 
     def test_pat_policy_default_exceeds_max_raises(self):
         """Test default_expiry_in_days greater than max_expiry_in_days raises ValueError."""
