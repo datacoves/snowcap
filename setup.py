@@ -55,7 +55,8 @@ setup(
             "pytest-xdist",
             "pytest>=6.0",
             "python-dotenv",
-            "ruff",
+            # ruff 0.16 changed the default rule selection and fails the codebase with 700+ new findings
+            "ruff<0.16",
             "tabulate",
             "twine!=5.1.0",
             "types-pytz",
