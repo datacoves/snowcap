@@ -672,6 +672,37 @@ def test_provision_resume_skips_create_and_does_not_regenerate_key(provision_dep
     assert not any(sql.startswith("CREATE ACCOUNT") for sql in executed_sql)
 
 
+def test_provision_resume_preserves_passwords_that_sync_never_reapplies(provision_deps, tmp_path):
+    """On resume, ignore_changes passwords must carry forward from tests/.env, not regenerate."""
+    key_path = tmp_path / "key.p8"
+    key_path.write_text("EXISTING_KEY_CONTENTS")
+    provision_deps.dict_cursor.fetchall.return_value = [{"account_name": "SNOWCAP_TESTING"}]
+    (tmp_path / "tests" / ".env").write_text(
+        "TEST_SNOWFLAKE_ACCOUNT=ORG-SNOWCAP_TESTING\n"
+        "VAR_WEBUI_ADMIN_PASSWORD=old-webui-pw-placeholder\n"
+        "VAR_STATIC_USER_MFA_PASSWORD=old-mfa-pw-placeholder\n"
+    )
+
+    _provision(key_path)
+
+    vars_passed = manage_test_account.reset_test_account.call_args.args[1]
+    assert vars_passed["webui_admin_password"] == "old-webui-pw-placeholder"
+    assert vars_passed["static_user_mfa_password"] == "old-mfa-pw-placeholder"
+    env_text = (tmp_path / "tests" / ".env").read_text()
+    assert "VAR_WEBUI_ADMIN_PASSWORD=old-webui-pw-placeholder" in env_text
+    assert "VAR_STATIC_USER_MFA_PASSWORD=old-mfa-pw-placeholder" in env_text
+
+
+def test_provision_fresh_create_regenerates_passwords(provision_deps, tmp_path):
+    """A fresh CREATE ACCOUNT ignores any stale tests/.env passwords: sync applies new ones."""
+    (tmp_path / "tests" / ".env").write_text("VAR_WEBUI_ADMIN_PASSWORD=stale-pw-placeholder\n")
+
+    _provision(tmp_path / "key.p8")
+
+    vars_passed = manage_test_account.reset_test_account.call_args.args[1]
+    assert vars_passed["webui_admin_password"] != "stale-pw-placeholder"
+
+
 def test_provision_backs_up_existing_key_before_fresh_create(provision_deps, tmp_path):
     key_path = tmp_path / "key.p8"
     key_path.write_text("OLD_KEY")

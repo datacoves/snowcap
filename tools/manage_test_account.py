@@ -422,6 +422,19 @@ def provision_test_account(
         click.echo(f"Waiting for {target_identifier} to accept connections (up to {POLL_TIMEOUT_SECONDS}s)...")
         new_conn = poll_for_connection(target_identifier, admin_name, key_path)
 
+        env_path = REPO_ROOT / "tests" / ".env"
+
+        # Passwords under lifecycle.ignore_changes are never re-applied by sync, so on a
+        # resume a freshly generated value would land in tests/.env without landing on the
+        # account. Carry the previously written values forward instead.
+        preserved_passwords = {}
+        if account_exists and env_path.exists():
+            old_env = dotenv_values(env_path)
+            for var in ("webui_admin_password", "static_user_mfa_password"):
+                old_value = old_env.get(f"VAR_{var.upper()}")
+                if old_value:
+                    preserved_passwords[var] = old_value
+
         # Explicit, generated-only bootstrap vars — never sourced from the contributor's environment.
         fixture_vars = {
             "static_user_rsa_public_key": generate_rsa_keypair(None),
@@ -430,10 +443,9 @@ def provision_test_account(
             "storage_base_url": "s3://snowcap-test-placeholder/",
             "storage_role_arn": "arn:aws:iam::000000000000:role/snowcap-test-placeholder",
             "storage_aws_external_id": "snowcap-test",
+            **preserved_passwords,
         }
         reset_test_account(new_conn, fixture_vars)
-
-        env_path = REPO_ROOT / "tests" / ".env"
         env_backup_path = _archive_if_exists(env_path, "bak")
         if env_backup_path:
             click.echo(f"Backed up existing tests/.env to {env_backup_path}")
@@ -565,11 +577,6 @@ def provision(name, email, edition, cloud, region, admin_name, key_path):
 @click.option("--yes", is_flag=True, help="Skip the tests/.env agreement check and confirmation prompt.")
 def drop(name, grace_period_in_days, yes):
     drop_test_account(name, grace_period_in_days, yes)
-
-
-if __name__ == "__main__":
-    main()
-    reset_test_account()
 
 
 if __name__ == "__main__":
