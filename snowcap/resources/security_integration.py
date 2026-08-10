@@ -364,7 +364,18 @@ class _SnowflakeCustomOAuthSecurityIntegration(ResourceSpec):
     type: SecurityIntegrationType = SecurityIntegrationType.OAUTH
     enabled: bool = True
     oauth_client: OAuthClient = OAuthClient.CUSTOM
-    oauth_client_type: OAuthClientType = field(default=None, metadata={"triggers_replacement": True})
+    oauth_client_type: OAuthClientType = field(
+        default=None,
+        metadata={
+            "triggers_replacement": True,
+            "replacement_message": (
+                "Changing oauth_client_type requires recreating the security integration, "
+                "which rotates the Snowflake-issued client_id and client_secret and breaks "
+                "live OAuth clients. To change it, recreate the integration manually and "
+                "migrate clients to the new credentials."
+            ),
+        },
+    )
     oauth_redirect_uri: str = None
     oauth_alternate_redirect_uris: list[str] = field(default=None, metadata={"fetchable": False})
     oauth_issue_refresh_tokens: bool = True

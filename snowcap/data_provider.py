@@ -43,6 +43,7 @@ from .resource_name import (
     resource_name_from_snowflake_metadata,
 )
 from .resources.authentication_policy import _PAT_POLICY_DEFAULT
+from .resources.security_integration import _canonicalize_role_name
 from .resources.warehouse import ADAPTIVE_UNSUPPORTED_FIELDS
 
 __this__ = sys.modules[__name__]
@@ -2661,10 +2662,14 @@ def fetch_security_integration(session: SnowflakeConnection, fqn: FQN):
                 "owner": owner,
             }
         elif oauth_client == "CUSTOM":
+            # Canonicalize role names the same way the spec does (_canonicalize_role_name)
+            # so a quoted, case-sensitive role compares equal on both sides.
             pre_authorized_roles_list = properties.get("pre_authorized_roles_list") or None
             if pre_authorized_roles_list:
-                pre_authorized_roles_list = sorted(pre_authorized_roles_list)
-            blocked_roles_list = set(properties.get("blocked_roles_list") or []) - set(ALWAYS_BLOCKED_OAUTH_ROLES)
+                pre_authorized_roles_list = sorted(_canonicalize_role_name(role) for role in pre_authorized_roles_list)
+            blocked_roles_list = {
+                _canonicalize_role_name(role) for role in properties.get("blocked_roles_list") or []
+            } - set(ALWAYS_BLOCKED_OAUTH_ROLES)
             return {
                 "name": _quote_snowflake_identifier(data["name"]),
                 "type": type_,

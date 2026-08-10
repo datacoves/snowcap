@@ -44,6 +44,7 @@ from .error_formatting import (
 from .exceptions import (
     DuplicateResourceException,
     InvalidResourceException,
+    MarkedForReplacementException,
     MissingPrivilegeException,
     MissingResourceException,
     NonConformingPlanException,
@@ -2343,7 +2344,8 @@ def diff(remote_state: State, manifest: Manifest) -> list:
         delta = _diff_resource_data(remote_state[urn], manifest_item.data)
         owner_attr = delta.pop("owner", None)
 
-        replace_resource = False
+        replacement_attr = None
+        replacement_message = None
         create_resource = False
         ignore_fields = set()
 
@@ -2355,7 +2357,8 @@ def diff(remote_state: State, manifest: Manifest) -> list:
             change_is_known_after_apply = attr_metadata.known_after_apply
             change_should_be_ignored = attr in manifest_item.lifecycle.ignore_changes or attr_metadata.ignore_changes
             if change_requires_replacement:
-                replace_resource = True
+                replacement_attr = attr
+                replacement_message = attr_metadata.replacement_message
                 break
             elif change_triggers_create:
                 create_resource = True
@@ -2367,8 +2370,14 @@ def diff(remote_state: State, manifest: Manifest) -> list:
             elif change_should_be_ignored:
                 ignore_fields.add(attr)
 
-        if replace_resource:
-            raise NotImplementedError("replace_resource")
+        if replacement_attr:
+            message = (
+                f"Cannot update {urn}: changing '{replacement_attr}' requires replacing the resource, "
+                "which snowcap does not do."
+            )
+            if replacement_message:
+                message = f"{message} {replacement_message}"
+            raise MarkedForReplacementException(message)
 
         if create_resource:
             changes.append(

@@ -1256,6 +1256,39 @@ class TestFetchSecurityIntegration:
 
     @patch("snowcap.data_provider._fetch_owner")
     @patch("snowcap.data_provider.execute")
+    def test_custom_oauth_quoted_roles_canonicalized_like_spec(self, mock_execute, mock_fetch_owner):
+        """A quoted, case-sensitive role from DESC must canonicalize exactly like the
+        spec side (_canonicalize_role_name), or it would drift on every plan."""
+        mock_fetch_owner.return_value = "ACCOUNTADMIN"
+        mock_execute.side_effect = self._mock_execute(
+            _custom_oauth_desc_rows(
+                blocked_roles_list='[ACCOUNTADMIN, "my_role", SYSADMIN]',
+                pre_authorized_roles_list='["my_role", ANALYST]',
+            )
+        )
+
+        result = fetch_security_integration(MagicMock(), FQN(name=ResourceName("CUSTOM_OAUTH")))
+
+        # The quote characters are stripped and the case-sensitive name keeps its case,
+        # matching what the spec produces for blocked_roles_list=['"my_role"', ...].
+        assert result["blocked_roles_list"] == ["SYSADMIN", "my_role"]
+        assert result["pre_authorized_roles_list"] == ["ANALYST", "my_role"]
+
+    @patch("snowcap.data_provider._fetch_owner")
+    @patch("snowcap.data_provider.execute")
+    def test_custom_oauth_lowercase_roles_canonicalized_like_spec(self, mock_execute, mock_fetch_owner):
+        """An unquoted role from DESC is uppercased, matching the spec side."""
+        mock_fetch_owner.return_value = "ACCOUNTADMIN"
+        mock_execute.side_effect = self._mock_execute(
+            _custom_oauth_desc_rows(blocked_roles_list="[ACCOUNTADMIN, sysadmin]")
+        )
+
+        result = fetch_security_integration(MagicMock(), FQN(name=ResourceName("CUSTOM_OAUTH")))
+
+        assert result["blocked_roles_list"] == ["SYSADMIN"]
+
+    @patch("snowcap.data_provider._fetch_owner")
+    @patch("snowcap.data_provider.execute")
     def test_custom_oauth_empty_pre_authorized_roles_normalizes_to_none(self, mock_execute, mock_fetch_owner):
         mock_fetch_owner.return_value = "ACCOUNTADMIN"
         mock_execute.side_effect = self._mock_execute(_custom_oauth_desc_rows())

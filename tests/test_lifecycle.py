@@ -1528,6 +1528,20 @@ class TestCreateSnowflakeCustomOAuthSecurityIntegration:
         )
         assert integration.to_dict()["blocked_roles_list"] == ["SYSADMIN"]
 
+    def test_quoted_role_names_keep_case(self):
+        """A quoted, case-sensitive role keeps its case (quotes stripped), matching
+        what the fetch side produces for the same role."""
+        integration = res.SnowflakeCustomOAuthSecurityIntegration(
+            name="TEST_INTEGRATION",
+            oauth_client_type="CONFIDENTIAL",
+            oauth_redirect_uri="https://example.com/cb",
+            pre_authorized_roles_list=['"my_role"', "ANALYST"],
+            blocked_roles_list=['"my_role"', "SYSADMIN"],
+        )
+        data = integration.to_dict()
+        assert data["pre_authorized_roles_list"] == ["ANALYST", "my_role"]
+        assert data["blocked_roles_list"] == ["SYSADMIN", "my_role"]
+
     def test_blocked_roles_list_rejects_always_blocked_roles(self):
         """ACCOUNTADMIN/ORGADMIN/GLOBALORGADMIN/SECURITYADMIN are always blocked by Snowflake
         and must not be listed, or every plan/apply would see a perpetual delta."""
@@ -1572,7 +1586,10 @@ class TestUpdateSnowflakeCustomOAuthSecurityIntegration:
     def test_metadata(self):
         """oauth_client_type triggers replacement; oauth_alternate_redirect_uris is create-only."""
         spec = res.SnowflakeCustomOAuthSecurityIntegration.spec
-        assert spec.get_metadata("oauth_client_type").triggers_replacement is True
+        oauth_client_type_metadata = spec.get_metadata("oauth_client_type")
+        assert oauth_client_type_metadata.triggers_replacement is True
+        # The plan-time error must explain why snowcap refuses to recreate.
+        assert "client_id and client_secret" in oauth_client_type_metadata.replacement_message
         assert spec.get_metadata("oauth_alternate_redirect_uris").fetchable is False
 
     def test_update_set_sql(self):
