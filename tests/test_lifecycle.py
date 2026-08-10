@@ -420,7 +420,7 @@ class TestCreateGrant:
         }
         props = MockProps("")
         result = create_grant(urn, data, props, if_not_exists=False)
-        assert "ON ALL tables IN" in result
+        assert "ON ALL TABLES IN" in result
 
     def test_grant_on_integration(self):
         """Test grant on integration (type normalization)."""

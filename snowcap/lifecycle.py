@@ -181,7 +181,7 @@ def create_grant(urn: URN, data: dict, props: Props, if_not_exists: bool):
             "GRANT",
             data["priv"],
             "ON ALL",
-            pluralize(items_type),
+            pluralize(items_type).upper(),
             "IN",
             data["on_type"],
             data["on"],
