@@ -339,11 +339,11 @@ $$
         assert repo_data is not None, "ALL grant on image repository was not created"
         assert repo_data["_privs"] == ["READ", "WRITE"]
 
-        # Verify ALL grant on the service expands to exactly MONITOR, OPERATE, USAGE
+        # Verify ALL grant on the service expands to exactly MONITOR, OPERATE
         svc_grant = res.Grant(priv="ALL", on_service=svc_fqn, to=role)
         svc_data = safe_fetch(cursor, svc_grant.urn)
         assert svc_data is not None, "ALL grant on service was not created"
-        assert svc_data["_privs"] == ["MONITOR", "OPERATE", "USAGE"]
+        assert svc_data["_privs"] == ["MONITOR", "OPERATE"]
 
         # Re-plan should show no changes
         reset_cache()

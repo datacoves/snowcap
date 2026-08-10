@@ -71,7 +71,7 @@ GRANT CREATE SEMANTIC VIEW ON SCHEMA somedb.someschema TO ROLE SNOWCAP_ADMIN;
 |---|---|
 | Compute pool | `USAGE`, `MONITOR`, `MODIFY`, `OPERATE`, `OWNERSHIP` |
 | Image repository | `READ`, `WRITE`, `OWNERSHIP` |
-| Service | `USAGE`, `MONITOR`, `OPERATE`, `OWNERSHIP` |
+| Service | `MONITOR`, `OPERATE`, `OWNERSHIP` |
 
 See [Optimizing Grant Fetching with ACCOUNT_USAGE](getting-started.md#optimizing-grant-fetching-with-account_usage) for when the ACCOUNT_USAGE optimization is worth enabling.
 

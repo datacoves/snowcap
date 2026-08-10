@@ -344,7 +344,6 @@ class ServicePriv(Priv):
     MONITOR = "MONITOR"
     OPERATE = "OPERATE"
     OWNERSHIP = "OWNERSHIP"
-    USAGE = "USAGE"
 
 
 class StagePriv(Priv):

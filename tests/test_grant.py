@@ -516,7 +516,7 @@ class TestMultiPrivilegeGrants:
     def test_all_priv_expands_on_service(self):
         """Test: priv: ALL on a service expands to the full non-ALL/non-OWNERSHIP list."""
         grant = res.Grant(priv="ALL", on_service="D.S.SVC", to="R")
-        assert grant._data._privs == ["MONITOR", "OPERATE", "USAGE"]
+        assert grant._data._privs == ["MONITOR", "OPERATE"]
 
     def test_single_priv_in_list_works(self):
         """Test: Single privilege in list works correctly."""

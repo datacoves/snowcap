@@ -432,9 +432,10 @@ class TestServicePriv:
         """ServicePriv has OWNERSHIP privilege."""
         assert ServicePriv.OWNERSHIP.value == "OWNERSHIP"
 
-    def test_usage_privilege(self):
-        """ServicePriv has USAGE privilege."""
-        assert ServicePriv.USAGE.value == "USAGE"
+    def test_no_usage_privilege(self):
+        """ServicePriv has no USAGE privilege. The SERVICE grant grammar allows
+        only MONITOR and OPERATE; USAGE-on-service is a Native App concept."""
+        assert "USAGE" not in ServicePriv.__members__
 
 
 #############################################################################
@@ -658,7 +659,7 @@ class TestAllPrivsForResourceType:
     def test_service_privs(self):
         """all_privs_for_resource_type returns non-ALL/OWNERSHIP privileges for service."""
         privs = all_privs_for_resource_type(ResourceType.SERVICE)
-        assert privs == ["MONITOR", "OPERATE", "USAGE"]
+        assert privs == ["MONITOR", "OPERATE"]
 
 
 #############################################################################
