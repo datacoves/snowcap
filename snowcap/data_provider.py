@@ -82,7 +82,12 @@ def _quote_snowflake_identifier(identifier: Union[str, ResourceName]) -> str:
 
 def _get_owner_identifier(data: dict) -> str:
     if "owner_role_type" not in data:
-        return _quote_snowflake_identifier(data["owner"])
+        # Some metadata sources (eg SYSTEM$SHOW_IMPORTED_DATABASES on some editions)
+        # may omit the owner field; degrade to drift instead of crashing the plan.
+        owner = data.get("owner")
+        if not owner:
+            return ""
+        return _quote_snowflake_identifier(owner)
     if data["owner"] == "":
         return ""
     if data["owner_role_type"] == "DATABASE_ROLE":

@@ -35,6 +35,7 @@ from snowcap.data_provider import (
     fetch_resource,
     fetch_database,
     fetch_grant,
+    fetch_shared_database,
     fetch_warehouse,
     fetch_streamlit,
     list_resource,
@@ -51,6 +52,7 @@ from snowcap import resources as res
 from snowcap.resources.warehouse import ADAPTIVE_UNSUPPORTED_FIELDS
 
 import datetime
+import json
 import pytz
 
 
@@ -123,6 +125,16 @@ class TestGetOwnerIdentifier:
             "owner_role_type": "ROLE"
         }
         result = _get_owner_identifier(data)
+        assert result == ""
+
+    def test_missing_owner_without_role_type(self):
+        # SYSTEM$SHOW_IMPORTED_DATABASES may omit the owner field on some editions;
+        # a missing owner must degrade to drift, not crash the plan with a KeyError.
+        result = _get_owner_identifier({"name": "GONG"})
+        assert result == ""
+
+    def test_empty_owner_without_role_type(self):
+        result = _get_owner_identifier({"owner": ""})
         assert result == ""
 
     def test_unsupported_owner_role_type_raises(self):
@@ -699,6 +711,46 @@ class TestFetchDatabase:
         assert result["data_retention_time_in_days"] == 1
         assert result["owner"] == "SYSADMIN"
         assert result["transient"] is False
+
+
+class TestFetchSharedDatabase:
+    """Tests for fetch_shared_database's handling of SYSTEM$SHOW_IMPORTED_DATABASES output."""
+
+    @staticmethod
+    def _mock_show_imported_databases(rows):
+        return [{"SYSTEM$SHOW_IMPORTED_DATABASES()": json.dumps(rows)}]
+
+    @patch("snowcap.data_provider.execute")
+    def test_missing_owner_degrades_to_empty(self, mock_execute):
+        # Some editions may omit the owner field entirely; the fetch must
+        # return a result (surfacing owner drift) instead of raising KeyError.
+        mock_execute.return_value = self._mock_show_imported_databases(
+            [{"name": "GONG", "origin": "PROVIDER_ACCOUNT.SHARE_NAME"}]
+        )
+        mock_session = MagicMock()
+
+        result = fetch_shared_database(mock_session, FQN(name=ResourceName("GONG")))
+
+        assert result == {
+            "name": "GONG",
+            "from_share": "PROVIDER_ACCOUNT.SHARE_NAME",
+            "owner": "",
+        }
+
+    @patch("snowcap.data_provider.execute")
+    def test_owner_present(self, mock_execute):
+        mock_execute.return_value = self._mock_show_imported_databases(
+            [{"name": "GONG", "origin": "PROVIDER_ACCOUNT.SHARE_NAME", "owner": "ACCOUNTADMIN"}]
+        )
+        mock_session = MagicMock()
+
+        result = fetch_shared_database(mock_session, FQN(name=ResourceName("GONG")))
+
+        assert result == {
+            "name": "GONG",
+            "from_share": "PROVIDER_ACCOUNT.SHARE_NAME",
+            "owner": "ACCOUNTADMIN",
+        }
 
 
 def _imported_privileges_grant_fqn():
