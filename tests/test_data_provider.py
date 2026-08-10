@@ -34,6 +34,7 @@ from snowcap.data_provider import (
     # Dispatcher functions
     fetch_resource,
     fetch_warehouse,
+    fetch_streamlit,
     list_resource,
     list_account_scoped_resource,
     list_schema_scoped_resource,
@@ -935,15 +936,6 @@ class TestFetchRegion:
 class TestHasAccountUsageAccess:
     """Tests for _has_account_usage_access function."""
 
-    def setup_method(self):
-        """Clear caches before each test."""
-        from snowcap.data_provider import (
-            _ACCOUNT_USAGE_ACCESS_CACHE,
-            _ACCOUNT_USAGE_FALLBACK_CACHE,
-        )
-        _ACCOUNT_USAGE_ACCESS_CACHE.clear()
-        _ACCOUNT_USAGE_FALLBACK_CACHE.clear()
-
     @patch("snowcap.data_provider.execute")
     def test_returns_true_when_access_granted(self, mock_execute):
         """When ACCOUNT_USAGE query succeeds, function returns True."""
@@ -1017,15 +1009,6 @@ class TestHasAccountUsageAccess:
 
 class TestFetchGrantsFromAccountUsage:
     """Tests for _fetch_grants_from_account_usage function."""
-
-    def setup_method(self):
-        """Clear caches before each test."""
-        from snowcap.data_provider import (
-            _ACCOUNT_USAGE_ACCESS_CACHE,
-            _ACCOUNT_USAGE_FALLBACK_CACHE,
-        )
-        _ACCOUNT_USAGE_ACCESS_CACHE.clear()
-        _ACCOUNT_USAGE_FALLBACK_CACHE.clear()
 
     @patch("snowcap.data_provider.execute")
     def test_returns_normalized_grants(self, mock_execute):
@@ -1132,15 +1115,6 @@ class TestFetchGrantsFromAccountUsage:
 class TestFetchRoleGrantsToUsersFromAccountUsage:
     """Tests for _fetch_role_grants_to_users_from_account_usage function."""
 
-    def setup_method(self):
-        """Clear caches before each test."""
-        from snowcap.data_provider import (
-            _ACCOUNT_USAGE_ACCESS_CACHE,
-            _ACCOUNT_USAGE_FALLBACK_CACHE,
-        )
-        _ACCOUNT_USAGE_ACCESS_CACHE.clear()
-        _ACCOUNT_USAGE_FALLBACK_CACHE.clear()
-
     @patch("snowcap.data_provider.execute")
     def test_returns_normalized_user_grants(self, mock_execute):
         """User grants should be normalized to match SHOW GRANTS OF ROLE structure."""
@@ -1183,15 +1157,6 @@ class TestFetchRoleGrantsToUsersFromAccountUsage:
 
 class TestShouldUseAccountUsage:
     """Tests for _should_use_account_usage helper function."""
-
-    def setup_method(self):
-        """Clear caches before each test."""
-        from snowcap.data_provider import (
-            _ACCOUNT_USAGE_ACCESS_CACHE,
-            _ACCOUNT_USAGE_FALLBACK_CACHE,
-        )
-        _ACCOUNT_USAGE_ACCESS_CACHE.clear()
-        _ACCOUNT_USAGE_FALLBACK_CACHE.clear()
 
     @patch("snowcap.data_provider._has_account_usage_access")
     def test_returns_false_when_config_disabled(self, mock_has_access):
@@ -1248,11 +1213,6 @@ class TestShouldUseAccountUsage:
 class TestMarkAccountUsageFallback:
     """Tests for _mark_account_usage_fallback function."""
 
-    def setup_method(self):
-        """Clear caches before each test."""
-        from snowcap.data_provider import _ACCOUNT_USAGE_FALLBACK_CACHE
-        _ACCOUNT_USAGE_FALLBACK_CACHE.clear()
-
     def test_marks_session_for_fallback(self):
         """Should mark session ID in fallback cache."""
         from snowcap.data_provider import (
@@ -1268,15 +1228,6 @@ class TestMarkAccountUsageFallback:
 
 class TestFetchRolePrivilegesAccountUsage:
     """Tests for fetch_role_privileges with ACCOUNT_USAGE integration."""
-
-    def setup_method(self):
-        """Clear caches before each test."""
-        from snowcap.data_provider import (
-            _ACCOUNT_USAGE_ACCESS_CACHE,
-            _ACCOUNT_USAGE_FALLBACK_CACHE,
-        )
-        _ACCOUNT_USAGE_ACCESS_CACHE.clear()
-        _ACCOUNT_USAGE_FALLBACK_CACHE.clear()
 
     @patch("snowcap.data_provider._should_use_account_usage")
     @patch("snowcap.data_provider._fetch_grants_from_account_usage")
@@ -1367,3 +1318,66 @@ class TestBlueprintConfigUseAccountUsage:
         config = BlueprintConfig(use_account_usage=False)
 
         assert config.use_account_usage is False
+
+
+def _streamlit_show_row(**overrides):
+    row = {
+        "name": "MY_APP",
+        "owner": "SYSADMIN",
+        "owner_role_type": "ROLE",
+        "query_warehouse": "MY_WH",
+        "comment": "",
+    }
+    row.update(overrides)
+    return row
+
+
+class TestFetchStreamlit:
+    """Tests for fetch_streamlit normalization."""
+
+    @patch("snowcap.data_provider.execute")
+    @patch("snowcap.data_provider._show_resources")
+    def test_maps_default_main_file_and_omits_from(self, mock_show_resources, mock_execute):
+        mock_show_resources.return_value = [_streamlit_show_row()]
+        # DESC STREAMLIT returns the Snowflake default main_file plus a title.
+        mock_execute.return_value = [{"main_file": "streamlit_app.py", "title": "My App"}]
+
+        result = fetch_streamlit(MagicMock(), FQN(name=ResourceName("MY_APP")))
+
+        # Default main_file collapses to None so an omitted field doesn't drift.
+        assert result["main_file"] is None
+        assert result["title"] == "My App"
+        assert result["query_warehouse"] == "MY_WH"
+        # from_ and version are non-fetchable / not comparable -> never returned.
+        assert "from_" not in result
+        assert result["version"] is None
+
+    @patch("snowcap.data_provider.execute")
+    @patch("snowcap.data_provider._show_resources")
+    def test_keeps_non_default_main_file(self, mock_show_resources, mock_execute):
+        mock_show_resources.return_value = [_streamlit_show_row()]
+        mock_execute.return_value = [{"main_file": "app.py", "title": None}]
+
+        result = fetch_streamlit(MagicMock(), FQN(name=ResourceName("MY_APP")))
+
+        assert result["main_file"] == "app.py"
+        assert result["title"] is None
+
+    @patch("snowcap.data_provider.execute")
+    @patch("snowcap.data_provider._show_resources")
+    def test_empty_desc_result_does_not_raise(self, mock_show_resources, mock_execute):
+        mock_show_resources.return_value = [_streamlit_show_row()]
+        # An empty DESC result must not IndexError.
+        mock_execute.return_value = []
+
+        result = fetch_streamlit(MagicMock(), FQN(name=ResourceName("MY_APP")))
+
+        assert result["main_file"] is None
+        assert result["title"] is None
+        assert result["name"] == "MY_APP"
+
+    @patch("snowcap.data_provider._show_resources")
+    def test_missing_streamlit_returns_none(self, mock_show_resources):
+        mock_show_resources.return_value = []
+
+        assert fetch_streamlit(MagicMock(), FQN(name=ResourceName("MY_APP"))) is None
