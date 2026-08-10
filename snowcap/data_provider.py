@@ -2670,6 +2670,9 @@ def fetch_security_integration(session: SnowflakeConnection, fqn: FQN):
             blocked_roles_list = {
                 _canonicalize_role_name(role) for role in properties.get("blocked_roles_list") or []
             } - set(ALWAYS_BLOCKED_OAUTH_ROLES)
+            oauth_refresh_token_validity = properties.get("oauth_refresh_token_validity")
+            if oauth_refresh_token_validity is not None:
+                oauth_refresh_token_validity = int(oauth_refresh_token_validity)
             return {
                 "name": _quote_snowflake_identifier(data["name"]),
                 "type": type_,
@@ -2678,7 +2681,7 @@ def fetch_security_integration(session: SnowflakeConnection, fqn: FQN):
                 "oauth_client_type": properties.get("oauth_client_type"),
                 "oauth_redirect_uri": properties.get("oauth_redirect_uri"),
                 "oauth_issue_refresh_tokens": properties.get("oauth_issue_refresh_tokens"),
-                "oauth_refresh_token_validity": int(properties["oauth_refresh_token_validity"]),
+                "oauth_refresh_token_validity": oauth_refresh_token_validity,
                 "oauth_use_secondary_roles": properties.get("oauth_use_secondary_roles"),
                 "oauth_enforce_pkce": properties.get("oauth_enforce_pkce"),
                 "network_policy": properties.get("network_policy"),

@@ -1302,6 +1302,19 @@ class TestFetchSecurityIntegration:
 
     @patch("snowcap.data_provider._fetch_owner")
     @patch("snowcap.data_provider.execute")
+    def test_custom_oauth_omitted_refresh_token_validity_degrades_to_none(self, mock_execute, mock_fetch_owner):
+        """If DESC omits OAUTH_REFRESH_TOKEN_VALIDITY, fetch must return None
+        instead of raising KeyError, like every sibling field."""
+        mock_fetch_owner.return_value = "ACCOUNTADMIN"
+        desc_rows = [row for row in _custom_oauth_desc_rows() if row["property"] != "OAUTH_REFRESH_TOKEN_VALIDITY"]
+        mock_execute.side_effect = self._mock_execute(desc_rows)
+
+        result = fetch_security_integration(MagicMock(), FQN(name=ResourceName("CUSTOM_OAUTH")))
+
+        assert result["oauth_refresh_token_validity"] is None
+
+    @patch("snowcap.data_provider._fetch_owner")
+    @patch("snowcap.data_provider.execute")
     def test_snowservices_ingress_still_fetches_as_before(self, mock_execute, mock_fetch_owner):
         mock_fetch_owner.return_value = "ACCOUNTADMIN"
         mock_execute.side_effect = self._mock_execute(
