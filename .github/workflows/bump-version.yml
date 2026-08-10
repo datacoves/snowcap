@@ -10,7 +10,7 @@ jobs:
       contents: write
     steps:
     - name: actions/checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
           persist-credentials: false
           fetch-depth: 0
@@ -18,7 +18,7 @@ jobs:
       run: echo "current_version=$(grep '# version' version.md | cut -d ' ' -f3)" >> $GITHUB_ENV
     - name: FragileTech/bump-version
       id: bump
-      uses: FragileTech/bump-version@main
+      uses: FragileTech/bump-version@v1.0.8
       with:
         current_version: "${{ env.current_version }}"
         files: version.md
@@ -38,7 +38,7 @@ jobs:
         echo "$NOTES" >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT
     - name: Create GitHub Release
-      uses: softprops/action-gh-release@v2
+      uses: softprops/action-gh-release@v3
       with:
         tag_name: "v${{ env.next_version }}"
         name: "v${{ env.next_version }}"
