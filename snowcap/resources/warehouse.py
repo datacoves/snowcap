@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Optional, Union
 
 from ..enums import AccountEdition, ParseableEnum, ResourceType, WarehouseSize
@@ -22,6 +22,7 @@ from .tag import TaggableResource
 class WarehouseType(ParseableEnum):
     STANDARD = "STANDARD"
     SNOWPARK_OPTIMIZED = "SNOWPARK-OPTIMIZED"
+    ADAPTIVE = "ADAPTIVE"
 
 
 class WarehouseScalingPolicy(ParseableEnum):
@@ -69,6 +70,23 @@ GENERATION_RESOURCE_CONSTRAINTS = {
     WarehouseGeneration.GEN2: WarehouseResourceConstraint.STANDARD_GEN_2,
 }
 
+# Properties that don't apply to ADAPTIVE warehouses (Snowflake computes them automatically).
+# Names only: __post_init__ reads each field's real default from dataclasses.fields at
+# validation time rather than hand-copying defaults here. "generation" is deliberately
+# excluded — the existing generation-vs-STANDARD check already rejects it for ADAPTIVE.
+ADAPTIVE_UNSUPPORTED_FIELDS = (
+    "warehouse_size",
+    "min_cluster_count",
+    "max_cluster_count",
+    "scaling_policy",
+    "auto_suspend",
+    "auto_resume",
+    "initially_suspended",
+    "enable_query_acceleration",
+    "query_acceleration_max_scale_factor",
+    "resource_constraint",
+)
+
 
 @dataclass(unsafe_hash=True)
 class _Warehouse(ResourceSpec):
@@ -78,6 +96,7 @@ class _Warehouse(ResourceSpec):
     warehouse_size: WarehouseSize = WarehouseSize.XSMALL
     generation: Optional[WarehouseGeneration] = None
     resource_constraint: Optional[WarehouseResourceConstraint] = None
+    max_query_performance_level: Optional[WarehouseSize] = None
     max_cluster_count: int = field(
         default=1,
         metadata={"edition": {AccountEdition.ENTERPRISE, AccountEdition.BUSINESS_CRITICAL}},
@@ -133,6 +152,24 @@ class _Warehouse(ResourceSpec):
         if uses_standard_gen2 and self.warehouse_size in {WarehouseSize.X5LARGE, WarehouseSize.X6LARGE}:
             raise ValueError("Gen2 standard warehouses do not support X5LARGE or X6LARGE sizes")
 
+        if self.warehouse_type == WarehouseType.ADAPTIVE:
+            for field_name in ADAPTIVE_UNSUPPORTED_FIELDS:
+                if getattr(self, field_name) != _ADAPTIVE_FIELD_DEFAULTS[field_name]:
+                    raise ValueError(f"{field_name} does not apply to ADAPTIVE warehouses")
+                setattr(self, field_name, None)
+
+        if self.max_query_performance_level is not None:
+            if self.warehouse_type != WarehouseType.ADAPTIVE:
+                raise ValueError("max_query_performance_level is only valid for ADAPTIVE warehouses")
+            if self.max_query_performance_level in {WarehouseSize.X5LARGE, WarehouseSize.X6LARGE}:
+                raise ValueError("max_query_performance_level supports XSMALL through X4LARGE")
+
+
+# Real dataclass defaults for the adaptive-inapplicable fields, computed once from
+# dataclasses.fields (the single source of truth) instead of rebuilding this dict on
+# every ADAPTIVE warehouse construction.
+_ADAPTIVE_FIELD_DEFAULTS = {f.name: f.default for f in fields(_Warehouse) if f.name in ADAPTIVE_UNSUPPORTED_FIELDS}
+
 
 class Warehouse(NamedResource, TaggableResource, Resource):
     """
@@ -145,10 +182,11 @@ class Warehouse(NamedResource, TaggableResource, Resource):
     Fields:
         name (string, required): The name of the warehouse.
         owner (string): The owner of the warehouse. Defaults to "SYSADMIN".
-        warehouse_type (string or WarehouseType): The type of the warehouse, either STANDARD or SNOWPARK-OPTIMIZED. Defaults to STANDARD.
+        warehouse_type (string or WarehouseType): The type of the warehouse: STANDARD, SNOWPARK-OPTIMIZED, or ADAPTIVE. Defaults to STANDARD. ADAPTIVE warehouses do not support warehouse_size, min_cluster_count, max_cluster_count, scaling_policy, auto_suspend, auto_resume, initially_suspended, enable_query_acceleration, query_acceleration_max_scale_factor, resource_constraint, or generation.
         warehouse_size (string or WarehouseSize): The size of the warehouse which defines the compute and storage capacity.
         generation (string or WarehouseGeneration): The standard warehouse generation, either "1" or "2".
         resource_constraint (string or WarehouseResourceConstraint): The warehouse resource constraint, either STANDARD_GEN_1/2 for standard warehouses or MEMORY_* for Snowpark-optimized warehouses.
+        max_query_performance_level (string or WarehouseSize): The maximum size an ADAPTIVE warehouse may scale to: XSMALL, SMALL, MEDIUM, LARGE, XLARGE, XXLARGE, XXXLARGE, or X4LARGE. Only valid for ADAPTIVE warehouses; Snowflake defaults to XLARGE if omitted.
         max_cluster_count (int): The maximum number of clusters for the warehouse.
         min_cluster_count (int): The minimum number of clusters for the warehouse.
         scaling_policy (string or WarehouseScalingPolicy): The policy that defines how the warehouse scales.
@@ -191,6 +229,15 @@ class Warehouse(NamedResource, TaggableResource, Resource):
         )
         ```
 
+        An adaptive warehouse sets max_query_performance_level instead of warehouse_size and cluster/scaling properties:
+        ```python
+        adaptive_warehouse = Warehouse(
+            name="some_adaptive_warehouse",
+            warehouse_type="ADAPTIVE",
+            max_query_performance_level="LARGE",
+        )
+        ```
+
     Yaml:
 
         ```yaml
@@ -217,6 +264,14 @@ class Warehouse(NamedResource, TaggableResource, Resource):
             tags:
               env: test
         ```
+
+        An adaptive warehouse in yaml:
+        ```yaml
+        warehouses:
+          - name: some_adaptive_warehouse
+            warehouse_type: ADAPTIVE
+            max_query_performance_level: LARGE
+        ```
     """
 
     resource_type = ResourceType.WAREHOUSE
@@ -226,6 +281,7 @@ class Warehouse(NamedResource, TaggableResource, Resource):
         warehouse_size=EnumProp("warehouse_size", WarehouseSize),
         generation=EnumProp("GENERATION", WarehouseGeneration, quoted=True),
         resource_constraint=EnumProp("RESOURCE_CONSTRAINT", WarehouseResourceConstraint),
+        max_query_performance_level=EnumProp("MAX_QUERY_PERFORMANCE_LEVEL", WarehouseSize),
         max_cluster_count=IntProp("max_cluster_count"),
         min_cluster_count=IntProp("min_cluster_count"),
         scaling_policy=EnumProp("scaling_policy", WarehouseScalingPolicy),
@@ -252,6 +308,7 @@ class Warehouse(NamedResource, TaggableResource, Resource):
         warehouse_size: str = "XSMALL",
         generation: str = None,
         resource_constraint: str = None,
+        max_query_performance_level: str = None,
         max_cluster_count: int = 1,
         min_cluster_count: int = 1,
         scaling_policy: str = "STANDARD",
@@ -276,6 +333,7 @@ class Warehouse(NamedResource, TaggableResource, Resource):
             warehouse_size=warehouse_size,
             generation=generation,
             resource_constraint=resource_constraint,
+            max_query_performance_level=max_query_performance_level,
             max_cluster_count=max_cluster_count,
             min_cluster_count=min_cluster_count,
             scaling_policy=scaling_policy,

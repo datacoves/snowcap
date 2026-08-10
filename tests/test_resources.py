@@ -1,3 +1,4 @@
+import inspect
 import logging
 import re
 
@@ -11,6 +12,12 @@ from snowcap.resource_tags import ResourceTags
 from snowcap.resources.resource import ResourcePointer
 from snowcap.resources.user import UserType
 from snowcap.resources.view import ViewColumn
+from snowcap.resources.warehouse import (
+    ADAPTIVE_UNSUPPORTED_FIELDS,
+    _ADAPTIVE_FIELD_DEFAULTS,
+    _Warehouse,
+    WarehouseType,
+)
 
 SQL_FIXTURES = list(get_sql_fixtures())
 
@@ -62,6 +69,114 @@ def test_warehouse_explicit_query_acceleration_create_sql():
     sql = warehouse.create_sql()
     assert "ENABLE_QUERY_ACCELERATION = FALSE" in sql
     assert "QUERY_ACCELERATION_MAX_SCALE_FACTOR = 8" in sql
+
+
+def test_warehouse_type_adaptive_parses():
+    assert WarehouseType("ADAPTIVE") == WarehouseType.ADAPTIVE
+
+
+def test_warehouse_size_parses_case_insensitively():
+    assert WarehouseSize("LARGE") == WarehouseSize.LARGE
+    assert WarehouseSize("large") == WarehouseSize.LARGE
+
+
+def test_warehouse_adaptive_create_sql():
+    warehouse = res.Warehouse(name="WH", warehouse_type="ADAPTIVE", max_query_performance_level="LARGE")
+    sql = warehouse.create_sql()
+    lowered = sql.lower()
+    assert "warehouse_type = 'adaptive'" in lowered
+    assert "MAX_QUERY_PERFORMANCE_LEVEL = LARGE" in sql
+    for token in (
+        "warehouse_size",
+        "min_cluster_count",
+        "max_cluster_count",
+        "scaling_policy",
+        "auto_suspend",
+        "auto_resume",
+        "initially_suspended",
+    ):
+        assert token not in lowered
+
+
+def test_warehouse_default_create_sql_unchanged():
+    sql = res.Warehouse(name="WH").create_sql()
+    assert "warehouse_size = XSMALL" in sql
+    assert "MAX_QUERY_PERFORMANCE_LEVEL" not in sql
+
+
+def test_warehouse_init_defaults_match_dataclass_defaults():
+    """Warehouse.__init__ hand-copies literal defaults for ADAPTIVE_UNSUPPORTED_FIELDS and
+    forwards them into _Warehouse(...). Nothing else ties those literals to the _Warehouse
+    dataclass defaults that the ADAPTIVE equal-to-default check reads, so a drifted
+    __init__ default would make an omitted-argument ADAPTIVE warehouse wrongly raise or
+    silently swallow a non-default value.
+    """
+    init_params = inspect.signature(res.Warehouse.__init__).parameters
+    for field_name in ADAPTIVE_UNSUPPORTED_FIELDS:
+        init_default = init_params[field_name].default
+        coerced_default = getattr(_Warehouse(name="WH", **{field_name: init_default}), field_name)
+        assert coerced_default == _ADAPTIVE_FIELD_DEFAULTS[field_name], (
+            f"Warehouse.__init__ default for {field_name!r} ({init_default!r}) does not match "
+            f"the _Warehouse dataclass default ({_ADAPTIVE_FIELD_DEFAULTS[field_name]!r})"
+        )
+
+
+def test_warehouse_adaptive_construction_nulls_unsupported_fields():
+    warehouse = res.Warehouse(name="WH", warehouse_type="ADAPTIVE")
+    for field_name in ADAPTIVE_UNSUPPORTED_FIELDS:
+        assert getattr(warehouse._data, field_name) is None
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"warehouse_size": "LARGE"},
+        {"max_cluster_count": 4},
+        {"min_cluster_count": 2},
+        {"scaling_policy": "ECONOMY"},
+        {"auto_suspend": 300},
+        {"auto_resume": False},
+        {"initially_suspended": True},
+        {"enable_query_acceleration": True},
+        {"resource_constraint": "STANDARD_GEN_2"},
+    ],
+)
+def test_warehouse_adaptive_rejects_unsupported_fields(kwargs):
+    field_name = next(iter(kwargs))
+    with pytest.raises(ValueError, match=field_name):
+        res.Warehouse(name="WH", warehouse_type="ADAPTIVE", **kwargs)
+
+
+def test_warehouse_adaptive_rejects_generation_via_existing_check():
+    with pytest.raises(ValueError, match="generation"):
+        res.Warehouse(name="WH", warehouse_type="ADAPTIVE", generation="2")
+
+
+def test_warehouse_max_query_performance_level_requires_adaptive():
+    with pytest.raises(ValueError, match="max_query_performance_level"):
+        res.Warehouse(name="WH", max_query_performance_level="LARGE")
+    with pytest.raises(ValueError, match="max_query_performance_level"):
+        res.Warehouse(name="WH", warehouse_type="SNOWPARK-OPTIMIZED", max_query_performance_level="LARGE")
+
+
+@pytest.mark.parametrize("level", ["X5LARGE", "X6LARGE"])
+def test_warehouse_max_query_performance_level_rejects_oversized(level):
+    with pytest.raises(ValueError, match="XSMALL through X4LARGE"):
+        res.Warehouse(name="WH", warehouse_type="ADAPTIVE", max_query_performance_level=level)
+
+
+def test_warehouse_adaptive_create_sql_with_optional_clauses():
+    warehouse = res.Warehouse(
+        name="WH",
+        warehouse_type="ADAPTIVE",
+        max_query_performance_level="X4LARGE",
+        statement_timeout_in_seconds=3600,
+        comment="adaptive",
+    )
+    sql = warehouse.create_sql()
+    assert "MAX_QUERY_PERFORMANCE_LEVEL = X4LARGE" in sql
+    assert "STATEMENT_TIMEOUT_IN_SECONDS = 3600" in sql
+    assert "COMMENT = $$adaptive$$" in sql
 
 
 @pytest.fixture(
