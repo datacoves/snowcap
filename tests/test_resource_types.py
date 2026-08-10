@@ -99,6 +99,21 @@ class TestSharedDatabase:
         db = res.SharedDatabase(name="gong", from_share="provider_account.share_name")
         assert str(db._data.owner.name) == "ACCOUNTADMIN"
 
+    def test_shared_database_explicit_accountadmin_owner_is_accepted(self):
+        """An explicit owner of ACCOUNTADMIN (the pinned value) is allowed, case-insensitively."""
+        db = res.SharedDatabase(name="gong", from_share="provider_account.share_name", owner="ACCOUNTADMIN")
+        assert str(db._data.owner.name) == "ACCOUNTADMIN"
+
+        db = res.SharedDatabase(name="gong", from_share="provider_account.share_name", owner="accountadmin")
+        assert str(db._data.owner.name) == "ACCOUNTADMIN"
+
+    def test_shared_database_custom_owner_is_rejected(self):
+        """Imported (FROM SHARE) databases are consumer-read-only and Snowflake prevents
+        GRANT OWNERSHIP on them, so a custom owner must fail at plan/validation time with
+        a clear message instead of erroring mid-apply."""
+        with pytest.raises(ValueError, match="does not support a custom owner"):
+            res.SharedDatabase(name="gong", from_share="provider_account.share_name", owner="SYSADMIN")
+
     def test_shared_database_create_sql(self):
         """SharedDatabase.create_sql() renders CREATE DATABASE ... FROM SHARE ..."""
         db = res.SharedDatabase(name="gong", from_share="provider_account.share_name")

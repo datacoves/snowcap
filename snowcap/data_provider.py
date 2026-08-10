@@ -2697,10 +2697,15 @@ def fetch_shared_database(session: SnowflakeConnection, fqn: FQN):
         raise Exception(f"Found multiple shares matching {fqn}")
 
     data = shares[0]
+    # owner is deliberately not read from SYSTEM$SHOW_IMPORTED_DATABASES: its owner output is
+    # undocumented, and ownership of an imported database cannot change anyway (Snowflake
+    # prevents GRANT OWNERSHIP on it). The spec pins owner to ACCOUNTADMIN and marks it
+    # non-fetchable, so report the pinned value; it is still used to pick the execution role
+    # for drops.
     return {
         "name": _quote_snowflake_identifier(data["name"]),
         "from_share": data["origin"],
-        "owner": _get_owner_identifier(data),
+        "owner": "ACCOUNTADMIN",
     }
 
 

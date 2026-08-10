@@ -1414,15 +1414,29 @@ def test_blueprint_shared_database_create_default_owner(session_ctx, remote_stat
     assert not any(c.startswith("GRANT OWNERSHIP") for c in commands)
 
 
-def test_blueprint_shared_database_create_custom_owner_skips_public_schema_transfer(session_ctx, remote_state):
-    shared_db = res.SharedDatabase(name="GONG", from_share="provider_account.share_name", owner="SYSADMIN")
+def test_blueprint_shared_database_custom_owner_rejected_at_validation_time(session_ctx, remote_state):
+    # Imported (FROM SHARE) databases are consumer-read-only and Snowflake prevents
+    # GRANT OWNERSHIP on them, so a custom owner must fail at validation time with a
+    # clear message -- never reach apply as a GRANT OWNERSHIP statement Snowflake rejects.
+    with pytest.raises(ValueError, match="does not support a custom owner"):
+        res.SharedDatabase(name="GONG", from_share="provider_account.share_name", owner="SYSADMIN")
+
+
+def test_blueprint_shared_database_remote_owner_never_drifts(session_ctx, remote_state):
+    # owner is non-fetchable on SharedDatabase: even if remote state carried a different
+    # owner, the plan must not emit a TransferOwnership (GRANT OWNERSHIP fails on an
+    # imported database).
+    remote_state[parse_URN("urn::ABCD123:database/GONG")] = {
+        "name": "GONG",
+        "from_share": "PROVIDER_ACCOUNT.SHARE_NAME",
+        "owner": "SOME_OTHER_ROLE",
+    }
+    shared_db = res.SharedDatabase(name="GONG", from_share="provider_account.share_name")
     blueprint = Blueprint(name="blueprint", resources=[shared_db])
     manifest = blueprint.generate_manifest(session_ctx)
     plan = diff(remote_state, manifest)
 
-    commands = flatten_sql_commands(compile_plan_to_sql(session_ctx, plan))
-    assert "GRANT OWNERSHIP ON DATABASE GONG TO ROLE SYSADMIN COPY CURRENT GRANTS" in commands
-    assert not any("PUBLIC" in c for c in commands)
+    assert plan == []
 
 
 def test_blueprint_database_create_custom_owner_transfers_public_schema(session_ctx, remote_state):

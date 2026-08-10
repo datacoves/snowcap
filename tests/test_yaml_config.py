@@ -656,6 +656,17 @@ class TestSharedDatabaseYaml:
         assert len(blueprint_config.resources) == 1
         assert isinstance(blueprint_config.resources[0], res.SharedDatabase)
 
+    def test_shared_database_with_custom_owner_is_rejected(self):
+        """Test: a databases: entry with from_share: and a non-ACCOUNTADMIN owner fails at
+        config-collection time -- GRANT OWNERSHIP is not possible on an imported database."""
+        config = {
+            "databases": [
+                {"name": "gong", "from_share": "provider_account.share_name", "owner": "SYSADMIN"},
+            ],
+        }
+        with pytest.raises(ValueError, match="does not support a custom owner"):
+            collect_blueprint_config(config)
+
     def test_database_without_from_share_still_produces_database(self):
         """Test: a databases: entry without from_share: still resolves to the regular Database
         (regression check now that ResourceType.DATABASE is polymorphic)."""

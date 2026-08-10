@@ -23,7 +23,6 @@ schemas, tags, or params to them the way it can for a regular `Database`.
 databases:
   - name: gong
     from_share: provider_account.share_name
-    owner: ACCOUNTADMIN
 ```
 
 ### Python
@@ -32,7 +31,6 @@ databases:
 shared_database = SharedDatabase(
     name="gong",
     from_share="provider_account.share_name",
-    owner="ACCOUNTADMIN",
 )
 ```
 
@@ -40,7 +38,7 @@ shared_database = SharedDatabase(
 
 * `name` (string, required) - The name of the database.
 * `from_share` (string, required) - The `<provider_account>.<share_name>` the database is created from. Changing this on an existing shared database is not supported by `plan`/`apply` — it errors at plan time. Drop and recreate the database manually instead.
-* `owner` (string or [Role](role.md)) - The owner role of the database. Defaults to `"ACCOUNTADMIN"`.
+* `owner` (string or [Role](role.md)) - Pinned to `"ACCOUNTADMIN"`. Snowflake prevents `GRANT OWNERSHIP` on an imported database, so a custom owner is rejected at plan time. Omit the field.
 
 ## Full example: importing a Gong share
 
@@ -80,7 +78,11 @@ GRANT ROLE gong_r TO ROLE data_engineer;
   or tags on them.
 - `CREATE DATABASE ... FROM SHARE` requires the account-level `IMPORT SHARE`
   privilege, which only `ACCOUNTADMIN` holds by default. Snowcap runs the
-  creation as `ACCOUNTADMIN` regardless of the configured `owner`.
+  creation as `ACCOUNTADMIN`.
+- Ownership of a shared database cannot change: imported databases are
+  read-only in the consumer account, and Snowflake prevents `GRANT OWNERSHIP`
+  on them. Snowcap pins `owner` to `ACCOUNTADMIN` and does not track it for
+  drift.
 - `IMPORTED PRIVILEGES` is the only privilege that can be granted on a shared
   database. It cannot be granted `WITH GRANT OPTION`, and it can only be
   granted to account roles, not database roles.

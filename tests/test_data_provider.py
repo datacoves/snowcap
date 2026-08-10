@@ -721,9 +721,11 @@ class TestFetchSharedDatabase:
         return [{"SYSTEM$SHOW_IMPORTED_DATABASES()": json.dumps(rows)}]
 
     @patch("snowcap.data_provider.execute")
-    def test_missing_owner_degrades_to_empty(self, mock_execute):
-        # Some editions may omit the owner field entirely; the fetch must
-        # return a result (surfacing owner drift) instead of raising KeyError.
+    def test_missing_owner_field_reports_pinned_owner(self, mock_execute):
+        # SYSTEM$SHOW_IMPORTED_DATABASES' owner output is undocumented and may be absent
+        # on some editions. The fetch never reads it: owner is pinned to ACCOUNTADMIN
+        # (ownership of an imported database cannot change), so a missing field must not
+        # crash the plan with a KeyError.
         mock_execute.return_value = self._mock_show_imported_databases(
             [{"name": "GONG", "origin": "PROVIDER_ACCOUNT.SHARE_NAME"}]
         )
@@ -734,13 +736,16 @@ class TestFetchSharedDatabase:
         assert result == {
             "name": "GONG",
             "from_share": "PROVIDER_ACCOUNT.SHARE_NAME",
-            "owner": "",
+            "owner": "ACCOUNTADMIN",
         }
 
     @patch("snowcap.data_provider.execute")
-    def test_owner_present(self, mock_execute):
+    def test_reported_owner_is_ignored(self, mock_execute):
+        # Even if the undocumented owner field is present with some other value, the
+        # fetch reports the pinned ACCOUNTADMIN owner -- owner is non-fetchable on
+        # SharedDatabase and never drift-tracked.
         mock_execute.return_value = self._mock_show_imported_databases(
-            [{"name": "GONG", "origin": "PROVIDER_ACCOUNT.SHARE_NAME", "owner": "ACCOUNTADMIN"}]
+            [{"name": "GONG", "origin": "PROVIDER_ACCOUNT.SHARE_NAME", "owner": "SOME_OTHER_ROLE"}]
         )
         mock_session = MagicMock()
 

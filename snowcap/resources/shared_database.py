@@ -18,7 +18,20 @@ from .role import Role
 class _SharedDatabase(ResourceSpec):
     name: ResourceName
     from_share: ResourceName = field(metadata={"triggers_replacement": True})
-    owner: Role = "ACCOUNTADMIN"
+    # Imported (FROM SHARE) databases are read-only in the consumer account: Snowflake
+    # prevents GRANT OWNERSHIP on them, so owner is pinned to ACCOUNTADMIN and never
+    # drift-tracked (SYSTEM$SHOW_IMPORTED_DATABASES' owner output is also undocumented).
+    owner: Role = field(default="ACCOUNTADMIN", metadata={"fetchable": False})
+
+    def __post_init__(self):
+        super().__post_init__()
+        if self.owner.name != "ACCOUNTADMIN":
+            raise ValueError(
+                f"SharedDatabase '{self.name}' does not support a custom owner (got '{self.owner.name}'). "
+                "Imported (FROM SHARE) databases are read-only in the consumer account and Snowflake "
+                "prevents GRANT OWNERSHIP on them, so ownership cannot be changed. "
+                "Remove the owner field, or set it to ACCOUNTADMIN."
+            )
 
 
 class SharedDatabase(NamedResource, Resource):
@@ -35,7 +48,8 @@ class SharedDatabase(NamedResource, Resource):
     Fields:
         name (string, required): The name of the database.
         from_share (string, required): The `<provider_account>.<share_name>` the database is created from.
-        owner (string or Role): The owner role of the database. Defaults to "ACCOUNTADMIN".
+        owner (string or Role): Pinned to "ACCOUNTADMIN". Snowflake prevents GRANT OWNERSHIP
+            on an imported database, so a custom owner is rejected at plan time.
 
     Python:
 
@@ -43,7 +57,6 @@ class SharedDatabase(NamedResource, Resource):
         shared_database = SharedDatabase(
             name="gong",
             from_share="provider_account.share_name",
-            owner="ACCOUNTADMIN",
         )
         ```
 
@@ -53,7 +66,6 @@ class SharedDatabase(NamedResource, Resource):
         databases:
           - name: gong
             from_share: provider_account.share_name
-            owner: ACCOUNTADMIN
         ```
     """
 
