@@ -34,6 +34,7 @@ from snowcap.data_provider import (
     # Dispatcher functions
     fetch_resource,
     fetch_warehouse,
+    fetch_streamlit,
     list_resource,
     list_account_scoped_resource,
     list_schema_scoped_resource,
@@ -1317,3 +1318,66 @@ class TestBlueprintConfigUseAccountUsage:
         config = BlueprintConfig(use_account_usage=False)
 
         assert config.use_account_usage is False
+
+
+def _streamlit_show_row(**overrides):
+    row = {
+        "name": "MY_APP",
+        "owner": "SYSADMIN",
+        "owner_role_type": "ROLE",
+        "query_warehouse": "MY_WH",
+        "comment": "",
+    }
+    row.update(overrides)
+    return row
+
+
+class TestFetchStreamlit:
+    """Tests for fetch_streamlit normalization."""
+
+    @patch("snowcap.data_provider.execute")
+    @patch("snowcap.data_provider._show_resources")
+    def test_maps_default_main_file_and_omits_from(self, mock_show_resources, mock_execute):
+        mock_show_resources.return_value = [_streamlit_show_row()]
+        # DESC STREAMLIT returns the Snowflake default main_file plus a title.
+        mock_execute.return_value = [{"main_file": "streamlit_app.py", "title": "My App"}]
+
+        result = fetch_streamlit(MagicMock(), FQN(name=ResourceName("MY_APP")))
+
+        # Default main_file collapses to None so an omitted field doesn't drift.
+        assert result["main_file"] is None
+        assert result["title"] == "My App"
+        assert result["query_warehouse"] == "MY_WH"
+        # from_ and version are non-fetchable / not comparable -> never returned.
+        assert "from_" not in result
+        assert result["version"] is None
+
+    @patch("snowcap.data_provider.execute")
+    @patch("snowcap.data_provider._show_resources")
+    def test_keeps_non_default_main_file(self, mock_show_resources, mock_execute):
+        mock_show_resources.return_value = [_streamlit_show_row()]
+        mock_execute.return_value = [{"main_file": "app.py", "title": None}]
+
+        result = fetch_streamlit(MagicMock(), FQN(name=ResourceName("MY_APP")))
+
+        assert result["main_file"] == "app.py"
+        assert result["title"] is None
+
+    @patch("snowcap.data_provider.execute")
+    @patch("snowcap.data_provider._show_resources")
+    def test_empty_desc_result_does_not_raise(self, mock_show_resources, mock_execute):
+        mock_show_resources.return_value = [_streamlit_show_row()]
+        # An empty DESC result must not IndexError.
+        mock_execute.return_value = []
+
+        result = fetch_streamlit(MagicMock(), FQN(name=ResourceName("MY_APP")))
+
+        assert result["main_file"] is None
+        assert result["title"] is None
+        assert result["name"] == "MY_APP"
+
+    @patch("snowcap.data_provider._show_resources")
+    def test_missing_streamlit_returns_none(self, mock_show_resources):
+        mock_show_resources.return_value = []
+
+        assert fetch_streamlit(MagicMock(), FQN(name=ResourceName("MY_APP"))) is None

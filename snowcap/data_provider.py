@@ -2822,7 +2822,7 @@ def fetch_streamlit(session: SnowflakeConnection, fqn: FQN):
 
     data = streamlits[0]
     desc_result = execute(session, f"DESC STREAMLIT {fqn}", cacheable=True)
-    properties = desc_result[0]
+    properties = desc_result[0] if desc_result else {}
     return {
         "name": data["name"],
         # from_ is omitted (like fetch_notebook): DESC STREAMLIT returns

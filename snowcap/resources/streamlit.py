@@ -20,7 +20,7 @@ class _Streamlit(ResourceSpec):
     # DESC STREAMLIT returns root_location as a fully-qualified, uppercased
     # stage path that never matches the declared from_ (e.g. "@my_stage"), so
     # from_ is not fetchable — YAML is authoritative (same as Notebook).
-    from_: str = field(default=None, metadata={"fetchable": False})
+    from_: Optional[str] = field(default=None, metadata={"fetchable": False})
     version: Optional[str] = None
     main_file: Optional[str] = None
     title: Optional[str] = None
