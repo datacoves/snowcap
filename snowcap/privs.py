@@ -190,6 +190,13 @@ class MaterializedViewPriv(Priv):
     SELECT = "SELECT"
 
 
+class MCPServerPriv(Priv):
+    ALL = "ALL"
+    MODIFY = "MODIFY"
+    OWNERSHIP = "OWNERSHIP"
+    USAGE = "USAGE"
+
+
 class NetworkPolicyPriv(Priv):
     OWNERSHIP = "OWNERSHIP"
 
@@ -258,6 +265,7 @@ class SchemaPriv(Priv):
     CREATE_IMAGE_REPOSITORY = "CREATE IMAGE REPOSITORY"
     CREATE_MASKING_POLICY = "CREATE MASKING POLICY"
     CREATE_MATERIALIZED_VIEW = "CREATE MATERIALIZED VIEW"
+    CREATE_MCP_SERVER = "CREATE MCP SERVER"
     CREATE_MODEL = "CREATE MODEL"
     CREATE_NETWORK_RULE = "CREATE NETWORK RULE"
     CREATE_NOTEBOOK = "CREATE NOTEBOOK"
@@ -429,6 +437,7 @@ PRIVS_FOR_RESOURCE_TYPE: dict[ResourceType, Optional[type[Priv]]] = {
     ResourceType.IMAGE_REPOSITORY: None,
     ResourceType.INTEGRATION: IntegrationPriv,
     ResourceType.MATERIALIZED_VIEW: MaterializedViewPriv,
+    ResourceType.MCP_SERVER: MCPServerPriv,
     ResourceType.NETWORK_POLICY: NetworkPolicyPriv,
     ResourceType.NETWORK_RULE: NetworkRulePriv,
     ResourceType.NOTEBOOK: NotebookPriv,
@@ -482,6 +491,7 @@ CREATE_PRIV_FOR_RESOURCE_TYPE: dict[ResourceType, ParseableEnum] = {
     ResourceType.GIT_REPOSITORY: SchemaPriv.CREATE_GIT_REPOSITORY,
     # ResourceType.GRANT: AccountPriv.CREATE_GRANT,
     ResourceType.MATERIALIZED_VIEW: SchemaPriv.CREATE_MATERIALIZED_VIEW,
+    ResourceType.MCP_SERVER: SchemaPriv.CREATE_MCP_SERVER,
     ResourceType.NETWORK_POLICY: AccountPriv.CREATE_NETWORK_POLICY,
     ResourceType.NETWORK_RULE: SchemaPriv.CREATE_NETWORK_RULE,
     ResourceType.NOTEBOOK: SchemaPriv.CREATE_NOTEBOOK,
