@@ -420,7 +420,7 @@ class TestCreateGrant:
         }
         props = MockProps("")
         result = create_grant(urn, data, props, if_not_exists=False)
-        assert "ON ALL tables IN" in result
+        assert "ON ALL TABLES IN" in result
 
     def test_grant_on_integration(self):
         """Test grant on integration (type normalization)."""
@@ -1139,10 +1139,11 @@ class TestDropGrant:
             "on": "MY_DB.MY_SCHEMA",
             "items_type": "TABLE",
             "to": "MY_ROLE",
+            "to_type": "ROLE",
             "grant_type": GrantType.ALL,
         }
         result = drop_grant(urn, data)
-        assert "REVOKE SELECT ON ALL TABLE" in result
+        assert result == "REVOKE SELECT ON ALL TABLES IN SCHEMA MY_DB.MY_SCHEMA FROM ROLE MY_ROLE"
 
     def test_revoke_future_grant_from_database_role(self):
         """Test revoking future grant from database role."""

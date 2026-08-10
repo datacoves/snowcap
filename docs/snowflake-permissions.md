@@ -60,6 +60,12 @@ GRANT CREATE COMPUTE POOL ON ACCOUNT TO ROLE SNOWCAP_ADMIN;
 GRANT IMPORTED PRIVILEGES ON DATABASE SNOWFLAKE TO ROLE SNOWCAP_ADMIN;
 ```
 
+Unlike the account-level privileges above, `CREATE SEMANTIC VIEW` is schema-scoped — grant it per schema where your configuration manages semantic view grants:
+
+```sql
+GRANT CREATE SEMANTIC VIEW ON SCHEMA somedb.someschema TO ROLE SNOWCAP_ADMIN;
+```
+
 See [Optimizing Grant Fetching with ACCOUNT_USAGE](getting-started.md#optimizing-grant-fetching-with-account_usage) for when the ACCOUNT_USAGE optimization is worth enabling.
 
 ### Step 3: Create the service user
