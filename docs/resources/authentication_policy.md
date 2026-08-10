@@ -26,6 +26,7 @@ authentication_policy = AuthenticationPolicy(
         "network_policy_evaluation": "ENFORCED_NOT_REQUIRED",
         "default_expiry_in_days": 30,
         "max_expiry_in_days": 180,
+        "require_role_restriction_for_service_users": False,
     },
     comment="Policy for secure authentication."
 )
@@ -52,6 +53,7 @@ authentication_policies:
       network_policy_evaluation: ENFORCED_NOT_REQUIRED
       default_expiry_in_days: 30
       max_expiry_in_days: 180
+      require_role_restriction_for_service_users: false
     comment: Policy for secure authentication.
 ```
 
@@ -64,7 +66,7 @@ authentication_policies:
 * `mfa_enrollment` (string) - Determines whether a user must enroll in multi-factor authentication. Defaults to OPTIONAL.
 * `client_types` (list) - A list of clients that can authenticate with Snowflake.
 * `security_integrations` (list) - A list of security integrations the authentication policy is associated with.
-* `pat_policy` (dict) - Controls programmatic access token issuance: network_policy_evaluation, default_expiry_in_days, and max_expiry_in_days must all be given or all omitted; declaring exactly the Snowflake defaults (ENFORCED_REQUIRED, 15, 365) compares as unset.
+* `pat_policy` (dict) - Controls programmatic access token issuance: network_policy_evaluation, default_expiry_in_days, max_expiry_in_days, and require_role_restriction_for_service_users must all be given or all omitted; declaring exactly the Snowflake defaults (ENFORCED_REQUIRED, 15, 365, TRUE) compares as unset.
 * `comment` (string) - A comment or description for the authentication policy.
 * `owner` (string or [Role](role.md)) - The owner role of the authentication policy. Defaults to SECURITYADMIN.
 

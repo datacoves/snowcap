@@ -51,6 +51,7 @@ def resource_fixtures() -> list:
                 "network_policy_evaluation": "ENFORCED_NOT_REQUIRED",
                 "default_expiry_in_days": 30,
                 "max_expiry_in_days": 180,
+                "require_role_restriction_for_service_users": False,
             },
             owner=TEST_ROLE,
         ),

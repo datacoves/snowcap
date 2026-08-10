@@ -120,6 +120,8 @@ class BoolProp(Prop):
     """
 
     def typecheck(self, prop_value):
+        if isinstance(prop_value, bool):
+            return prop_value
         if prop_value.lower() not in ["true", "false"]:
             raise ValueError(f"Invalid boolean value: {prop_value}")
         return prop_value.lower() == "true"

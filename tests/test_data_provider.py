@@ -446,24 +446,42 @@ class TestParsePatPolicyProperty:
 
     def test_parses_brace_map(self):
         result = _parse_pat_policy_property(
-            "{NETWORK_POLICY_EVALUATION=ENFORCED_NOT_REQUIRED, DEFAULT_EXPIRY_IN_DAYS=30, MAX_EXPIRY_IN_DAYS=180}"
+            "{NETWORK_POLICY_EVALUATION=ENFORCED_NOT_REQUIRED, DEFAULT_EXPIRY_IN_DAYS=30, "
+            "MAX_EXPIRY_IN_DAYS=180, REQUIRE_ROLE_RESTRICTION_FOR_SERVICE_USERS=false}"
         )
         assert result == {
             "network_policy_evaluation": "ENFORCED_NOT_REQUIRED",
             "default_expiry_in_days": 30,
             "max_expiry_in_days": 180,
+            "require_role_restriction_for_service_users": False,
         }
+
+    def test_coerces_boolean_case_insensitively(self):
+        result = _parse_pat_policy_property(
+            "{NETWORK_POLICY_EVALUATION=ENFORCED_REQUIRED, DEFAULT_EXPIRY_IN_DAYS=15, "
+            "MAX_EXPIRY_IN_DAYS=365, REQUIRE_ROLE_RESTRICTION_FOR_SERVICE_USERS=TRUE}"
+        )
+        assert result["require_role_restriction_for_service_users"] is True
+
+    def test_invalid_boolean_raises(self):
+        with pytest.raises(ValueError):
+            _parse_pat_policy_property(
+                "{NETWORK_POLICY_EVALUATION=ENFORCED_REQUIRED, DEFAULT_EXPIRY_IN_DAYS=15, "
+                "MAX_EXPIRY_IN_DAYS=365, REQUIRE_ROLE_RESTRICTION_FOR_SERVICE_USERS=MAYBE}"
+            )
 
     def test_drops_unknown_keys(self):
         result = _parse_pat_policy_property(
             "{NETWORK_POLICY_EVALUATION=ENFORCED_REQUIRED, DEFAULT_EXPIRY_IN_DAYS=15, "
-            "MAX_EXPIRY_IN_DAYS=365, REQUIRE_ROLE_RESTRICTION_FOR_SERVICE_USERS=true}"
+            "MAX_EXPIRY_IN_DAYS=365, REQUIRE_ROLE_RESTRICTION_FOR_SERVICE_USERS=true, "
+            "SOME_FUTURE_SETTING=42}"
         )
-        assert "require_role_restriction_for_service_users" not in result
+        assert "some_future_setting" not in result
         assert result == {
             "network_policy_evaluation": "ENFORCED_REQUIRED",
             "default_expiry_in_days": 15,
             "max_expiry_in_days": 365,
+            "require_role_restriction_for_service_users": True,
         }
 
     def test_none_returns_none(self):
@@ -477,12 +495,14 @@ class TestParsePatPolicyProperty:
 
     def test_whitespace_variants_parse_identically(self):
         result = _parse_pat_policy_property(
-            "{ NETWORK_POLICY_EVALUATION = ENFORCED_NOT_REQUIRED, DEFAULT_EXPIRY_IN_DAYS = 30, MAX_EXPIRY_IN_DAYS = 180 }"
+            "{ NETWORK_POLICY_EVALUATION = ENFORCED_NOT_REQUIRED, DEFAULT_EXPIRY_IN_DAYS = 30, "
+            "MAX_EXPIRY_IN_DAYS = 180, REQUIRE_ROLE_RESTRICTION_FOR_SERVICE_USERS = false }"
         )
         assert result == {
             "network_policy_evaluation": "ENFORCED_NOT_REQUIRED",
             "default_expiry_in_days": 30,
             "max_expiry_in_days": 180,
+            "require_role_restriction_for_service_users": False,
         }
 
     def test_no_braces_raises(self):
@@ -497,6 +517,12 @@ class TestParsePatPolicyProperty:
         with pytest.raises(ValueError):
             _parse_pat_policy_property("{DEFAULT_EXPIRY_IN_DAYS=30, MAX_EXPIRY_IN_DAYS=180}")
 
+    def test_missing_boolean_key_raises(self):
+        with pytest.raises(ValueError):
+            _parse_pat_policy_property(
+                "{NETWORK_POLICY_EVALUATION=ENFORCED_REQUIRED, DEFAULT_EXPIRY_IN_DAYS=15, MAX_EXPIRY_IN_DAYS=365}"
+            )
+
 
 class TestSuppressDefaultPatPolicy:
     """Tests for _suppress_default_pat_policy helper function."""
@@ -507,6 +533,7 @@ class TestSuppressDefaultPatPolicy:
                 "network_policy_evaluation": "ENFORCED_REQUIRED",
                 "default_expiry_in_days": 15,
                 "max_expiry_in_days": 365,
+                "require_role_restriction_for_service_users": True,
             }
         )
         assert result is None
@@ -516,6 +543,17 @@ class TestSuppressDefaultPatPolicy:
             "network_policy_evaluation": "ENFORCED_NOT_REQUIRED",
             "default_expiry_in_days": 30,
             "max_expiry_in_days": 180,
+            "require_role_restriction_for_service_users": False,
+        }
+        result = _suppress_default_pat_policy(pat_policy)
+        assert result == pat_policy
+
+    def test_passes_through_default_except_boolean(self):
+        pat_policy = {
+            "network_policy_evaluation": "ENFORCED_REQUIRED",
+            "default_expiry_in_days": 15,
+            "max_expiry_in_days": 365,
+            "require_role_restriction_for_service_users": False,
         }
         result = _suppress_default_pat_policy(pat_policy)
         assert result == pat_policy
@@ -534,7 +572,8 @@ class TestSuppressDefaultPatPolicy:
 
         fetched = _suppress_default_pat_policy(
             _parse_pat_policy_property(
-                "{NETWORK_POLICY_EVALUATION=ENFORCED_REQUIRED, DEFAULT_EXPIRY_IN_DAYS=15, MAX_EXPIRY_IN_DAYS=365}"
+                "{NETWORK_POLICY_EVALUATION=ENFORCED_REQUIRED, DEFAULT_EXPIRY_IN_DAYS=15, "
+                "MAX_EXPIRY_IN_DAYS=365, REQUIRE_ROLE_RESTRICTION_FOR_SERVICE_USERS=true}"
             )
         )
         declared = res.AuthenticationPolicy(
@@ -543,6 +582,7 @@ class TestSuppressDefaultPatPolicy:
                 "network_policy_evaluation": "ENFORCED_REQUIRED",
                 "default_expiry_in_days": 15,
                 "max_expiry_in_days": 365,
+                "require_role_restriction_for_service_users": True,
             },
         ).to_dict()["pat_policy"]
         assert fetched is None

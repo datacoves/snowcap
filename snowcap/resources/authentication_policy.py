@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from ..enums import ParseableEnum, ResourceType
-from ..props import EnumProp, IntProp, Props, PropSet, StringListProp, StringProp
+from ..props import BoolProp, EnumProp, IntProp, Props, PropSet, StringListProp, StringProp
 from ..resource_name import ResourceName
 from ..role_ref import RoleRef
 from ..scope import SchemaScope
@@ -41,6 +41,7 @@ _PAT_POLICY_PROPS = Props(
     network_policy_evaluation=EnumProp("NETWORK_POLICY_EVALUATION", NetworkPolicyEvaluation),
     default_expiry_in_days=IntProp("default_expiry_in_days"),
     max_expiry_in_days=IntProp("max_expiry_in_days"),
+    require_role_restriction_for_service_users=BoolProp("require_role_restriction_for_service_users"),
 )
 
 # Snowflake's documented PAT_POLICY defaults. Snowflake echoes these values even when
@@ -52,6 +53,7 @@ _PAT_POLICY_DEFAULT = {
     "network_policy_evaluation": "ENFORCED_REQUIRED",
     "default_expiry_in_days": 15,
     "max_expiry_in_days": 365,
+    "require_role_restriction_for_service_users": True,
 }
 
 
@@ -131,7 +133,7 @@ class AuthenticationPolicy(NamedResource, Resource):
         mfa_enrollment (string): Determines whether a user must enroll in multi-factor authentication. Defaults to OPTIONAL.
         client_types (list): A list of clients that can authenticate with Snowflake.
         security_integrations (list): A list of security integrations the authentication policy is associated with.
-        pat_policy (dict): Controls programmatic access token issuance: network_policy_evaluation, default_expiry_in_days, and max_expiry_in_days must all be given or all omitted; declaring exactly the Snowflake defaults (ENFORCED_REQUIRED, 15, 365) compares as unset.
+        pat_policy (dict): Controls programmatic access token issuance: network_policy_evaluation, default_expiry_in_days, max_expiry_in_days, and require_role_restriction_for_service_users must all be given or all omitted; declaring exactly the Snowflake defaults (ENFORCED_REQUIRED, 15, 365, TRUE) compares as unset.
         comment (string): A comment or description for the authentication policy.
         owner (string or Role): The owner role of the authentication policy. Defaults to SECURITYADMIN.
 
@@ -149,6 +151,7 @@ class AuthenticationPolicy(NamedResource, Resource):
                 "network_policy_evaluation": "ENFORCED_NOT_REQUIRED",
                 "default_expiry_in_days": 30,
                 "max_expiry_in_days": 180,
+                "require_role_restriction_for_service_users": False,
             },
             comment="Policy for secure authentication."
         )
@@ -174,6 +177,7 @@ class AuthenticationPolicy(NamedResource, Resource):
               network_policy_evaluation: ENFORCED_NOT_REQUIRED
               default_expiry_in_days: 30
               max_expiry_in_days: 180
+              require_role_restriction_for_service_users: false
             comment: Policy for secure authentication.
         ```
     """

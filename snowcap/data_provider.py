@@ -1526,6 +1526,11 @@ def _parse_pat_policy_property(prop_value: Optional[str]) -> Optional[dict]:
         raise ValueError(f"Incomplete pat_policy fields: {prop_value!r}")
     pat_policy["default_expiry_in_days"] = int(pat_policy["default_expiry_in_days"])
     pat_policy["max_expiry_in_days"] = int(pat_policy["max_expiry_in_days"])
+    require_role = pat_policy["require_role_restriction_for_service_users"]
+    if not isinstance(require_role, bool):
+        if str(require_role).lower() not in ("true", "false"):
+            raise ValueError(f"Unexpected pat_policy boolean: {prop_value!r}")
+        pat_policy["require_role_restriction_for_service_users"] = str(require_role).lower() == "true"
     return pat_policy
 
 
