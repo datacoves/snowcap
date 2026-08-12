@@ -82,7 +82,12 @@ def _quote_snowflake_identifier(identifier: Union[str, ResourceName]) -> str:
 
 def _get_owner_identifier(data: dict) -> str:
     if "owner_role_type" not in data:
-        return _quote_snowflake_identifier(data["owner"])
+        # Some metadata sources (eg SYSTEM$SHOW_IMPORTED_DATABASES on some editions)
+        # may omit the owner field; degrade to drift instead of crashing the plan.
+        owner = data.get("owner")
+        if not owner:
+            return ""
+        return _quote_snowflake_identifier(owner)
     if data["owner"] == "":
         return ""
     if data["owner_role_type"] == "DATABASE_ROLE":
@@ -1540,7 +1545,10 @@ def fetch_database(session: SnowflakeConnection, fqn: FQN, include_params: bool 
 
     data = show_result[0]
 
-    is_standard_db = data["kind"] in ["STANDARD", "IMPORTED DATABASE"]
+    if data["kind"] == "IMPORTED DATABASE":
+        return fetch_shared_database(session, fqn)
+
+    is_standard_db = data["kind"] == "STANDARD"
     is_snowflake_builtin = data["kind"] == "APPLICATION" and data["name"] in SYSTEM_DATABASES
 
     if not (is_standard_db or is_snowflake_builtin):
@@ -1924,6 +1932,22 @@ def fetch_grant(session: SnowflakeConnection, fqn: FQN):
             privilege=priv,
             role_type=to_type,
         )
+        if data is None and priv == "IMPORTED PRIVILEGES" and on_type == "DATABASE":
+            # Snowflake reports IMPORTED PRIVILEGES on a shared database as USAGE in SHOW GRANTS.
+            # Gate on the database actually being shared: without this, a mistakenly-declared
+            # IMPORTED PRIVILEGES grant on a regular database would false-match its (very common)
+            # plain USAGE grant and mask the config error.
+            db_rows = _show_resources(session, "DATABASES", FQN(name=ResourceName(on)))
+            if db_rows and db_rows[0]["kind"] == "IMPORTED DATABASE":
+                data = _fetch_grant_to_role(
+                    session,
+                    grant_type=grant_type,
+                    role=to,
+                    granted_on=on_type,
+                    on_name=on,
+                    privilege="USAGE",
+                    role_type=to_type,
+                )
         if data is None:
             return None
         privs = [priv]
@@ -2673,10 +2697,15 @@ def fetch_shared_database(session: SnowflakeConnection, fqn: FQN):
         raise Exception(f"Found multiple shares matching {fqn}")
 
     data = shares[0]
+    # owner is deliberately not read from SYSTEM$SHOW_IMPORTED_DATABASES: its owner output is
+    # undocumented, and ownership of an imported database cannot change anyway (Snowflake
+    # prevents GRANT OWNERSHIP on it). The spec pins owner to ACCOUNTADMIN and marks it
+    # non-fetchable, so report the pinned value; it is still used to pick the execution role
+    # for drops.
     return {
         "name": _quote_snowflake_identifier(data["name"]),
         "from_share": data["origin"],
-        "owner": _get_owner_identifier(data),
+        "owner": "ACCOUNTADMIN",
     }
 
 

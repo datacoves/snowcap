@@ -89,6 +89,10 @@ grants:
   - priv: USAGE
     on: mcp server somedb.someschema.someserver
     to: mcp_client_role
+  # IMPORTED PRIVILEGES on a shared database (see SharedDatabase)
+  - priv: IMPORTED PRIVILEGES
+    on_database: gong
+    to: gong_r
 ```
 
 #### Future Grants
@@ -158,6 +162,8 @@ grant = Grant(priv=["SELECT", "INSERT", "DELETE"], on_table="sometable", to="som
 
 # MCP Server Privileges:
 grant = Grant(priv="USAGE", on_mcp_server="someserver", to="mcp_client_role")
+# IMPORTED PRIVILEGES on a shared database (see SharedDatabase):
+grant = Grant(priv="IMPORTED PRIVILEGES", on_database="gong", to="gong_r")
 ```
 
 #### Future Grants
@@ -240,3 +246,9 @@ grant_on_all = Grant(
 
 - **`owner`** (`string` or [Role](role.md), optional):  
   The owner role of the grant. Defaults to `"SYSADMIN"`.
+
+**Note:** `IMPORTED PRIVILEGES` is only valid on a [SharedDatabase](shared_database.md)
+(a database created `FROM SHARE`). It cannot be granted `WITH GRANT OPTION`
+and can only be granted to account roles, not database roles. Snowflake's
+`SHOW GRANTS` reports it as `USAGE` on shared databases — snowcap's fetch
+logic handles this quirk transparently.
