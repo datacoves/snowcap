@@ -80,6 +80,19 @@ jobs:
           # the prompt's commands in sync — an unlisted command is denied at runtime, and
           # the job still "succeeds", posting the no-note fallback comment.
           #
+          # File writes are scoped to the one handoff file for the same reason. Two
+          # non-obvious details, both load-bearing:
+          #   * The rule is `Edit(…)`, not `Write(…)`. Claude Code consults only Edit(path)
+          #     and Read(path) rules for file permissions; a Write(path) rule is accepted
+          #     and then never consulted. Edit rules cover every file-editing tool, so this
+          #     is what actually constrains the Write tool the prompt uses.
+          #   * The path needs a DOUBLE leading slash to mean "absolute". A single slash
+          #     anchors to the settings source instead. `${{ runner.temp }}` expands to an
+          #     absolute path already, hence the extra `/` in front of it below.
+          # Without this, an injection could overwrite the checked-out tree or fill the
+          # disk. Nothing here pushes or commits, so the blast radius was the ephemeral
+          # runner, but it was broader than the "read-only tools" claim above.
+          #
           # The prompt spells the issue number and repo slug out as literals rather than
           # `$ISSUE`/`$REPO`, so each command is a plain static prefix and matching is
           # unambiguous. Only those two fields are interpolated: both are trusted (an
@@ -87,7 +100,7 @@ jobs:
           # or .body into the prompt or a run: block — those are attacker-controlled.
           claude_args: >-
             --max-turns 60
-            --allowedTools "Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh label list:*),Read,Glob,Grep,Write"
+            --allowedTools "Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh label list:*),Read,Glob,Grep,Edit(/${{ runner.temp }}/triage.md)"
           prompt: |
             Take a first pass at a newly opened issue on the snowcap project (a Python
             CLI/library that manages Snowflake resources as code — resources under
@@ -133,8 +146,10 @@ jobs:
 
             3. Write the note to `${{ runner.temp }}/triage.md` (a file, so multi-line
                markdown survives), on EVERY run — a later job posts it. Use the `Write`
-               tool with exactly that absolute path; the allowed shell commands are the
-               three read-only `gh` calls above, so a `cat > …` heredoc will be DENIED.
+               tool with exactly that absolute path: it is the ONLY file you are permitted
+               to write, and a write anywhere else will be DENIED. The allowed shell
+               commands are the three read-only `gh` calls above, so a `cat > …` heredoc
+               will be DENIED too.
                Do NOT write the marker line or the `### Triage of #…` heading — the
                posting job prepends both.
 
