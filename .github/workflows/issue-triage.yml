@@ -48,6 +48,15 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          # By default the action refuses to run when the triggering actor lacks write
+          # access — which is every outside issue reporter, i.e. exactly the issues this
+          # workflow exists to triage. (Run 31608329814 died this way on #50: "Actor has
+          # insufficient permissions: read".) The action's docs sanction this bypass for
+          # "workflows with very limited permissions", which is what the job below is:
+          # read-only tools, an issues:read token, and a separate job that does the
+          # posting. Requires github_token above to be set. Trade-off accepted: on a
+          # public repo any user opening an issue now costs one agent run.
+          allowed_non_write_users: "*"
           # Read-only tools AND a read-only job token (issues: read above, no write) —
           # even a successful prompt injection has no working path to comment/label/close.
           claude_args: "--max-turns 60 --allowedTools Bash,Read,Glob,Grep"
