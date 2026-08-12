@@ -104,6 +104,8 @@ def resource_fixtures() -> list:
         ),
         res.ExternalStage(
             name="TEST_FETCH_EXTERNAL_STAGE",
+            # titan-snowflake is a real public bucket owned by upstream Titan Systems; Snowflake
+            # validates it at stage creation. Keep until a snowcap-owned bucket replaces it.
             url="s3://titan-snowflake/",
             owner=TEST_ROLE,
             directory={"enable": True},
@@ -269,7 +271,7 @@ def resource_fixtures() -> list:
             owner=TEST_ROLE,
         ),
         res.User(
-            name="TEST_FETCH_USER@applytitan.com",
+            name="TEST_FETCH_USER@datacoves.com",
             owner=TEST_ROLE,
             type="PERSON",
             password="hunter2",

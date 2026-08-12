@@ -6,7 +6,7 @@
 --   MAX_INSTANCES=2
 --  ;
 
-CREATE SERVICE titan_service_test
+CREATE SERVICE snowcap_service_test
   IN COMPUTE POOL some_compute_pool
   FROM SPECIFICATION $$
 spec:

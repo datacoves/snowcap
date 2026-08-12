@@ -1,4 +1,4 @@
-allowlist:
+sync_resources:
   - "tag"
   - "tag reference"
 

@@ -344,17 +344,17 @@ def test_blueprint_sync_remote_state_contains_extra_resource(cursor, suffix):
 def test_blueprint_quoted_references(cursor):
     session = cursor.connection
     try:
-        cursor.execute('CREATE USER IF NOT EXISTS "info@applytitan.com"')
-        cursor.execute('GRANT ROLE STATIC_ROLE TO USER "info@applytitan.com"')
+        cursor.execute('CREATE USER IF NOT EXISTS "info@datacoves.com"')
+        cursor.execute('GRANT ROLE STATIC_ROLE TO USER "info@datacoves.com"')
 
         blueprint = Blueprint(
             name="test_quoted_references",
-            resources=[res.RoleGrant(role="STATIC_ROLE", to_user="info@applytitan.com")],
+            resources=[res.RoleGrant(role="STATIC_ROLE", to_user="info@datacoves.com")],
         )
         plan = blueprint.plan(session)
         assert len(plan) == 0
     finally:
-        cursor.execute('DROP USER IF EXISTS "info@applytitan.com"')
+        cursor.execute('DROP USER IF EXISTS "info@datacoves.com"')
 
 
 def test_blueprint_grant_with_lowercase_priv_drift(cursor, suffix, marked_for_cleanup):
@@ -365,9 +365,9 @@ def test_blueprint_grant_with_lowercase_priv_drift(cursor, suffix, marked_for_cl
     """
     session = cursor.connection
 
-    role = res.Role(name=f"TITAN_TEST_ROLE_{suffix}")
+    role = res.Role(name=f"SNOWCAP_TEST_ROLE_{suffix}")
     warehouse = res.Warehouse(
-        name=f"TITAN_TEST_WAREHOUSE_{suffix}",
+        name=f"SNOWCAP_TEST_WAREHOUSE_{suffix}",
         warehouse_size="xsmall",
         auto_suspend=60,
     )
@@ -388,8 +388,8 @@ def test_blueprint_grant_with_lowercase_priv_drift(cursor, suffix, marked_for_cl
     reset_cache()
     bp2 = Blueprint()
     bp2.add(
-        res.Role(name=f"TITAN_TEST_ROLE_{suffix}"),
-        res.Warehouse(name=f"TITAN_TEST_WAREHOUSE_{suffix}", warehouse_size="xsmall", auto_suspend=60),
+        res.Role(name=f"SNOWCAP_TEST_ROLE_{suffix}"),
+        res.Warehouse(name=f"SNOWCAP_TEST_WAREHOUSE_{suffix}", warehouse_size="xsmall", auto_suspend=60),
         res.Grant(priv="usage", to=role, on=warehouse),
     )
     plan2 = bp2.plan(session)
@@ -734,9 +734,9 @@ class TestQueryOptimizations:
 
             # Check that no SHOW PARAMETERS IN SCHEMA was executed
             show_params_queries = [r.message for r in caplog.records if "SHOW PARAMETERS IN SCHEMA" in r.message]
-            assert len(show_params_queries) == 0, (
-                f"Expected no SHOW PARAMETERS IN SCHEMA queries but found: {show_params_queries}"
-            )
+            assert (
+                len(show_params_queries) == 0
+            ), f"Expected no SHOW PARAMETERS IN SCHEMA queries but found: {show_params_queries}"
         finally:
             cursor.execute(f"DROP DATABASE IF EXISTS {db_name}")
 
@@ -804,9 +804,9 @@ class TestQueryOptimizations:
 
             # Check that no SHOW PARAMETERS FOR WAREHOUSE was executed
             show_params_queries = [r.message for r in caplog.records if "SHOW PARAMETERS FOR WAREHOUSE" in r.message]
-            assert len(show_params_queries) == 0, (
-                f"Expected no SHOW PARAMETERS FOR WAREHOUSE queries but found: {show_params_queries}"
-            )
+            assert (
+                len(show_params_queries) == 0
+            ), f"Expected no SHOW PARAMETERS FOR WAREHOUSE queries but found: {show_params_queries}"
         finally:
             cursor.execute(f"DROP WAREHOUSE IF EXISTS {wh_name}")
 
@@ -837,9 +837,9 @@ class TestQueryOptimizations:
             show_future_grants_queries = [
                 r.message for r in caplog.records if "SHOW FUTURE GRANTS TO ROLE" in r.message
             ]
-            assert len(show_future_grants_queries) == 0, (
-                f"Expected no SHOW FUTURE GRANTS queries but found: {show_future_grants_queries}"
-            )
+            assert (
+                len(show_future_grants_queries) == 0
+            ), f"Expected no SHOW FUTURE GRANTS queries but found: {show_future_grants_queries}"
         finally:
             cursor.execute(f"DROP ROLE IF EXISTS TEST_FUTURE_GRANT_OPT_{suffix}")
 

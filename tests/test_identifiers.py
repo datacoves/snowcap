@@ -19,7 +19,7 @@ IDENTIFIER_TEST_CASES = [
     ('"db".schema."tbl"', ['"db"', "schema", '"tbl"']),
     ('"db"."schema".tbl', ['"db"', '"schema"', "tbl"]),
     ('db."this.is:schema".tbl', ["db", '"this.is:schema"', "tbl"]),
-    ("TITAN_CLASS_TEST.PUBLIC.BASIC_MODEL.USER", ["TITAN_CLASS_TEST", "PUBLIC", "BASIC_MODEL", "USER"]),
+    ("SNOWCAP_CLASS_TEST.PUBLIC.BASIC_MODEL.USER", ["SNOWCAP_CLASS_TEST", "PUBLIC", "BASIC_MODEL", "USER"]),
 ]
 
 

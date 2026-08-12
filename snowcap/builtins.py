@@ -23,4 +23,6 @@ SYSTEM_USERS = [
 
 SYSTEM_SECURITY_INTEGRATIONS = [
     "APPLICA",
+    # Present on every new Snowflake account (type OAUTH - LOCAL_APPLICATION)
+    "SNOWFLAKE$LOCAL_APPLICATION",
 ]
