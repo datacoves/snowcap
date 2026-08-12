@@ -65,6 +65,13 @@ Unlike the account-level privileges above, `CREATE SEMANTIC VIEW` is schema-scop
 ```sql
 GRANT CREATE SEMANTIC VIEW ON SCHEMA somedb.someschema TO ROLE SNOWCAP_ADMIN;
 ```
+`CREATE COMPUTE POOL` above only covers creating new compute pools. Snowcap can also manage object-level grants on existing SPCS resources (see [Grant](resources/grant.md)):
+
+| Resource | Grantable privileges |
+|---|---|
+| Compute pool | `USAGE`, `MONITOR`, `MODIFY`, `OPERATE`, `OWNERSHIP` |
+| Image repository | `READ`, `WRITE`, `OWNERSHIP` |
+| Service | `MONITOR`, `OPERATE`, `OWNERSHIP` |
 
 See [Optimizing Grant Fetching with ACCOUNT_USAGE](getting-started.md#optimizing-grant-fetching-with-account_usage) for when the ACCOUNT_USAGE optimization is worth enabling.
 

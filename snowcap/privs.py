@@ -112,6 +112,15 @@ class DatabaseRolePriv(Priv):
     USAGE = "USAGE"
 
 
+class ComputePoolPriv(Priv):
+    ALL = "ALL"
+    MODIFY = "MODIFY"
+    MONITOR = "MONITOR"
+    OPERATE = "OPERATE"
+    OWNERSHIP = "OWNERSHIP"
+    USAGE = "USAGE"
+
+
 class CortexSearchServicePriv(Priv):
     ALL = "ALL"
     MONITOR = "MONITOR"
@@ -173,6 +182,13 @@ class IcebergTablePriv(Priv):
     SELECT = "SELECT"
     TRUNCATE = "TRUNCATE"
     UPDATE = "UPDATE"
+
+
+class ImageRepositoryPriv(Priv):
+    ALL = "ALL"
+    OWNERSHIP = "OWNERSHIP"
+    READ = "READ"
+    WRITE = "WRITE"
 
 
 class IntegrationPriv(Priv):
@@ -323,6 +339,13 @@ class SequencePriv(Priv):
     USAGE = "USAGE"
 
 
+class ServicePriv(Priv):
+    ALL = "ALL"
+    MONITOR = "MONITOR"
+    OPERATE = "OPERATE"
+    OWNERSHIP = "OWNERSHIP"
+
+
 class StagePriv(Priv):
     ALL = "ALL"
     OWNERSHIP = "OWNERSHIP"
@@ -416,7 +439,7 @@ PRIVS_FOR_RESOURCE_TYPE: dict[ResourceType, Optional[type[Priv]]] = {
     ResourceType.CATALOG_INTEGRATION: None,
     ResourceType.CLASS: None,
     ResourceType.COLUMN: None,
-    ResourceType.COMPUTE_POOL: None,
+    ResourceType.COMPUTE_POOL: ComputePoolPriv,
     ResourceType.CORTEX_SEARCH_SERVICE: CortexSearchServicePriv,
     ResourceType.DATABASE_ROLE: DatabaseRolePriv,
     ResourceType.DATABASE: DatabasePriv,
@@ -434,7 +457,7 @@ PRIVS_FOR_RESOURCE_TYPE: dict[ResourceType, Optional[type[Priv]]] = {
     ResourceType.GRANT: None,
     ResourceType.HYBRID_TABLE: None,
     ResourceType.ICEBERG_TABLE: IcebergTablePriv,
-    ResourceType.IMAGE_REPOSITORY: None,
+    ResourceType.IMAGE_REPOSITORY: ImageRepositoryPriv,
     ResourceType.INTEGRATION: IntegrationPriv,
     ResourceType.MATERIALIZED_VIEW: MaterializedViewPriv,
     ResourceType.MCP_SERVER: MCPServerPriv,
@@ -456,7 +479,7 @@ PRIVS_FOR_RESOURCE_TYPE: dict[ResourceType, Optional[type[Priv]]] = {
     ResourceType.SECURITY_INTEGRATION: IntegrationPriv,
     ResourceType.SEMANTIC_VIEW: SemanticViewPriv,
     ResourceType.SEQUENCE: SequencePriv,
-    ResourceType.SERVICE: None,
+    ResourceType.SERVICE: ServicePriv,
     ResourceType.SHARE: None,
     ResourceType.STAGE: StagePriv,
     ResourceType.STORAGE_INTEGRATION: IntegrationPriv,
