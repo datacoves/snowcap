@@ -10,6 +10,7 @@ from snowcap.blueprint import (
     diff,
 )
 from snowcap.enums import AccountEdition, ResourceType
+from snowcap.exceptions import MarkedForReplacementException
 from snowcap.identifiers import parse_URN
 
 
@@ -82,6 +83,29 @@ def test_plan_remove_action(session_ctx, remote_state):
     change = plan[0]
     assert isinstance(change, DropResource)
     assert change.urn == parse_URN("urn::ABCD123:role/REMOVED_ROLE")
+
+
+def test_plan_oauth_client_type_change_raises_targeted_error(session_ctx, remote_state):
+    """Changing oauth_client_type must fail the plan with an error that explains
+    recreation would rotate the Snowflake-issued client_id/client_secret."""
+    bp = Blueprint(
+        resources=[
+            res.SnowflakeCustomOAuthSecurityIntegration(
+                name="CUSTOM_OAUTH",
+                oauth_client_type="PUBLIC",
+                oauth_redirect_uri="https://example.com/cb",
+            )
+        ]
+    )
+    manifest = bp.generate_manifest(session_ctx)
+    urn = parse_URN("urn::ABCD123:security_integration/CUSTOM_OAUTH")
+    remote_state[urn] = dict(manifest[urn].data, oauth_client_type="CONFIDENTIAL")
+
+    with pytest.raises(
+        MarkedForReplacementException,
+        match="changing 'oauth_client_type' requires replacing the resource.*rotates the Snowflake-issued client_id and client_secret",
+    ):
+        diff(remote_state, manifest)
 
 
 def test_plan_no_removes_in_resources_not_in_sync_resources(session_ctx, remote_state):

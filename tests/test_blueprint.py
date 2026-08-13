@@ -60,6 +60,7 @@ from snowcap.enums import AccountEdition, BlueprintScope, ResourceType
 from snowcap.exceptions import (
     DuplicateResourceException,
     InvalidResourceException,
+    MarkedForReplacementException,
     MissingVarException,
     NonConformingPlanException,
     OrphanResourceException,
@@ -1440,8 +1441,8 @@ def test_blueprint_database_create_custom_owner_transfers_public_schema(session_
 
 
 def test_blueprint_shared_database_from_share_change_raises_not_implemented(session_ctx, remote_state):
-    # Documents today's limitation: from_share triggers_replacement, and replace_resource
-    # is unimplemented, so a from_share drift is a plan-time error rather than a silent
+    # Documents today's limitation: from_share triggers_replacement, and snowcap never
+    # replaces resources, so a from_share drift is a plan-time error rather than a silent
     # (and nonsensical) ALTER at apply time.
     remote_state[parse_URN("urn::ABCD123:database/GONG")] = {
         "name": "GONG",
@@ -1452,7 +1453,7 @@ def test_blueprint_shared_database_from_share_change_raises_not_implemented(sess
     blueprint = Blueprint(name="blueprint", resources=[shared_db])
     manifest = blueprint.generate_manifest(session_ctx)
 
-    with pytest.raises(NotImplementedError, match="replace_resource"):
+    with pytest.raises(MarkedForReplacementException, match="from_share"):
         diff(remote_state, manifest)
 
 

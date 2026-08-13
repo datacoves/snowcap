@@ -213,6 +213,9 @@ class ResourceSpecMetadata:
     triggers_create: bool = False
     ignore_changes: bool = False
     known_after_apply: bool = False
+    # Extra context appended to the plan-time error when a triggers_replacement
+    # field changes (e.g. what recreation would break for this resource).
+    replacement_message: Optional[str] = None
     edition: set[AccountEdition] = field(
         default_factory=lambda: {AccountEdition.STANDARD, AccountEdition.ENTERPRISE, AccountEdition.BUSINESS_CRITICAL}
     )

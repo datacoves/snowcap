@@ -59,6 +59,7 @@
 * [Service](resources/service.md)
 * [SessionPolicy](resources/session_policy.md)
 * [Share](resources/share.md)
+* [SnowflakeCustomOAuthSecurityIntegration](resources/snowflake_custom_oauth_security_integration.md)
 * [SharedDatabase](resources/shared_database.md)
 * [SnowflakePartnerOAuthSecurityIntegration](resources/snowflake_partner_oauth_security_integration.md)
 * [SnowservicesOAuthSecurityIntegration](resources/snowservices_oauth_security_integration.md)
