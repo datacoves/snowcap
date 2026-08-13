@@ -41,6 +41,7 @@ from .resource_name import (
     attribute_is_resource_name,
     resource_name_from_snowflake_metadata,
 )
+from .resources.authentication_policy import _PAT_POLICY_DEFAULT
 from .resources.warehouse import ADAPTIVE_UNSUPPORTED_FIELDS
 
 __this__ = sys.modules[__name__]
@@ -1390,6 +1391,15 @@ def fetch_authentication_policy(session: SnowflakeConnection, fqn: FQN):
     if mfa_auth_methods == ["PASSWORD"]:
         mfa_auth_methods = None
 
+    # pat_policy's brace shape is doc-derived and unverified against a live account (see
+    # _suppress_default_pat_policy above), so a parse failure must degrade to None instead of
+    # aborting the whole account-wide fetch pipeline (blueprint.py re-raises fetch exceptions).
+    try:
+        pat_policy = _suppress_default_pat_policy(_parse_pat_policy_property(properties.get("pat_policy")))
+    except Exception as err:
+        logger.warning(f"Failed to parse pat_policy property {properties.get('pat_policy')!r}: {err}")
+        pat_policy = None
+
     return {
         "name": _quote_snowflake_identifier(data["name"]),
         "authentication_methods": _parse_list_property(properties["authentication_methods"]),
@@ -1397,6 +1407,7 @@ def fetch_authentication_policy(session: SnowflakeConnection, fqn: FQN):
         "mfa_enrollment": properties["mfa_enrollment"],
         "client_types": _parse_list_property(properties["client_types"]),
         "security_integrations": _parse_list_property(properties["security_integrations"]),
+        "pat_policy": pat_policy,
         "comment": data["comment"] or None,
         "owner": _get_owner_identifier(data),
     }
@@ -1491,6 +1502,44 @@ def _parse_enum_map(value):
             continue
         out[k] = v
     return out
+
+
+# _PAT_POLICY_DEFAULT (imported from resources.authentication_policy, shared with the
+# resource's __post_init__ so the declared spec and the fetched state suppress defaults
+# identically) is the fetch layer's pat_policy key schema (used to filter out sub-keys like
+# REQUIRE_ROLE_RESTRICTION_FOR_SERVICE_USERS) and the suppression sentinel below.
+
+
+def _parse_pat_policy_property(prop_value: Optional[str]) -> Optional[dict]:
+    # Contract: returns a COMPLETE dict (all _PAT_POLICY_DEFAULT keys), None (absent/empty/null
+    # input), or raises. A partial dict must never escape — __post_init__ on the resource dataclass
+    # enforces "None or complete" and blueprint.py re-raises any exception, aborting the
+    # account-wide fetch for every resource, so malformed input has to raise here and be caught by
+    # the fetch layer's except -> logger.warning -> None fallback.
+    if prop_value is None or prop_value == "" or prop_value == "null":
+        return None
+    parsed = _parse_enum_map(prop_value)
+    if not isinstance(parsed, dict):
+        raise ValueError(f"Unexpected pat_policy format: {prop_value!r}")
+    pat_policy = {key: parsed[key] for key in _PAT_POLICY_DEFAULT if key in parsed}
+    if pat_policy.keys() != _PAT_POLICY_DEFAULT.keys():
+        raise ValueError(f"Incomplete pat_policy fields: {prop_value!r}")
+    pat_policy["default_expiry_in_days"] = int(pat_policy["default_expiry_in_days"])
+    pat_policy["max_expiry_in_days"] = int(pat_policy["max_expiry_in_days"])
+    require_role = pat_policy["require_role_restriction_for_service_users"]
+    if not isinstance(require_role, bool):
+        if str(require_role).lower() not in ("true", "false"):
+            raise ValueError(f"Unexpected pat_policy boolean: {prop_value!r}")
+        pat_policy["require_role_restriction_for_service_users"] = str(require_role).lower() == "true"
+    return pat_policy
+
+
+def _suppress_default_pat_policy(pat_policy: Optional[dict]) -> Optional[dict]:
+    # pat_policy is doc-derived (unverified against a live DESC AUTHENTICATION POLICY output),
+    # mirroring the mfa_authentication_methods drift-avoidance above: Snowflake echoes this
+    # default even when pat_policy was never explicitly set, so treat it as "unset" to avoid
+    # false drift detection.
+    return None if pat_policy == _PAT_POLICY_DEFAULT else pat_policy
 
 
 def fetch_columns(session: SnowflakeConnection, resource_type: str, fqn: FQN):

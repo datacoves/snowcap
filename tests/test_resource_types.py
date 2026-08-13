@@ -19,6 +19,7 @@ from snowcap import resources as res
 from snowcap.enums import ResourceType, WarehouseSize
 from snowcap.identifiers import FQN, URN
 from snowcap.resource_name import ResourceName
+from snowcap.resources.authentication_policy import AuthenticationMethods, NetworkPolicyEvaluation
 from snowcap.resources.mcp_server import normalize_mcp_specification
 from snowcap.resources.resource import Resource, ResourceContainer
 
@@ -1278,6 +1279,219 @@ class TestGitRepository:
         )
         assert repo._data.git_credentials == "my_secret"
         assert repo._data.comment == "A private repo"
+
+
+class TestAuthenticationPolicy:
+    """Tests for AuthenticationPolicy resource."""
+
+    def test_pat_authentication_method(self):
+        """Test PROGRAMMATIC_ACCESS_TOKEN is an accepted authentication method."""
+        policy = res.AuthenticationPolicy(
+            name="test_policy",
+            authentication_methods=["PROGRAMMATIC_ACCESS_TOKEN", "KEYPAIR"],
+        )
+        assert AuthenticationMethods.PROGRAMMATIC_ACCESS_TOKEN in policy._data.authentication_methods
+
+    def test_network_policy_evaluation_enum(self):
+        """Test NetworkPolicyEvaluation parses valid values and rejects invalid ones."""
+        assert NetworkPolicyEvaluation("ENFORCED_NOT_REQUIRED") == NetworkPolicyEvaluation.ENFORCED_NOT_REQUIRED
+        with pytest.raises(ValueError):
+            NetworkPolicyEvaluation("BOGUS")
+
+    def test_pat_policy_renders_in_create_sql(self):
+        """Test create_sql renders the PAT_POLICY block with unquoted enum, int, and bool sub-props."""
+        policy = res.AuthenticationPolicy(
+            name="test_policy",
+            pat_policy={
+                "network_policy_evaluation": "ENFORCED_NOT_REQUIRED",
+                "default_expiry_in_days": 30,
+                "max_expiry_in_days": 180,
+                "require_role_restriction_for_service_users": False,
+            },
+        )
+        sql = policy.create_sql()
+        assert "PAT_POLICY = (" in sql
+        assert "NETWORK_POLICY_EVALUATION = ENFORCED_NOT_REQUIRED" in sql
+        assert "DEFAULT_EXPIRY_IN_DAYS = 30" in sql
+        assert "MAX_EXPIRY_IN_DAYS = 180" in sql
+        assert "REQUIRE_ROLE_RESTRICTION_FOR_SERVICE_USERS = FALSE" in sql
+
+    def test_pat_policy_absent_omits_clause(self):
+        """Test create_sql has no PAT_POLICY clause when pat_policy is unset."""
+        policy = res.AuthenticationPolicy(name="test_policy")
+        assert "PAT_POLICY" not in policy.create_sql()
+
+    def test_pat_policy_parses_from_sql_space_delimited(self):
+        """Test from_sql parses a space-delimited PAT_POLICY block."""
+        sql = (
+            "CREATE AUTHENTICATION POLICY p AUTHENTICATION_METHODS = ('PROGRAMMATIC_ACCESS_TOKEN', 'KEYPAIR') "
+            "PAT_POLICY = (NETWORK_POLICY_EVALUATION = ENFORCED_NOT_REQUIRED "
+            "DEFAULT_EXPIRY_IN_DAYS = 30 MAX_EXPIRY_IN_DAYS = 180 "
+            "REQUIRE_ROLE_RESTRICTION_FOR_SERVICE_USERS = FALSE)"
+        )
+        policy = res.AuthenticationPolicy.from_sql(sql)
+        assert policy._data.pat_policy == {
+            "network_policy_evaluation": NetworkPolicyEvaluation.ENFORCED_NOT_REQUIRED,
+            "default_expiry_in_days": 30,
+            "max_expiry_in_days": 180,
+            "require_role_restriction_for_service_users": False,
+        }
+
+    def test_pat_policy_to_dict_round_trips(self):
+        """Test to_dict serializes the enum to a plain string and round-trips through spec()."""
+        policy = res.AuthenticationPolicy(
+            name="test_policy",
+            pat_policy={
+                "network_policy_evaluation": "ENFORCED_NOT_REQUIRED",
+                "default_expiry_in_days": 30,
+                "max_expiry_in_days": 180,
+                "require_role_restriction_for_service_users": False,
+            },
+        )
+        data = policy.to_dict()
+        assert data["pat_policy"]["network_policy_evaluation"] == "ENFORCED_NOT_REQUIRED"
+        assert data["pat_policy"]["require_role_restriction_for_service_users"] is False
+        assert res.AuthenticationPolicy.spec(**data) == policy._data
+
+    def test_pat_policy_partial_raises(self):
+        """Test a partial pat_policy dict raises ValueError naming the missing keys."""
+        with pytest.raises(ValueError):
+            res.AuthenticationPolicy(name="test_policy", pat_policy={"max_expiry_in_days": 180})
+
+    def test_pat_policy_missing_boolean_key_raises(self):
+        """Test a pat_policy without require_role_restriction_for_service_users raises ValueError."""
+        with pytest.raises(ValueError, match="require_role_restriction_for_service_users"):
+            res.AuthenticationPolicy(
+                name="test_policy",
+                pat_policy={
+                    "network_policy_evaluation": "ENFORCED_NOT_REQUIRED",
+                    "default_expiry_in_days": 30,
+                    "max_expiry_in_days": 180,
+                },
+            )
+
+    def test_pat_policy_drops_unknown_keys(self):
+        """Test unrecognized sub-keys (future Snowflake additions arriving via fetch) are dropped."""
+        policy = res.AuthenticationPolicy(
+            name="test_policy",
+            pat_policy={
+                "network_policy_evaluation": "ENFORCED_NOT_REQUIRED",
+                "default_expiry_in_days": 30,
+                "max_expiry_in_days": 180,
+                "require_role_restriction_for_service_users": False,
+                "some_future_setting": 42,
+            },
+        )
+        assert "some_future_setting" not in policy._data.pat_policy
+
+    def test_pat_policy_exact_defaults_compare_as_unset(self):
+        """Test declaring exactly the Snowflake defaults suppresses pat_policy to None.
+
+        The fetch side suppresses the echoed defaults to None (_suppress_default_pat_policy),
+        so the declared spec must do the same or the plan shows permanent drift.
+        """
+        policy = res.AuthenticationPolicy(
+            name="test_policy",
+            pat_policy={
+                "network_policy_evaluation": "ENFORCED_REQUIRED",
+                "default_expiry_in_days": 15,
+                "max_expiry_in_days": 365,
+                "require_role_restriction_for_service_users": True,
+            },
+        )
+        assert policy._data.pat_policy is None
+        assert policy.to_dict()["pat_policy"] is None
+        assert "PAT_POLICY" not in policy.create_sql()
+
+    def test_pat_policy_exact_defaults_as_strings_compare_as_unset(self):
+        """Test default suppression applies after typecheck, so string-typed defaults also suppress."""
+        policy = res.AuthenticationPolicy(
+            name="test_policy",
+            pat_policy={
+                "network_policy_evaluation": "ENFORCED_REQUIRED",
+                "default_expiry_in_days": "15",
+                "max_expiry_in_days": "365",
+                "require_role_restriction_for_service_users": "TRUE",
+            },
+        )
+        assert policy._data.pat_policy is None
+
+    def test_pat_policy_near_defaults_not_suppressed(self):
+        """Test a pat_policy differing from the defaults in one field is kept."""
+        policy = res.AuthenticationPolicy(
+            name="test_policy",
+            pat_policy={
+                "network_policy_evaluation": "ENFORCED_REQUIRED",
+                "default_expiry_in_days": 15,
+                "max_expiry_in_days": 364,
+                "require_role_restriction_for_service_users": True,
+            },
+        )
+        assert policy._data.pat_policy is not None
+        assert policy._data.pat_policy["max_expiry_in_days"] == 364
+
+    def test_pat_policy_false_role_restriction_not_suppressed(self):
+        """Test require_role_restriction_for_service_users=False alone defeats default suppression.
+
+        The other three values are the Snowflake defaults, so only the boolean (default TRUE)
+        keeps this pat_policy set — it must render and round-trip, not compare as unset.
+        """
+        policy = res.AuthenticationPolicy(
+            name="test_policy",
+            pat_policy={
+                "network_policy_evaluation": "ENFORCED_REQUIRED",
+                "default_expiry_in_days": 15,
+                "max_expiry_in_days": 365,
+                "require_role_restriction_for_service_users": False,
+            },
+        )
+        assert policy._data.pat_policy is not None
+        assert policy._data.pat_policy["require_role_restriction_for_service_users"] is False
+        sql = policy.create_sql()
+        assert "REQUIRE_ROLE_RESTRICTION_FOR_SERVICE_USERS = FALSE" in sql
+        data = policy.to_dict()
+        assert data["pat_policy"]["require_role_restriction_for_service_users"] is False
+        assert res.AuthenticationPolicy.spec(**data) == policy._data
+
+    def test_pat_policy_default_exceeds_max_raises(self):
+        """Test default_expiry_in_days greater than max_expiry_in_days raises ValueError."""
+        with pytest.raises(ValueError):
+            res.AuthenticationPolicy(
+                name="test_policy",
+                pat_policy={
+                    "network_policy_evaluation": "ENFORCED_REQUIRED",
+                    "default_expiry_in_days": 200,
+                    "max_expiry_in_days": 100,
+                    "require_role_restriction_for_service_users": True,
+                },
+            )
+
+    def test_pat_policy_coerces_string_ints(self):
+        """Test string-valued expiry days coerce to ints."""
+        policy = res.AuthenticationPolicy(
+            name="test_policy",
+            pat_policy={
+                "network_policy_evaluation": "ENFORCED_REQUIRED",
+                "default_expiry_in_days": "30",
+                "max_expiry_in_days": "180",
+                "require_role_restriction_for_service_users": True,
+            },
+        )
+        assert policy._data.pat_policy["default_expiry_in_days"] == 30
+        assert policy._data.pat_policy["max_expiry_in_days"] == 180
+
+    def test_pat_policy_invalid_boolean_raises(self):
+        """Test an invalid require_role_restriction_for_service_users value raises ValueError."""
+        with pytest.raises(ValueError):
+            res.AuthenticationPolicy(
+                name="test_policy",
+                pat_policy={
+                    "network_policy_evaluation": "ENFORCED_REQUIRED",
+                    "default_expiry_in_days": 15,
+                    "max_expiry_in_days": 365,
+                    "require_role_restriction_for_service_users": "MAYBE",
+                },
+            )
 
 
 class TestPasswordPolicy:
