@@ -39,6 +39,15 @@ REPO_ROOT = SCRIPT_DIR.parent
 # Shared default so `provision --name` and `drop --name` always agree.
 DEFAULT_ACCOUNT_NAME = "SNOWCAP_TESTING"
 
+# The default key location sits inside the checkout, so deleting the checkout (e.g. a git
+# worktree) deletes the only credential for the test account's SERVICE admin. Contributors
+# can point SNOWCAP_TEST_KEY_PATH at a durable directory once instead of passing --key-path
+# on every provision.
+DEFAULT_KEY_PATH = os.environ.get(
+    "SNOWCAP_TEST_KEY_PATH",
+    str(REPO_ROOT / "tests" / ".snowcap_test_account_rsa_key.p8"),
+)
+
 # Snowflake's unquoted-identifier grammar; also doubles as our SQL-injection guard.
 IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*$")
 
@@ -557,9 +566,9 @@ def teardown_and_reset():
 @click.option("--admin-name", default="SNOWCAP_ADMIN", show_default=True, help="Admin user name on the new account.")
 @click.option(
     "--key-path",
-    default=str(REPO_ROOT / "tests" / ".snowcap_test_account_rsa_key.p8"),
+    default=DEFAULT_KEY_PATH,
     show_default=True,
-    help="Where to write the new admin's private key.",
+    help="Where to write the new admin's private key. Defaults to $SNOWCAP_TEST_KEY_PATH if set.",
 )
 def provision(name, email, edition, cloud, region, admin_name, key_path):
     provision_test_account(name, email, edition, cloud, region, admin_name, key_path)

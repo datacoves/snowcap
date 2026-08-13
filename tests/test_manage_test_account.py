@@ -34,6 +34,28 @@ _spec.loader.exec_module(manage_test_account)
 
 from snowcap.enums import AccountEdition  # noqa: E402
 
+
+def _load_module_copy():
+    spec = importlib.util.spec_from_file_location(
+        "manage_test_account_copy", REPO_ROOT / "tools" / "manage_test_account.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_default_key_path_honors_env_var(monkeypatch):
+    monkeypatch.setenv("SNOWCAP_TEST_KEY_PATH", "/durable/keys/test_key.p8")
+    module = _load_module_copy()
+    assert module.DEFAULT_KEY_PATH == "/durable/keys/test_key.p8"
+
+
+def test_default_key_path_falls_back_to_checkout(monkeypatch):
+    monkeypatch.delenv("SNOWCAP_TEST_KEY_PATH", raising=False)
+    module = _load_module_copy()
+    assert module.DEFAULT_KEY_PATH == str(REPO_ROOT / "tests" / ".snowcap_test_account_rsa_key.p8")
+
+
 # =============================================================================
 # create_account_sql
 # =============================================================================
