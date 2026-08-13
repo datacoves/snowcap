@@ -50,10 +50,10 @@ def test_default_key_path_honors_env_var(monkeypatch):
     assert module.DEFAULT_KEY_PATH == "/durable/keys/test_key.p8"
 
 
-def test_default_key_path_falls_back_to_checkout(monkeypatch):
+def test_default_key_path_falls_back_to_home_directory(monkeypatch):
     monkeypatch.delenv("SNOWCAP_TEST_KEY_PATH", raising=False)
     module = _load_module_copy()
-    assert module.DEFAULT_KEY_PATH == str(REPO_ROOT / "tests" / ".snowcap_test_account_rsa_key.p8")
+    assert module.DEFAULT_KEY_PATH == str(pathlib.Path.home() / ".snowcap" / "snowcap_test_account_rsa_key.p8")
 
 
 # =============================================================================

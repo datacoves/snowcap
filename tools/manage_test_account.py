@@ -39,13 +39,12 @@ REPO_ROOT = SCRIPT_DIR.parent
 # Shared default so `provision --name` and `drop --name` always agree.
 DEFAULT_ACCOUNT_NAME = "SNOWCAP_TESTING"
 
-# The default key location sits inside the checkout, so deleting the checkout (e.g. a git
-# worktree) deletes the only credential for the test account's SERVICE admin. Contributors
-# can point SNOWCAP_TEST_KEY_PATH at a durable directory once instead of passing --key-path
-# on every provision.
+# The admin key is the only credential for the test account's SERVICE admin, so it must
+# survive checkout deletion (e.g. a removed git worktree). Default to a durable per-user
+# location; SNOWCAP_TEST_KEY_PATH overrides it.
 DEFAULT_KEY_PATH = os.environ.get(
     "SNOWCAP_TEST_KEY_PATH",
-    str(REPO_ROOT / "tests" / ".snowcap_test_account_rsa_key.p8"),
+    str(pathlib.Path.home() / ".snowcap" / "snowcap_test_account_rsa_key.p8"),
 )
 
 # Snowflake's unquoted-identifier grammar; also doubles as our SQL-injection guard.
@@ -302,6 +301,7 @@ def generate_rsa_keypair(key_path: pathlib.Path | None = None) -> str:
             format=serialization.PrivateFormat.PKCS8,
             encryption_algorithm=serialization.NoEncryption(),
         )
+        key_path.parent.mkdir(parents=True, exist_ok=True)
         fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "wb") as f:
             f.write(pem)
