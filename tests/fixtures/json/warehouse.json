@@ -6,6 +6,7 @@
     "generation": "2",
     "resource_constraint": "STANDARD_GEN_2",
     "max_query_performance_level": null,
+    "query_throughput_multiplier": null,
     "max_cluster_count": 1,
     "min_cluster_count": 1,
     "scaling_policy": "STANDARD",

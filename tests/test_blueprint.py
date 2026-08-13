@@ -895,6 +895,41 @@ def test_blueprint_standard_to_adaptive_warehouse_conversion(session_ctx):
     assert "ALTER WAREHOUSE WH SET warehouse_type = 'ADAPTIVE'" in sql
 
 
+def test_blueprint_adaptive_query_throughput_multiplier_no_drift_and_update(session_ctx):
+    # A fetched ADAPTIVE warehouse reports query_throughput_multiplier (default 2). A manifest
+    # declaring the same value must produce no plan; a different value must produce a
+    # single-field delta and the matching ALTER statement.
+    wh_urn = parse_URN("urn::ABCD123:warehouse/WH")
+    remote = _warehouse_remote_state(
+        type="ADAPTIVE",
+        size="",
+        max_query_performance_level="LARGE",
+        query_throughput_multiplier=2,
+    )
+    remote_state = {
+        parse_URN("urn::ABCD123:account/ACCOUNT"): {},
+        wh_urn: remote,
+    }
+
+    declared = dict(
+        name="WH",
+        warehouse_type="ADAPTIVE",
+        max_query_performance_level="LARGE",
+    )
+    blueprint = Blueprint(resources=[res.Warehouse(**declared, query_throughput_multiplier=2)])
+    manifest = blueprint.generate_manifest(session_ctx)
+    assert diff(remote_state, manifest) == []
+
+    blueprint = Blueprint(resources=[res.Warehouse(**declared, query_throughput_multiplier=4)])
+    manifest = blueprint.generate_manifest(session_ctx)
+    plan = diff(remote_state, manifest)
+    assert len(plan) == 1
+    assert plan[0].delta == {"query_throughput_multiplier": 4}
+
+    sql = flatten_sql_commands(compile_plan_to_sql(session_ctx, plan))
+    assert "ALTER WAREHOUSE WH SET QUERY_THROUGHPUT_MULTIPLIER = 4" in sql
+
+
 def test_blueprint_adaptive_to_standard_warehouse_conversion(session_ctx):
     # Symmetric reverse direction: remote is a fetched ADAPTIVE warehouse (fetch_warehouse nulls
     # ADAPTIVE_UNSUPPORTED_FIELDS -- size/cluster/suspend-resume/scaling -- to None), and the
