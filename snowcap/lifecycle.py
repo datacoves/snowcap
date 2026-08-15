@@ -150,12 +150,35 @@ def create_hybrid_table(urn: URN, data: dict, props: Props, if_not_exists: bool 
     )
 
 
+def _grant_container_sql(data: dict) -> str:
+    """Render the `IN <container>` clause of a collection grant.
+
+    The account container has no name of its own, so it renders as a bare `IN ACCOUNT`.
+    """
+    if data["on_type"] == ResourceType.ACCOUNT:
+        return "IN ACCOUNT"
+    return f"IN {data['on_type']} {data['on']}"
+
+
 def create_grant(urn: URN, data: dict, props: Props, if_not_exists: bool):
     on_type = data["on_type"]
     if "INTEGRATION" in str(on_type):
         on_type = "INTEGRATION"
     elif on_type == "ACCOUNT":
         on_type = ""
+    if data["grant_type"] == GrantType.INHERITED:
+        # A single container-level grant covering current and future objects. Snowflake
+        # rejects WITH GRANT OPTION here, which the Grant resource validates up front.
+        return tidy_sql(
+            "GRANT INHERITED",
+            data["priv"],
+            "ON ALL",
+            pluralize(data["items_type"]).upper(),
+            _grant_container_sql(data),
+            "TO",
+            data["to_type"],
+            data["to"],
+        )
     if data["grant_type"] == GrantType.FUTURE:
         items_type = data["items_type"]
         if "INTEGRATION" in items_type:
@@ -593,6 +616,17 @@ def drop_function(urn: URN, data: dict, if_exists: bool) -> str:
 def drop_grant(urn: URN, data: dict, **kwargs):
     if data["priv"] == "OWNERSHIP":
         raise NotImplementedError
+    if data["grant_type"] == GrantType.INHERITED:
+        return tidy_sql(
+            "REVOKE INHERITED",
+            data["priv"],
+            "ON ALL",
+            pluralize(data["items_type"]).upper(),
+            _grant_container_sql(data),
+            "FROM",
+            data["to_type"],
+            data["to"],
+        )
     if data["grant_type"] == GrantType.FUTURE:
         return tidy_sql(
             "REVOKE",

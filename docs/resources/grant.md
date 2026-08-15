@@ -7,7 +7,7 @@ description: >-
 
 [Snowflake Documentation](https://docs.snowflake.com/en/sql-reference/sql/grant-privilege) | Snowcap CLI label: `grant`
 
-The `Grant` resource represents a privilege grant, a future grant, or a grant of privileges on all resources of a specified type to a role in Snowflake.
+The `Grant` resource represents a privilege grant, a future grant, an inherited grant, or a grant of privileges on all resources of a specified type to a role in Snowflake.
 
 ## Examples
 
@@ -156,6 +156,42 @@ grants:
     to: somerole
 ```
 
+#### Inherited Grants
+
+An inherited grant is a single grant on a container that covers every current **and
+future** object of a type inside it, replacing an `all` + `future` pair.
+
+```yaml
+grants:
+  - priv: SELECT
+    on: inherited tables in schema somedb.someschema
+    to: somerole
+
+  # Multiple privileges expand to one statement each
+  - priv:
+      - SELECT
+      - INSERT
+    on: inherited tables in database somedb
+    to: somerole
+
+  # The account can only be the container of an inherited grant
+  - priv: SELECT
+    on: inherited tables in account
+    to: somerole
+
+  # Or turn a grant on all objects into an inherited one
+  - priv: SELECT
+    on: all tables in database somedb
+    inherited: true
+    to: somerole
+
+  # Delegate to a role holding MANAGE GRANTS on the container
+  - priv: SELECT
+    on: inherited tables in database sales_db
+    to: analyst
+    owner: sales_db_admin
+```
+
 ### Python
 
 #### Object Grants
@@ -242,6 +278,32 @@ grant_on_all = Grant(
 )
 ```
 
+#### Inherited Grants
+
+```python
+inherited_grant = Grant(
+    priv="SELECT",
+    on="INHERITED TABLES IN SCHEMA somedb.someschema",
+    to="somerole",
+)
+inherited_grant = Grant(
+    priv="SELECT",
+    on=["INHERITED", "TABLES", Database(name="somedb")],
+    to="somerole",
+)
+
+# The account can only be the container of an inherited grant
+inherited_grant = Grant(priv="SELECT", on="INHERITED TABLES IN ACCOUNT", to="somerole")
+
+# Or turn a grant on all objects into an inherited one
+inherited_grant = Grant(
+    priv="SELECT",
+    on="ALL TABLES IN DATABASE somedb",
+    inherited=True,
+    to="somerole",
+)
+```
+
 ## Fields
 
 - **`priv`** (`string` or `list`, required):  
@@ -260,6 +322,8 @@ grant_on_all = Grant(
   - `"service my_db.my_schema.my_service"` - for service privileges
   - `"future tables in schema my_schema"` - for future grants
   - `"all tables in database my_db"` - for grants on all existing objects
+  - `"inherited tables in database my_db"` - for inherited grants, covering existing and future objects
+  - `"inherited tables in account"` - inherited grants are the only kind that can be scoped to the account
 
 - **`to`** (`string` or [Role](role.md), required):  
   The role to which the privileges are granted.
@@ -268,7 +332,21 @@ grant_on_all = Grant(
   Specifies whether the grantee can grant the privileges to other roles. Defaults to `false`.
 
 - **`owner`** (`string` or [Role](role.md), optional):  
-  The owner role of the grant. Defaults to `"SYSADMIN"`.
+  The owner role of the grant. Defaults to `"SYSADMIN"`. Grants are issued as
+  `SECURITYADMIN`; for inherited grants, an explicit owner names the role holding
+  `MANAGE GRANTS` on the container and is used to issue the grant instead.
+
+- **`inherited`** (`bool`, optional):  
+  Turns a grant on all objects in a container into an inherited grant, which also covers
+  objects created later. Defaults to `false`.
+
+**Note:** Inherited grants are a Snowflake preview feature. Enable preview features for
+the account, then run
+`ALTER ACCOUNT SET FEATURE_RBAC_INHERITED_GRANTS = 'ENABLED';`. `snowcap plan` fails with
+a clear message if the account has not opted in. Snowflake does not allow inherited grants
+to be combined with `WITH GRANT OPTION`, to carry `OWNERSHIP`, or to target shares and
+integrations; `priv: ALL` is not supported either, so list privileges explicitly. See
+[Managing access with inherited grants](https://docs.snowflake.com/en/user-guide/inherited-grants-intro).
 
 **Note:** `IMPORTED PRIVILEGES` is only valid on a [SharedDatabase](shared_database.md)
 (a database created `FROM SHARE`). It cannot be granted `WITH GRANT OPTION`

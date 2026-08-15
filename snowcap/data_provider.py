@@ -33,6 +33,7 @@ from .identifiers import FQN, URN, parse_FQN, resource_type_for_label
 from .parse import (
     _parse_column,
     _parse_dynamic_table_text,
+    format_collection_string,
     parse_collection_string,
     parse_region,
     parse_view_ddl,
@@ -204,6 +205,40 @@ def _is_inherited_grant(row: dict[str, Any]) -> bool:
                 return value.strip().lower() in ("true", "t", "yes", "y")
             return bool(value)
     return False
+
+
+def inherited_grant_fqn(grant: dict[str, Any], to_label: str, grantee: str) -> Optional[FQN]:
+    """
+    Build the URN-level identity of an inherited grant from a SHOW GRANTS row.
+
+    Returns None when the row does not name a container Snowcap understands, so an
+    unrecognized INHERITED_FROM value is skipped rather than turned into a grant that
+    cannot be revoked.
+    """
+    container_type = str(grant.get("inherited_from") or "").upper()
+    database = str(grant.get("inherited_from_database") or "")
+    schema = str(grant.get("inherited_from_schema") or "")
+
+    if container_type == "ACCOUNT":
+        container = "ACCOUNT"
+    elif container_type == "DATABASE":
+        container = database
+    elif container_type == "SCHEMA":
+        container = f"{database}.{schema}"
+    else:
+        logger.debug(f"Skipping inherited grant with unrecognized container {container_type!r}")
+        return None
+
+    collection = format_collection_string(container, grant["granted_on"].replace("_", " "))
+    return FQN(
+        name=ResourceName("GRANT"),
+        params={
+            "grant_type": GrantType.INHERITED.value,
+            "priv": grant["privilege"],
+            "on": f"{container_type.lower()}/{collection}",
+            "to": f"{to_label}/{grantee}",
+        },
+    )
 
 
 def _drop_inherited_grants(rows: list[dict[str, Any]], context: str) -> list[dict[str, Any]]:
@@ -644,6 +679,23 @@ def _show_grants_to_role(
         'granted_by': 'ACCOUNTADMIN'
     }
     """
+    grants = _show_all_grants_to_role(session, role, role_type=role_type, cacheable=cacheable)
+    return _drop_inherited_grants(grants, f"grants to {role_type} {role}")
+
+
+def _show_all_grants_to_role(
+    session: SnowflakeConnection,
+    role: ResourceName,
+    role_type: ResourceType = ResourceType.ROLE,
+    cacheable: bool = False,
+) -> list[dict[str, Any]]:
+    """
+    Every grant to a role, object grants and inherited grants alike.
+
+    Callers almost always want _show_grants_to_role() (object grants only) or
+    _show_inherited_grants_to_role(); this is the shared source both read from, so a role's
+    grants are fetched once regardless of which kinds the caller cares about.
+    """
     # Automatically use ACCOUNT_USAGE cache for regular roles if it's been populated
     if role_type == ResourceType.ROLE:
         session_id = id(session)
@@ -659,13 +711,29 @@ def _show_grants_to_role(
             return filtered_grants
 
     # Fall back to SHOW GRANTS
-    grants = execute(
+    return execute(
         session,
         f"SHOW GRANTS TO {role_type} {role}",
         cacheable=cacheable,
         empty_response_codes=[DOES_NOT_EXIST_ERR],
     )
-    return _drop_inherited_grants(grants, f"SHOW GRANTS TO {role_type} {role}")
+
+
+def _show_inherited_grants_to_role(
+    session: SnowflakeConnection,
+    role: ResourceName,
+    role_type: ResourceType = ResourceType.ROLE,
+    cacheable: bool = True,
+) -> list[dict[str, Any]]:
+    """
+    The inherited grants held by a role.
+
+    Snowflake does not enumerate the individual securables an inherited grant covers, so
+    each row describes the container-level grant itself: NAME is empty, GRANTED_ON is the
+    object type the grant applies to, and INHERITED_FROM* identify the container.
+    """
+    grants = _show_all_grants_to_role(session, role, role_type=role_type, cacheable=cacheable)
+    return [grant for grant in grants if _is_inherited_grant(grant)]
 
 
 def _show_future_grants_to_role(
@@ -807,6 +875,37 @@ def fetch_region(session: SnowflakeConnection):
 
 
 @cache
+def fetch_inherited_grants_enabled(session: SnowflakeConnection) -> Optional[bool]:
+    """
+    Is FEATURE_RBAC_INHERITED_GRANTS enabled for this account?
+
+    Returns None when the answer cannot be determined -- the parameter does not exist on
+    Snowflake versions without the preview, and reading account parameters requires
+    privileges the session may not hold. Callers treat None as "assume enabled" so that an
+    unreadable parameter never blocks an apply that would otherwise succeed.
+    """
+    session_id = id(session)
+    if session_id in _INHERITED_GRANTS_ENABLED_CACHE:
+        return _INHERITED_GRANTS_ENABLED_CACHE[session_id]
+
+    enabled: Optional[bool] = None
+    try:
+        rows = execute(
+            session,
+            "SHOW PARAMETERS LIKE 'FEATURE_RBAC_INHERITED_GRANTS' IN ACCOUNT",
+            cacheable=True,
+        )
+        for row in rows:
+            if str(row.get("key", "")).upper() == "FEATURE_RBAC_INHERITED_GRANTS":
+                enabled = str(row.get("value", "")).strip().upper() == "ENABLED"
+                break
+    except Exception as err:
+        logger.debug(f"Could not read FEATURE_RBAC_INHERITED_GRANTS: {err}")
+
+    _INHERITED_GRANTS_ENABLED_CACHE[session_id] = enabled
+    return enabled
+
+
 def fetch_session(session: SnowflakeConnection) -> SessionContext:
     session_obj = execute(
         session,
@@ -943,6 +1042,10 @@ _ACCOUNT_USAGE_USER_GRANTS_CACHE: dict[int, list[dict[str, Any]]] = {}
 # id). Absent means "assume the column exists"; the first query proves it either way.
 _ACCOUNT_USAGE_INHERITED_COLUMN: dict[int, bool] = {}
 
+# Whether FEATURE_RBAC_INHERITED_GRANTS is enabled (keyed by session id). None means the
+# parameter could not be read.
+_INHERITED_GRANTS_ENABLED_CACHE: dict[int, Optional[bool]] = {}
+
 
 def reset_account_usage_caches() -> None:
     """
@@ -953,13 +1056,14 @@ def reset_account_usage_caches() -> None:
     """
     global _ACCOUNT_USAGE_ACCESS_CACHE, _ACCOUNT_USAGE_FALLBACK_CACHE
     global _ACCOUNT_USAGE_GRANTS_CACHE, _ACCOUNT_USAGE_USER_GRANTS_CACHE
-    global _ACCOUNT_USAGE_INHERITED_COLUMN
+    global _ACCOUNT_USAGE_INHERITED_COLUMN, _INHERITED_GRANTS_ENABLED_CACHE
 
     _ACCOUNT_USAGE_ACCESS_CACHE.clear()
     _ACCOUNT_USAGE_FALLBACK_CACHE.clear()
     _ACCOUNT_USAGE_GRANTS_CACHE.clear()
     _ACCOUNT_USAGE_USER_GRANTS_CACHE.clear()
     _ACCOUNT_USAGE_INHERITED_COLUMN.clear()
+    _INHERITED_GRANTS_ENABLED_CACHE.clear()
 
 
 def _mark_account_usage_fallback(session: SnowflakeConnection) -> None:
@@ -1066,9 +1170,10 @@ def _grants_to_roles_query(include_inherited: bool = True) -> str:
     """
     Build the GRANTS_TO_ROLES query.
 
-    IS_INHERITED is selected so inherited grants can be told apart from object grants and
-    dropped; see _drop_inherited_grants(). It is omitted for accounts whose view does not
-    expose the column, which are accounts that cannot have inherited grants anyway.
+    The inherited-grant columns are selected so container-level grants can be told apart
+    from object grants, and so an inherited grant can be matched back to the container it
+    was created on. They are omitted for accounts whose view does not expose them, which
+    are accounts that cannot have inherited grants anyway.
     """
     columns = [
         "CREATED_ON",
@@ -1083,7 +1188,14 @@ def _grants_to_roles_query(include_inherited: bool = True) -> str:
         "GRANTED_BY",
     ]
     if include_inherited:
-        columns.append("IS_INHERITED")
+        columns.extend(
+            [
+                "IS_INHERITED",
+                "INHERITED_FROM",
+                "INHERITED_FROM_DATABASE",
+                "INHERITED_FROM_SCHEMA",
+            ]
+        )
     return f"""
         SELECT
             {', '.join(columns)}
@@ -1125,9 +1237,9 @@ def _fetch_grants_from_account_usage(session: SnowflakeConnection) -> list[dict[
         results = execute(session, _grants_to_roles_query(include_inherited=has_inherited_column), cacheable=True)
     except ProgrammingError as err:
         if has_inherited_column and err.errno in (INVALID_COLUMN_ERR, INVALID_IDENTIFIER):
-            # Not every Snowflake version exposes IS_INHERITED, so an account whose
-            # GRANTS_TO_ROLES view lacks the column is queried without it. Such an account
-            # cannot have inherited grants to filter out in the first place.
+            # Not every Snowflake version exposes the inherited-grant columns, so an account
+            # whose GRANTS_TO_ROLES view lacks them is queried without them. Such an account
+            # cannot have inherited grants in the first place.
             logger.debug("GRANTS_TO_ROLES has no IS_INHERITED column, querying without it")
             _ACCOUNT_USAGE_INHERITED_COLUMN[session_id] = False
             try:
@@ -1150,8 +1262,6 @@ def _fetch_grants_from_account_usage(session: SnowflakeConnection) -> list[dict[
         logger.warning(f"ACCOUNT_USAGE query failed unexpectedly: {err} - falling back to SHOW queries")
         _mark_account_usage_fallback(session)
         return None
-
-    results = _drop_inherited_grants(results, "ACCOUNT_USAGE.GRANTS_TO_ROLES")
 
     # Normalize results to match SHOW GRANTS structure
     normalized_grants = []
@@ -1203,6 +1313,12 @@ def _fetch_grants_from_account_usage(session: SnowflakeConnection) -> list[dict[
                 "grantee_name": row["GRANTEE_NAME"],
                 "grant_option": grant_option,
                 "granted_by": row["GRANTED_BY"],
+                # Inherited grants describe a container, not a securable. NAME is empty for
+                # them, and the container comes from these columns instead.
+                "is_inherited": bool(row.get("IS_INHERITED")),
+                "inherited_from": row.get("INHERITED_FROM") or "",
+                "inherited_from_database": row.get("INHERITED_FROM_DATABASE") or "",
+                "inherited_from_schema": row.get("INHERITED_FROM_SCHEMA") or "",
             }
         )
 
@@ -2036,6 +2152,73 @@ def fetch_function(session: SnowflakeConnection, fqn: FQN):
         }
 
 
+def _parse_grant_collection(on_type: str, on: str) -> dict[str, str]:
+    """
+    Split a collection grant's encoded target into container and item type.
+
+    The account container has no name, so it is encoded as "ACCOUNT.<TABLE>" and cannot be
+    told apart from a database called ACCOUNT by looking at the string alone. The container
+    type travels alongside it in the URN, so it is passed in rather than inferred.
+    """
+    if on_type == ResourceType.ACCOUNT.value:
+        _, _, items_type = on.partition(".")
+        return {"on": "ACCOUNT", "on_type": "account", "items_type": items_type.strip("<>")}
+    return parse_collection_string(on)
+
+
+def _inherited_grant_matches(grant: dict[str, Any], items_type: str, container_type: str, container: str) -> bool:
+    """Does an inherited grant row describe a grant on this container and object type?"""
+    if grant["granted_on"].replace("_", " ").upper() != items_type.replace("_", " ").upper():
+        return False
+    inherited_from = str(grant.get("inherited_from") or "").upper()
+    if inherited_from != container_type.upper():
+        return False
+    if container_type == "ACCOUNT":
+        return True
+    database = str(grant.get("inherited_from_database") or "")
+    if container_type == "DATABASE":
+        return ResourceName(database) == ResourceName(container)
+    schema = str(grant.get("inherited_from_schema") or "")
+    return ResourceName(f"{database}.{schema}") == ResourceName(container)
+
+
+def fetch_inherited_grant(session: SnowflakeConnection, fqn: FQN):
+    """
+    Fetch a single inherited grant.
+
+    Unlike ON ALL grants, an inherited grant is one durable record that Snowflake reports
+    back, so it can be compared against config instead of being reapplied on every run.
+    """
+    priv = fqn.params["priv"]
+    on_type, on = fqn.params["on"].split("/", 1)
+    to_type, to = fqn.params["to"].split("/", 1)
+    to_type = resource_type_for_label(to_type)
+
+    collection = _parse_grant_collection(on_type.upper(), on)
+    container_type = collection["on_type"].upper()
+    container = collection["on"]
+    items_type = collection["items_type"]
+
+    for grant in _show_inherited_grants_to_role(session, to, role_type=to_type):
+        if grant["privilege"] != priv:
+            continue
+        if not _inherited_grant_matches(grant, items_type, container_type, container):
+            continue
+        return {
+            "priv": priv,
+            "on": container,
+            "on_type": container_type.replace("_", " "),
+            "to": to,
+            "to_type": resource_type_for_label(grant["granted_to"]),
+            "grant_option": False,
+            "owner": grant.get("granted_by") or "",
+            "_privs": [priv],
+            "items_type": items_type.replace("_", " "),
+            "grant_type": GrantType.INHERITED,
+        }
+    return None
+
+
 def fetch_grant(session: SnowflakeConnection, fqn: FQN):
     priv = fqn.params["priv"]
     on_type, on = fqn.params["on"].split("/", 1)
@@ -2044,6 +2227,9 @@ def fetch_grant(session: SnowflakeConnection, fqn: FQN):
     to_type = resource_type_for_label(to_type)
     # Default to OBJECT grant type if not specified
     grant_type = fqn.params.get("grant_type", GrantType.OBJECT)
+
+    if grant_type == GrantType.INHERITED:
+        return fetch_inherited_grant(session, fqn)
 
     if priv == "ALL":
         filters = {
@@ -3839,6 +4025,13 @@ def list_grants(
                 if data["privilege"] in ["CANCEL QUERY"]:
                     continue
 
+                # Inherited grants are container-level and carry no object name
+                if _is_inherited_grant(data):
+                    inherited_fqn = inherited_grant_fqn(data, to_prefix, grantee)
+                    if inherited_fqn:
+                        grants.append(inherited_fqn)
+                    continue
+
                 name = data["name"]
                 if data["granted_on"] == "ACCOUNT":
                     name = "ACCOUNT"
@@ -3893,6 +4086,14 @@ def list_grants(
                     )
                 )
 
+        # Inherited grants come from the same (cached) SHOW GRANTS response, so listing them
+        # costs no extra queries.
+        for role_name in role_names:
+            for data in _show_inherited_grants_to_role(session, role_name, role_type=ResourceType.ROLE):
+                inherited_fqn = inherited_grant_fqn(data, "role", str(role_name))
+                if inherited_fqn:
+                    grants.append(inherited_fqn)
+
         # Also fetch grants for database roles using SHOW GRANTS TO DATABASE ROLE
         for db_role_fqn in get_database_roles():
             fq_db_role_name = f"{db_role_fqn.database}.{db_role_fqn.name}"
@@ -3932,6 +4133,13 @@ def list_grants(
                         },
                     )
                 )
+
+            for data in _show_inherited_grants_to_role(
+                session, ResourceName(fq_db_role_name), role_type=ResourceType.DATABASE_ROLE
+            ):
+                inherited_fqn = inherited_grant_fqn(data, "database_role", fq_db_role_name)
+                if inherited_fqn:
+                    grants.append(inherited_fqn)
 
     # Future grants always use SHOW commands (not available in ACCOUNT_USAGE)
     # Only fetch if include_future_grants is True (manifest has future grants)

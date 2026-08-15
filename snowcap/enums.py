@@ -439,6 +439,38 @@ class GrantType(ParseableEnum):
     OBJECT = "OBJECT"
     FUTURE = "FUTURE"
     ALL = "ALL"
+    # A single container-level grant covering every current and future object of a type in
+    # an ACCOUNT, DATABASE, or SCHEMA. Replaces an ALL + FUTURE pair with one grant record.
+    # https://docs.snowflake.com/en/user-guide/inherited-grants-intro
+    INHERITED = "INHERITED"
+
+
+# Grant types whose target is a collection of objects inside a container rather than a
+# single named object.
+COLLECTION_GRANT_TYPES = frozenset({GrantType.FUTURE, GrantType.ALL, GrantType.INHERITED})
+
+
+# Privileges that cannot be granted as inherited grants. OWNERSHIP is excluded because
+# inherited grants never transfer ownership; USAGE on ROLE and USAGE on USER are excluded
+# by Snowflake. Privileges whose only target is the account are rejected separately, since
+# they have no enclosing container to inherit from.
+# https://docs.snowflake.com/en/user-guide/inherited-grants-intro
+NON_INHERITABLE_PRIVS = frozenset({"OWNERSHIP"})
+NON_INHERITABLE_USAGE_TARGETS = frozenset({ResourceType.ROLE, ResourceType.USER})
+
+# Object types that cannot be the target of an inherited grant.
+NON_INHERITABLE_RESOURCE_TYPES = frozenset(
+    {
+        ResourceType.SHARE,
+        ResourceType.INTEGRATION,
+        ResourceType.API_INTEGRATION,
+        ResourceType.CATALOG_INTEGRATION,
+        ResourceType.EXTERNAL_ACCESS_INTEGRATION,
+        ResourceType.NOTIFICATION_INTEGRATION,
+        ResourceType.SECURITY_INTEGRATION,
+        ResourceType.STORAGE_INTEGRATION,
+    }
+)
 
 
 class TagPropagation(ParseableEnum):

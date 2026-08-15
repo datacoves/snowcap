@@ -817,3 +817,172 @@ class TestSemanticViewBulkGrants:
         """on_all_* kwargs are rejected by design; only on=[...]/on="..." forms are supported."""
         with pytest.raises(ValueError):
             res.Grant(priv="SELECT", on_all_semantic_views_in_schema="somedb.someschema", to="somerole")
+
+
+class TestInheritedGrants:
+    """
+    Tests for inherited grants: one container-level grant covering every current and future
+    object of a type, in place of an ALL + FUTURE pair.
+
+    https://docs.snowflake.com/en/user-guide/inherited-grants-intro
+    """
+
+    def test_string_form_on_a_schema(self):
+        grant = res.Grant(priv="SELECT", on="INHERITED TABLES IN SCHEMA somedb.someschema", to="somerole")
+
+        assert grant.grant_type == GrantType.INHERITED
+        assert grant.items_type == ResourceType.TABLE
+        assert grant.on_type == ResourceType.SCHEMA
+        assert grant.on == "SOMEDB.SOMESCHEMA"
+        assert grant.create_sql() == (
+            "GRANT INHERITED SELECT ON ALL TABLES IN SCHEMA SOMEDB.SOMESCHEMA TO ROLE SOMEROLE"
+        )
+        assert grant.drop_sql() == (
+            "REVOKE INHERITED SELECT ON ALL TABLES IN SCHEMA SOMEDB.SOMESCHEMA FROM ROLE SOMEROLE"
+        )
+
+    def test_multi_word_object_type_on_a_database(self):
+        grant = res.Grant(priv="SELECT", on="INHERITED DYNAMIC TABLES IN DATABASE somedb", to="somerole")
+
+        assert grant.items_type == ResourceType.DYNAMIC_TABLE
+        assert grant.on_type == ResourceType.DATABASE
+        assert "ON ALL DYNAMIC TABLES IN DATABASE SOMEDB" in grant.create_sql()
+
+    def test_list_form(self):
+        grant = res.Grant(priv="USAGE", on=["INHERITED", "SCHEMAS", "DATABASE", "somedb"], to="somerole")
+
+        assert grant.grant_type == GrantType.INHERITED
+        assert grant.items_type == ResourceType.SCHEMA
+        assert "GRANT INHERITED USAGE ON ALL SCHEMAS IN DATABASE SOMEDB" in grant.create_sql()
+
+    def test_resource_form(self):
+        grant = res.Grant(priv="SELECT", on=["INHERITED", "TABLES", res.Database(name="somedb")], to="somerole")
+
+        assert grant.on_type == ResourceType.DATABASE
+        assert grant.on == "SOMEDB"
+
+    def test_account_container(self):
+        """Only inherited grants can be scoped to the whole account, and the account has no
+        name of its own to render."""
+        grant = res.Grant(priv="SELECT", on="INHERITED TABLES IN ACCOUNT", to="trust_center")
+
+        assert grant.on_type == ResourceType.ACCOUNT
+        assert grant.on == "ACCOUNT"
+        assert grant.create_sql() == "GRANT INHERITED SELECT ON ALL TABLES IN ACCOUNT TO ROLE TRUST_CENTER"
+        assert grant.drop_sql() == "REVOKE INHERITED SELECT ON ALL TABLES IN ACCOUNT FROM ROLE TRUST_CENTER"
+
+    def test_a_database_named_account_is_not_the_account_container(self):
+        grant = res.Grant(priv="SELECT", on="INHERITED TABLES IN DATABASE account", to="somerole")
+
+        assert grant.on_type == ResourceType.DATABASE
+        assert grant.on == "ACCOUNT"
+        assert "IN DATABASE ACCOUNT" in grant.create_sql()
+
+    def test_inherited_flag_upgrades_a_grant_on_all(self):
+        grant = res.Grant(priv="SELECT", on="ALL TABLES IN DATABASE somedb", inherited=True, to="somerole")
+
+        assert grant.grant_type == GrantType.INHERITED
+        assert "GRANT INHERITED SELECT ON ALL TABLES IN DATABASE SOMEDB" in grant.create_sql()
+
+    def test_inherited_flag_rejects_object_grants(self):
+        with pytest.raises(ValueError, match="inherited=True applies to grants on all objects"):
+            res.Grant(priv="SELECT", on_table="somedb.someschema.sometable", inherited=True, to="somerole")
+
+    def test_inherited_flag_rejects_future_grants(self):
+        with pytest.raises(ValueError, match="inherited=True applies to grants on all objects"):
+            res.Grant(priv="SELECT", on="FUTURE TABLES IN DATABASE somedb", inherited=True, to="somerole")
+
+    def test_database_role_grantee(self):
+        grant = res.Grant(
+            priv="SELECT",
+            on="INHERITED TABLES IN SCHEMA somedb.someschema",
+            to=res.DatabaseRole(name="somerole", database="somedb"),
+        )
+
+        assert "TO DATABASE ROLE SOMEDB.SOMEROLE" in grant.create_sql()
+
+    def test_multiple_privs_expand_to_one_grant_each(self):
+        grant = res.Grant(priv=["SELECT", "INSERT"], on="INHERITED TABLES IN DATABASE somedb", to="somerole")
+        extra = grant.process_shortcuts()
+
+        assert len(extra) == 1
+        assert {grant.priv, extra[0].priv} == {"SELECT", "INSERT"}
+        assert extra[0].grant_type == GrantType.INHERITED
+
+    def test_urn_is_distinct_from_the_equivalent_all_grant(self):
+        """An inherited grant and an ON ALL grant on the same target are different objects
+        in Snowflake and must not collide in the plan."""
+        inherited = res.Grant(priv="SELECT", on="INHERITED TABLES IN DATABASE somedb", to="somerole")
+        on_all = res.Grant(priv="SELECT", on="ALL TABLES IN DATABASE somedb", to="somerole")
+
+        assert inherited.fqn != on_all.fqn
+        assert inherited.fqn.params["grant_type"] == "INHERITED"
+        assert on_all.fqn.params["grant_type"] == "ALL"
+
+    def test_grant_option_is_rejected(self):
+        with pytest.raises(ValueError, match="WITH GRANT OPTION"):
+            res.Grant(
+                priv="SELECT",
+                on="INHERITED TABLES IN DATABASE somedb",
+                to="somerole",
+                grant_option=True,
+            )
+
+    def test_priv_all_is_rejected(self):
+        with pytest.raises(ValueError, match="require explicit privileges"):
+            res.Grant(priv="ALL", on="INHERITED TABLES IN DATABASE somedb", to="somerole")
+
+    def test_unsupported_object_types_are_rejected(self):
+        with pytest.raises(ValueError, match="cannot be the target of an inherited grant"):
+            res.Grant(priv="USAGE", on="INHERITED SHARES IN ACCOUNT", to="somerole")
+
+    def test_usage_on_roles_is_rejected(self):
+        with pytest.raises(ValueError, match="USAGE on ROLE cannot be granted"):
+            res.Grant(priv="USAGE", on="INHERITED ROLES IN ACCOUNT", to="somerole")
+
+    def test_export_round_trips(self):
+        from snowcap.resources.grant import grant_yaml
+
+        for on in [
+            "INHERITED TABLES IN SCHEMA somedb.someschema",
+            "INHERITED DYNAMIC TABLES IN DATABASE somedb",
+            "INHERITED TABLES IN ACCOUNT",
+        ]:
+            grant = res.Grant(priv="SELECT", on=on, to="somerole")
+            exported = grant_yaml(grant.to_dict())
+            reimported = res.Grant(**exported)
+
+            assert reimported.fqn == grant.fqn, on
+            assert reimported.create_sql() == grant.create_sql(), on
+
+    def test_from_sql_round_trips_each_container(self):
+        for sql in [
+            "GRANT INHERITED SELECT ON ALL TABLES IN SCHEMA somedb.someschema TO ROLE somerole",
+            "GRANT INHERITED USAGE ON ALL SCHEMAS IN DATABASE somedb TO ROLE somerole",
+            "GRANT INHERITED SELECT ON ALL TABLES IN ACCOUNT TO ROLE somerole",
+        ]:
+            grant = res.Grant.from_sql(sql)
+
+            assert grant.grant_type == GrantType.INHERITED, sql
+            assert grant.create_sql() == sql.upper(), sql
+
+    def test_from_sql_leaves_grants_on_all_alone(self):
+        grant = res.Grant.from_sql("GRANT SELECT ON ALL TABLES IN SCHEMA somedb.someschema TO ROLE somerole")
+
+        assert grant.grant_type == GrantType.ALL
+
+    def test_yaml_config_accepts_the_inherited_key(self):
+        from snowcap.gitops import collect_blueprint_config
+
+        config = {
+            "grants": [
+                {"priv": "SELECT", "on": "INHERITED TABLES IN DATABASE somedb", "to": "somerole"},
+                {"priv": "SELECT", "on": "ALL TABLES IN DATABASE otherdb", "inherited": True, "to": "somerole"},
+            ]
+        }
+
+        blueprint_config = collect_blueprint_config(config)
+        grants = [r for r in blueprint_config.resources if isinstance(r, res.Grant)]
+
+        assert len(grants) == 2
+        assert all(g.grant_type == GrantType.INHERITED for g in grants)

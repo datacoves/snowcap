@@ -59,6 +59,7 @@ from .resource_name import ResourceName
 from .resource_tags import ResourceTags
 from .resources import Database, Grant, RoleGrant, Schema
 from .resources.database import public_schema_urn
+from .resources.grant import INHERITED_GRANT_DOCS, _Grant, grant_on_clause
 from .resources.resource import (
     RESOURCE_SCOPES,
     NamedResource,
@@ -412,6 +413,76 @@ def future_grant_precedence_warnings(entries) -> list[str]:
         )
 
     return warnings
+
+
+def _container_covers(container_type: str, container: str, object_name: str) -> bool:
+    """Does a container hold the named object, by identifier alone?"""
+    if container_type == ResourceType.ACCOUNT.value:
+        return True
+    parts = object_name.split(".")
+    if container_type == ResourceType.SCHEMA.value:
+        return len(parts) == 3 and ResourceName(".".join(parts[:2])) == ResourceName(container)
+    if container_type == ResourceType.DATABASE.value:
+        return len(parts) >= 2 and ResourceName(parts[0]) == ResourceName(container)
+    return False
+
+
+def _covered_by_collection_grant(collection_grants: list["ManifestResource"], remote_res: dict) -> bool:
+    """
+    Is a remote per-object grant already provided by a declared ALL or INHERITED grant?
+
+    Snowflake materializes `GRANT ... ON ALL` into one grant per object, and those per-object
+    grants show up in remote state with nothing in the manifest to match them. Dropping them
+    would undo the collection grant on every apply. Inherited grants are matched the same
+    way so that migrating a config from per-object grants to an inherited grant does not
+    revoke access in the same run that establishes it.
+    """
+    if remote_res.get("grant_type") != GrantType.OBJECT.value:
+        return False
+    for grant in collection_grants:
+        data = grant.data
+        if data["priv"] != remote_res["priv"] or data["to"] != remote_res["to"]:
+            continue
+        if data["items_type"] != remote_res["on_type"]:
+            continue
+        if _container_covers(data["on_type"], data["on"], remote_res["on"]):
+            return True
+    return False
+
+
+def manifest_inherited_grants(manifest: "Manifest") -> list["ManifestResource"]:
+    """Inherited grants declared in the manifest."""
+    inherited = []
+    for urn in manifest.urns:
+        if urn.resource_type != ResourceType.GRANT:
+            continue
+        item = manifest[urn]
+        if isinstance(item, ManifestResource) and item.data.get("grant_type") == GrantType.INHERITED.value:
+            inherited.append(item)
+    return inherited
+
+
+def raise_if_inherited_grants_unavailable(session, manifest: "Manifest") -> None:
+    """
+    Fail before apply when config declares inherited grants an account cannot accept.
+
+    Inherited grants are a preview feature. Without FEATURE_RBAC_INHERITED_GRANTS every
+    GRANT INHERITED statement fails as a syntax error partway through an apply, which is a
+    confusing way to learn the account is not opted in.
+    """
+    declared = manifest_inherited_grants(manifest)
+    if not declared:
+        return
+
+    if data_provider.fetch_inherited_grants_enabled(session) is False:
+        example = grant_on_clause(_Grant(**declared[0].data))
+        raise MissingPrivilegeException(
+            f"This config declares {len(declared)} inherited grant(s), for example '{example}', but "
+            "FEATURE_RBAC_INHERITED_GRANTS is not enabled on this account.\n"
+            "  Enable preview features, then run:\n"
+            "    ALTER ACCOUNT SET FEATURE_RBAC_INHERITED_GRANTS = 'ENABLED';\n"
+            f"  See {INHERITED_GRANT_DOCS}"
+        )
 
 
 def manifest_state_entries(manifest: "Manifest", remote_state: Optional["State"] = None):
@@ -848,20 +919,15 @@ def _format_grant_name(urn: URN, change: "ResourceChange") -> str:
         # Handle FUTURE and ALL grants
         grant_type_str = str(grant_type).replace("GrantType.", "").upper() if grant_type else "OBJECT"
 
-        if grant_type_str == "FUTURE" and items_type:
+        if grant_type_str in ("FUTURE", "ALL", "INHERITED") and items_type:
             # Format: SELECT on FUTURE TABLES in DATABASE.MYDB → ROLE.X
             items_type_str = str(items_type).replace("ResourceType.", "").upper()
             # Pluralize the items type
             items_plural = items_type_str + "S" if not items_type_str.endswith("S") else items_type_str
             on_type_str = str(on_type).replace("ResourceType.", "").upper() if on_type else ""
-            return f"{priv} on FUTURE {items_plural} in {on_type_str}.{on} → {to_type_str}.{to}"
-
-        elif grant_type_str == "ALL" and items_type:
-            # Format: SELECT on ALL TABLES in DATABASE.MYDB → ROLE.X
-            items_type_str = str(items_type).replace("ResourceType.", "").upper()
-            items_plural = items_type_str + "S" if not items_type_str.endswith("S") else items_type_str
-            on_type_str = str(on_type).replace("ResourceType.", "").upper() if on_type else ""
-            return f"{priv} on ALL {items_plural} in {on_type_str}.{on} → {to_type_str}.{to}"
+            # The account container has no name of its own
+            container = on_type_str if on_type_str == "ACCOUNT" else f"{on_type_str}.{on}"
+            return f"{priv} on {grant_type_str} {items_plural} in {container} → {to_type_str}.{to}"
 
         elif on_type:
             # Regular object grant: SELECT on TABLE.MYTABLE → ROLE.X
@@ -1870,6 +1936,7 @@ class Blueprint:
             logger.debug(f"  {key}")
         session_ctx = data_provider.fetch_session(session)
         manifest = self.generate_manifest(session_ctx)
+        raise_if_inherited_grants_unavailable(session, manifest)
         remote_state = self.fetch_remote_state(session, manifest)
         try:
             finished_plan = diff(remote_state, manifest)
@@ -2084,6 +2151,30 @@ def owner_for_change(change: ResourceChange) -> Optional[ResourceName]:
         return None
 
 
+def _inherited_grant_execution_role(change: ResourceChange) -> Optional[str]:
+    """
+    The role an inherited grant declares itself to be managed by, if any.
+
+    Grants get a default owner (SYSADMIN, or ACCOUNTADMIN for integrations and Snowflake
+    schemas) when config does not name one, so those defaults are not treated as a
+    delegation and fall through to the usual SECURITYADMIN strategy.
+    """
+    if change.urn.resource_type != ResourceType.GRANT:
+        return None
+    if isinstance(change, (CreateResource, UpdateResource)):
+        data = change.after
+    elif isinstance(change, DropResource):
+        data = change.before
+    else:
+        return None
+    if not isinstance(data, dict) or data.get("grant_type") != GrantType.INHERITED.value:
+        return None
+    owner = data.get("owner")
+    if not owner or owner in ("SYSADMIN", "ACCOUNTADMIN"):
+        return None
+    return str(owner)
+
+
 def execution_strategy_for_change(
     change: ResourceChange,
     available_roles: list[ResourceName],
@@ -2093,6 +2184,15 @@ def execution_strategy_for_change(
     change_owner = owner_for_change(change)
 
     if resource_type_is_grant(change.urn.resource_type):
+        # Inherited grants require MANAGE GRANTS on the container, which is how Snowflake
+        # lets a database or schema admin manage access without account-wide authority. An
+        # explicit `owner` on the grant names that delegated role, so it is used in
+        # preference to SECURITYADMIN when the session has it.
+        # https://docs.snowflake.com/en/user-guide/container-manage-grants-intro
+        inherited_grant_owner = _inherited_grant_execution_role(change)
+        if inherited_grant_owner and inherited_grant_owner in available_roles:
+            return ResourceName(inherited_grant_owner), False
+
         # 2024-10-22: maybe the better thing to do is check role privs selectively
         if isinstance(change, CreateResource) and change.urn.resource_type == ResourceType.GRANT:
             execution_role = system_role_for_priv(change.after["priv"])
@@ -2491,31 +2591,23 @@ def diff(remote_state: State, manifest: Manifest) -> list:
                     logger.debug(f"        resource_type match: {urn.resource_type == state_urn.resource_type}")
                     logger.debug(f"        account_locator match: {urn.account_locator == state_urn.account_locator}")
 
-    grant_on_all_resources = [
+    collection_grants = [
         r
         for r in manifest.resources
         if not isinstance(r, ResourcePointer)
         and r.resource_cls == Grant
-        and r.data["grant_type"] == GrantType.ALL.value
+        and r.data["grant_type"] in (GrantType.ALL.value, GrantType.INHERITED.value)
     ]
 
     # Resources in remote state but not in the manifest should be removed
     for urn in state_urns - manifest_urns:
         remote_res = remote_state[urn]
-        # If there are ALL grants and the current resource is included we should not drop it
-        if grant_on_all_resources and remote_res.get("grant_type") == GrantType.OBJECT.value:
-            matching_grants = [
-                r
-                for r in grant_on_all_resources
-                if r.data["priv"] == remote_res["priv"]
-                and r.data["to"] == remote_res["to"]
-                and r.data["items_type"] == remote_res["on_type"]
-                and r.data["on"] == ".".join(remote_res["on"].split(".")[:-1])
-            ]
-            if matching_grants:
-                continue
-        else:
-            changes.append(DropResource(urn, remote_state[urn]))
+        # A grant on a collection of objects covers the per-object grants it produced, which
+        # are in remote state but never in the manifest. Dropping those would revoke the
+        # access the collection grant just handed out.
+        if _covered_by_collection_grant(collection_grants, remote_res):
+            continue
+        changes.append(DropResource(urn, remote_state[urn]))
 
     # Resources in the manifest but not in remote state should be added
     for urn in manifest_urns - state_urns:

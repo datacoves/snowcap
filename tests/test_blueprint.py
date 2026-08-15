@@ -48,20 +48,24 @@ from snowcap import data_provider, var
 from snowcap.blueprint import (
     Blueprint,
     CreateResource,
+    DropResource,
     UpdateResource,
     _merge_pointers,
     compile_plan_to_sql,
     diff,
     dump_plan,
+    execution_strategy_for_change,
     future_grant_precedence_warnings,
     manifest_state_entries,
     plan_entries,
+    raise_if_inherited_grants_unavailable,
 )
 from snowcap.blueprint_config import BlueprintConfig
 from snowcap.data_provider import fetch_warehouse
 from snowcap.enums import AccountEdition, BlueprintScope, ResourceType
 from snowcap.exceptions import (
     DuplicateResourceException,
+    MissingPrivilegeException,
     InvalidResourceException,
     MarkedForReplacementException,
     MissingVarException,
@@ -1753,3 +1757,224 @@ class TestFutureGrantPrecedenceWarnings:
 
         assert len(warnings) == 1
         assert "MY_DB.MY_SCHEMA" in warnings[0]
+
+
+class TestInheritedGrantPlanning:
+    """
+    Tests for planning inherited grants: the account-level feature gate, how a container
+    grant covers the per-object grants it produced, and which role issues it.
+    """
+
+    def _object_grant_state(self, priv="SELECT", to="SOMEROLE", on="DB.SCH.TBL"):
+        urn = parse_URN(f"urn::ABCD123:grant/GRANT?grant_type=OBJECT&priv={priv}&on=table/{on}&to=role/{to}")
+        return urn, {
+            "priv": priv,
+            "on": on,
+            "on_type": "TABLE",
+            "to": to,
+            "items_type": None,
+            "to_type": "ROLE",
+            "grant_option": False,
+            "grant_type": "OBJECT",
+            "owner": "SYSADMIN",
+            "_privs": [priv],
+        }
+
+    def _manifest(self, session_ctx, resources):
+        return Blueprint(resources=resources).generate_manifest(session_ctx)
+
+    def test_plan_fails_when_the_account_has_not_enabled_the_feature(self, session_ctx):
+        manifest = self._manifest(
+            session_ctx,
+            [
+                res.Database(name="MY_DB"),
+                res.Role(name="READER"),
+                res.Grant(priv="SELECT", on="INHERITED TABLES IN DATABASE MY_DB", to="READER"),
+            ],
+        )
+
+        with patch("snowcap.data_provider.fetch_inherited_grants_enabled", return_value=False):
+            with pytest.raises(MissingPrivilegeException, match="FEATURE_RBAC_INHERITED_GRANTS"):
+                raise_if_inherited_grants_unavailable(MagicMock(), manifest)
+
+    def test_plan_proceeds_when_the_feature_flag_cannot_be_read(self, session_ctx):
+        """Reading account parameters needs privileges the session may not hold; that must
+        not block an apply that would otherwise succeed."""
+        manifest = self._manifest(
+            session_ctx,
+            [
+                res.Database(name="MY_DB"),
+                res.Role(name="READER"),
+                res.Grant(priv="SELECT", on="INHERITED TABLES IN DATABASE MY_DB", to="READER"),
+            ],
+        )
+
+        with patch("snowcap.data_provider.fetch_inherited_grants_enabled", return_value=None):
+            raise_if_inherited_grants_unavailable(MagicMock(), manifest)
+
+    def test_the_feature_flag_is_not_probed_without_inherited_grants(self, session_ctx):
+        manifest = self._manifest(session_ctx, [res.Database(name="MY_DB")])
+
+        with patch("snowcap.data_provider.fetch_inherited_grants_enabled") as probe:
+            raise_if_inherited_grants_unavailable(MagicMock(), manifest)
+
+        probe.assert_not_called()
+
+    def test_inherited_grant_covers_remote_per_object_grants(self, session_ctx, remote_state):
+        """Migrating per-object grants to an inherited grant must not revoke the access the
+        inherited grant provides."""
+        remote_state = remote_state.copy()
+        urn, data = self._object_grant_state()
+        remote_state[urn] = data
+        manifest = self._manifest(
+            session_ctx,
+            [
+                res.Database(name="DB"),
+                res.Role(name="SOMEROLE"),
+                res.Grant(priv="SELECT", on="INHERITED TABLES IN DATABASE DB", to="SOMEROLE"),
+            ],
+        )
+
+        plan = diff(remote_state, manifest)
+
+        assert not [change for change in plan if isinstance(change, DropResource) and change.urn == urn]
+
+    def test_uncovered_object_grants_are_still_dropped(self, session_ctx, remote_state):
+        """Coverage is per privilege, grantee, object type, and container -- a collection
+        grant elsewhere in the config does not protect an unrelated grant."""
+        remote_state = remote_state.copy()
+        urn, data = self._object_grant_state(priv="INSERT")
+        remote_state[urn] = data
+        manifest = self._manifest(
+            session_ctx,
+            [
+                res.Database(name="DB"),
+                res.Role(name="SOMEROLE"),
+                res.Grant(priv="SELECT", on="INHERITED TABLES IN DATABASE DB", to="SOMEROLE"),
+            ],
+        )
+
+        plan = diff(remote_state, manifest)
+
+        assert [change for change in plan if isinstance(change, DropResource) and change.urn == urn]
+
+    def test_grant_on_all_covers_objects_in_its_database(self, session_ctx, remote_state):
+        remote_state = remote_state.copy()
+        urn, data = self._object_grant_state()
+        remote_state[urn] = data
+        manifest = self._manifest(
+            session_ctx,
+            [
+                res.Database(name="DB"),
+                res.Role(name="SOMEROLE"),
+                res.Grant(priv="SELECT", on="ALL TABLES IN DATABASE DB", to="SOMEROLE"),
+            ],
+        )
+
+        plan = diff(remote_state, manifest)
+
+        assert not [change for change in plan if isinstance(change, DropResource) and change.urn == urn]
+
+    def test_a_collection_grant_in_another_database_does_not_protect_the_grant(self, session_ctx, remote_state):
+        remote_state = remote_state.copy()
+        urn, data = self._object_grant_state()
+        remote_state[urn] = data
+        manifest = self._manifest(
+            session_ctx,
+            [
+                res.Database(name="OTHER_DB"),
+                res.Role(name="SOMEROLE"),
+                res.Grant(priv="SELECT", on="ALL TABLES IN DATABASE OTHER_DB", to="SOMEROLE"),
+            ],
+        )
+
+        plan = diff(remote_state, manifest)
+
+        assert [change for change in plan if isinstance(change, DropResource) and change.urn == urn]
+
+    def test_inherited_grant_runs_as_its_declared_container_admin(self, session_ctx):
+        """Container-level MANAGE GRANTS is how a database admin manages access without
+        account-wide authority, so a declared owner is used in preference to SECURITYADMIN."""
+        grant = res.Grant(
+            priv="SELECT",
+            on="INHERITED TABLES IN DATABASE SALES_DB",
+            to="ANALYST",
+            owner="SALES_DB_ADMIN",
+        )
+        change = CreateResource(
+            urn=parse_URN(
+                "urn::ABCD123:grant/GRANT?grant_type=INHERITED&priv=SELECT"
+                "&on=database/SALES_DB.<TABLE>&to=role/ANALYST"
+            ),
+            resource_cls=res.Grant,
+            container=None,
+            after=grant.to_dict(),
+        )
+
+        role, _ = execution_strategy_for_change(
+            change, ["SYSADMIN", "SECURITYADMIN", "SALES_DB_ADMIN"], ResourceName("SYSADMIN")
+        )
+
+        assert role == ResourceName("SALES_DB_ADMIN")
+
+    def test_inherited_grant_falls_back_to_securityadmin(self, session_ctx):
+        grant = res.Grant(priv="SELECT", on="INHERITED TABLES IN DATABASE SALES_DB", to="ANALYST")
+        change = CreateResource(
+            urn=parse_URN(
+                "urn::ABCD123:grant/GRANT?grant_type=INHERITED&priv=SELECT"
+                "&on=database/SALES_DB.<TABLE>&to=role/ANALYST"
+            ),
+            resource_cls=res.Grant,
+            container=None,
+            after=grant.to_dict(),
+        )
+
+        role, _ = execution_strategy_for_change(change, ["SYSADMIN", "SECURITYADMIN"], ResourceName("SYSADMIN"))
+
+        assert role == ResourceName("SECURITYADMIN")
+
+    def test_object_grants_are_unaffected_by_the_delegation_path(self, session_ctx):
+        """A declared owner on an ordinary grant keeps running as SECURITYADMIN, as before."""
+        grant = res.Grant(priv="SELECT", on_table="DB.SCH.TBL", to="ANALYST", owner="SOME_ROLE")
+        change = CreateResource(
+            urn=parse_URN("urn::ABCD123:grant/GRANT?grant_type=OBJECT&priv=SELECT&on=table/DB.SCH.TBL&to=role/ANALYST"),
+            resource_cls=res.Grant,
+            container=None,
+            after=grant.to_dict(),
+        )
+
+        role, _ = execution_strategy_for_change(
+            change, ["SYSADMIN", "SECURITYADMIN", "SOME_ROLE"], ResourceName("SYSADMIN")
+        )
+
+        assert role == ResourceName("SECURITYADMIN")
+
+    def test_an_existing_inherited_grant_produces_no_changes(self, session_ctx, remote_state):
+        """The point of inherited grants over ON ALL: Snowflake reports one durable record,
+        so the plan is empty on a second run instead of reapplying the grant every time."""
+        from snowcap import data_provider
+
+        grant = res.Grant(priv="SELECT", on="INHERITED TABLES IN DATABASE SALES_DB", to="ANALYST")
+        manifest = self._manifest(session_ctx, [res.Database(name="SALES_DB"), res.Role(name="ANALYST"), grant])
+        urn = URN.from_resource(account_locator=session_ctx["account_locator"], resource=grant)
+        row = {
+            "privilege": "SELECT",
+            "granted_on": "TABLE",
+            "name": "",
+            "granted_to": "ROLE",
+            "grantee_name": "ANALYST",
+            "grant_option": "false",
+            "granted_by": "SECURITYADMIN",
+            "is_inherited": True,
+            "inherited_from": "DATABASE",
+            "inherited_from_database": "SALES_DB",
+            "inherited_from_schema": "",
+        }
+
+        with patch("snowcap.data_provider.execute", return_value=[row]):
+            fetched = data_provider.fetch_inherited_grant(MagicMock(), urn.fqn)
+
+        remote_state = remote_state.copy()
+        remote_state[urn] = fetched
+
+        assert [change for change in diff(remote_state, manifest) if change.urn == urn] == []
