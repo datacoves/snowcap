@@ -178,6 +178,34 @@ def test_grant_on_cortex_search_service():
     assert "MONITOR ON CORTEX SEARCH SERVICE" in monitor_grant.create_sql()
 
 
+def test_grant_on_cortex_agent_server():
+    """Grants on a CORTEX AGENT SERVER parse and render correctly.
+
+    Snowflake creates a cortex agent server when an account connects an MCP
+    client. Its grants surface in SHOW GRANTS with granted_on
+    'CORTEX_AGENT_SERVER'; before this type was known, reading that remote
+    state raised "Expected Grant.on_type to be one of (...)" and aborted plan.
+    """
+    grant = res.Grant(
+        priv="USAGE",
+        on_cortex_agent_server="somedb.someschema.someserver",
+        to="somerole",
+    )
+    assert grant._data.on == "SOMEDB.SOMESCHEMA.SOMESERVER"
+    assert grant._data.on_type == ResourceType.CORTEX_AGENT_SERVER
+    assert "USAGE ON CORTEX AGENT SERVER" in grant.create_sql()
+
+    # The on_type spelling data_provider derives from a SHOW GRANTS granted_on
+    # value of 'CORTEX_AGENT_SERVER'
+    remote_grant = res.Grant(
+        priv="USAGE",
+        on="somedb.someschema.someserver",
+        on_type="CORTEX_AGENT_SERVER".replace("_", " "),
+        to="somerole",
+    )
+    assert remote_grant._data.on_type == ResourceType.CORTEX_AGENT_SERVER
+
+
 def test_grant_on_dbt_project():
     """USAGE/MONITOR on a DBT PROJECT parses and renders correctly.
 

@@ -306,6 +306,13 @@ RESOURCE_SCOPES = {
     # management still goes through the specific subtypes (APIIntegration,
     # CatalogIntegration, etc.).
     ResourceType.INTEGRATION: AccountScope(),
+    # CORTEX AGENT SERVER — backs Snowflake's MCP server integration, schema-scoped.
+    # Snowflake creates one (e.g. <db>.<schema>.<name>) when an account connects an
+    # MCP client, so its grants show up in remote state whether or not anyone
+    # declared it. No concrete resource class yet; registering a SchemaScope keeps
+    # reading those grants from working and lets users write
+    # `priv: USAGE on cortex agent server <db>.<schema>.<name>` in YAML.
+    ResourceType.CORTEX_AGENT_SERVER: SchemaScope(),
     # CORTEX SEARCH SERVICE — Snowflake AI search service, schema-scoped.
     # No concrete resource class yet (CREATE CORTEX SEARCH SERVICE involves an
     # AS <query> body and embedding model config that warrants its own PR).
