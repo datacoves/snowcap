@@ -428,15 +428,35 @@ they are reapplied on every run.
 
 ### Requirements
 
-Inherited grants are a Snowflake preview feature. Enable preview features for the account,
-then:
+Inherited grants are a Snowflake preview feature. Once preview features are enabled for
+the account, Snowcap can manage the opt-in itself — declare it alongside your other
+account parameters:
+
+```yaml
+# account.yml
+account_parameters:
+  - name: FEATURE_RBAC_INHERITED_GRANTS
+    value: ENABLED
+```
+
+Snowcap applies the parameter before any inherited grant that depends on it, so a single
+`snowcap apply` can enable the preview and create the grants in one run. The equivalent
+SQL, if you would rather set it outside of Snowcap:
 
 ```sql
 ALTER ACCOUNT SET FEATURE_RBAC_INHERITED_GRANTS = 'ENABLED';
 ```
 
-`snowcap plan` fails with a clear message if your config declares inherited grants and the
-account has not opted in.
+Either way, `snowcap plan` fails with a clear message if your config declares inherited
+grants and neither the account nor the config has opted in.
+
+!!! note
+
+    Enabling preview features for the account is a separate, prior step that Snowcap
+    cannot do for you — see Snowflake's
+    [preview features](https://docs.snowflake.com/en/release-notes/preview-features)
+    documentation. `ALTER ACCOUNT` requires `ACCOUNTADMIN`, which is the role Snowcap uses
+    for account parameters.
 
 Creating one requires `MANAGE GRANTS` on the container, not just ownership of it. By
 default Snowcap issues grants as `SECURITYADMIN`. To delegate to a database or schema

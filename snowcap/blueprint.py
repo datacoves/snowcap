@@ -31,6 +31,7 @@ from .client import (
 )
 from .data_provider import SessionContext
 from .enums import (
+    INHERITED_GRANTS_FEATURE_FLAG,
     OWNER_EXECUTED_RESOURCE_TYPES,
     AccountEdition,
     BlueprintScope,
@@ -462,6 +463,19 @@ def manifest_inherited_grants(manifest: "Manifest") -> list["ManifestResource"]:
     return inherited
 
 
+def manifest_enables_inherited_grants(manifest: "Manifest") -> bool:
+    """Does the config itself turn the inherited grants preview on?"""
+    for urn in manifest.urns:
+        if urn.resource_type != ResourceType.ACCOUNT_PARAMETER:
+            continue
+        if ResourceName(urn.fqn.name) != ResourceName(INHERITED_GRANTS_FEATURE_FLAG):
+            continue
+        item = manifest[urn]
+        if isinstance(item, ManifestResource):
+            return str(item.data.get("value", "")).strip().upper() == "ENABLED"
+    return False
+
+
 def raise_if_inherited_grants_unavailable(session, manifest: "Manifest") -> None:
     """
     Fail before apply when config declares inherited grants an account cannot accept.
@@ -469,18 +483,28 @@ def raise_if_inherited_grants_unavailable(session, manifest: "Manifest") -> None
     Inherited grants are a preview feature. Without FEATURE_RBAC_INHERITED_GRANTS every
     GRANT INHERITED statement fails as a syntax error partway through an apply, which is a
     confusing way to learn the account is not opted in.
+
+    A config that enables the parameter itself is left alone: the flag is off at plan time
+    by definition, and the apply turns it on before the grants run.
     """
     declared = manifest_inherited_grants(manifest)
     if not declared:
+        return
+
+    if manifest_enables_inherited_grants(manifest):
         return
 
     if data_provider.fetch_inherited_grants_enabled(session) is False:
         example = grant_on_clause(_Grant(**declared[0].data))
         raise MissingPrivilegeException(
             f"This config declares {len(declared)} inherited grant(s), for example '{example}', but "
-            "FEATURE_RBAC_INHERITED_GRANTS is not enabled on this account.\n"
-            "  Enable preview features, then run:\n"
-            "    ALTER ACCOUNT SET FEATURE_RBAC_INHERITED_GRANTS = 'ENABLED';\n"
+            f"{INHERITED_GRANTS_FEATURE_FLAG} is not enabled on this account.\n"
+            "  Enable preview features for the account, then either run:\n"
+            f"    ALTER ACCOUNT SET {INHERITED_GRANTS_FEATURE_FLAG} = 'ENABLED';\n"
+            "  or let Snowcap manage it:\n"
+            "    account_parameters:\n"
+            f"      - name: {INHERITED_GRANTS_FEATURE_FLAG}\n"
+            "        value: ENABLED\n"
             f"  See {INHERITED_GRANT_DOCS}"
         )
 
@@ -1888,8 +1912,46 @@ class Blueprint:
         self._create_stage_privilege_refs()
         self._finalize_resources()
 
+    def _link_inherited_grants_to_feature_flag(self) -> None:
+        """
+        Make inherited grants depend on the account parameter that enables them.
+
+        A config can turn the preview on itself:
+
+            account_parameters:
+              - name: FEATURE_RBAC_INHERITED_GRANTS
+                value: ENABLED
+
+        Without a dependency between the two, both land at the same level of the plan and
+        run concurrently, so the grants can reach Snowflake before the parameter does. The
+        reference is only added when the parameter is declared, since a reference to a
+        resource that is not in the manifest is an error in its own right.
+        """
+        resources = [r for r in _walk(self._root) if isinstance(r, Resource)]
+        feature_flag = next(
+            (
+                r
+                for r in resources
+                if r.resource_type == ResourceType.ACCOUNT_PARAMETER
+                and isinstance(r, NamedResource)
+                and ResourceName(r.name) == ResourceName(INHERITED_GRANTS_FEATURE_FLAG)
+            ),
+            None,
+        )
+        if feature_flag is None:
+            return
+
+        for resource in resources:
+            if (
+                resource.resource_type == ResourceType.GRANT
+                and getattr(resource, "grant_type", None) == GrantType.INHERITED
+                and not resource._finalized
+            ):
+                resource.requires(feature_flag)
+
     def generate_manifest(self, session_ctx: SessionContext) -> Manifest:
         manifest = Manifest(account_locator=session_ctx["account_locator"])
+        self._link_inherited_grants_to_feature_flag()
         self._finalize(session_ctx)
         for resource in _walk(self._root):
             if isinstance(resource, Resource):

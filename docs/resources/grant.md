@@ -340,10 +340,19 @@ inherited_grant = Grant(
   Turns a grant on all objects in a container into an inherited grant, which also covers
   objects created later. Defaults to `false`.
 
-**Note:** Inherited grants are a Snowflake preview feature. Enable preview features for
-the account, then run
-`ALTER ACCOUNT SET FEATURE_RBAC_INHERITED_GRANTS = 'ENABLED';`. `snowcap plan` fails with
-a clear message if the account has not opted in. Snowflake does not allow inherited grants
+**Note:** Inherited grants are a Snowflake preview feature. Once preview features are
+enabled for the account, Snowcap can manage the opt-in with an
+[AccountParameter](account_parameter.md), which it applies before any inherited grant that
+depends on it:
+
+```yaml
+account_parameters:
+  - name: FEATURE_RBAC_INHERITED_GRANTS
+    value: ENABLED
+```
+
+`snowcap plan` fails with a clear message if neither the account nor the config has opted
+in. Snowflake does not allow inherited grants
 to be combined with `WITH GRANT OPTION`, to carry `OWNERSHIP`, or to target shares and
 integrations; `priv: ALL` is not supported either, so list privileges explicitly. See
 [Managing access with inherited grants](https://docs.snowflake.com/en/user-guide/inherited-grants-intro).

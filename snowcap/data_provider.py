@@ -28,7 +28,13 @@ from .client import (
     execute,
     execute_in_parallel,
 )
-from .enums import AccountEdition, GrantType, ResourceType, WarehouseSize
+from .enums import (
+    INHERITED_GRANTS_FEATURE_FLAG,
+    AccountEdition,
+    GrantType,
+    ResourceType,
+    WarehouseSize,
+)
 from .identifiers import FQN, URN, parse_FQN, resource_type_for_label
 from .parse import (
     _parse_column,
@@ -892,11 +898,11 @@ def fetch_inherited_grants_enabled(session: SnowflakeConnection) -> Optional[boo
     try:
         rows = execute(
             session,
-            "SHOW PARAMETERS LIKE 'FEATURE_RBAC_INHERITED_GRANTS' IN ACCOUNT",
+            f"SHOW PARAMETERS LIKE '{INHERITED_GRANTS_FEATURE_FLAG}' IN ACCOUNT",
             cacheable=True,
         )
         for row in rows:
-            if str(row.get("key", "")).upper() == "FEATURE_RBAC_INHERITED_GRANTS":
+            if str(row.get("key", "")).upper() == INHERITED_GRANTS_FEATURE_FLAG:
                 enabled = str(row.get("value", "")).strip().upper() == "ENABLED"
                 break
     except Exception as err:

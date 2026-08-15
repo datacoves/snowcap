@@ -450,6 +450,10 @@ class GrantType(ParseableEnum):
 COLLECTION_GRANT_TYPES = frozenset({GrantType.FUTURE, GrantType.ALL, GrantType.INHERITED})
 
 
+# The account parameter that opts an account into the inherited grants preview.
+INHERITED_GRANTS_FEATURE_FLAG = "FEATURE_RBAC_INHERITED_GRANTS"
+
+
 # Privileges that cannot be granted as inherited grants. OWNERSHIP is excluded because
 # inherited grants never transfer ownership; USAGE on ROLE and USAGE on USER are excluded
 # by Snowflake. Privileges whose only target is the account are rejected separately, since

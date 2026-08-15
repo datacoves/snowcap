@@ -50,6 +50,7 @@ from snowcap.blueprint import (
     CreateResource,
     DropResource,
     UpdateResource,
+    compute_levels,
     _merge_pointers,
     compile_plan_to_sql,
     diff,
@@ -1978,3 +1979,65 @@ class TestInheritedGrantPlanning:
         remote_state[urn] = fetched
 
         assert [change for change in diff(remote_state, manifest) if change.urn == urn] == []
+
+    def test_config_can_enable_the_feature_itself(self, session_ctx):
+        """Declaring the account parameter is the supported way to turn the preview on, so
+        the plan gate must not block the very config that enables it."""
+        manifest = self._manifest(
+            session_ctx,
+            [
+                res.AccountParameter(name="FEATURE_RBAC_INHERITED_GRANTS", value="ENABLED"),
+                res.Database(name="MY_DB"),
+                res.Role(name="READER"),
+                res.Grant(priv="SELECT", on="INHERITED TABLES IN DATABASE MY_DB", to="READER"),
+            ],
+        )
+
+        with patch("snowcap.data_provider.fetch_inherited_grants_enabled", return_value=False) as probe:
+            raise_if_inherited_grants_unavailable(MagicMock(), manifest)
+
+        assert not probe.called
+
+    def test_disabling_the_parameter_does_not_count_as_enabling_it(self, session_ctx):
+        manifest = self._manifest(
+            session_ctx,
+            [
+                res.AccountParameter(name="FEATURE_RBAC_INHERITED_GRANTS", value="DISABLED"),
+                res.Database(name="MY_DB"),
+                res.Role(name="READER"),
+                res.Grant(priv="SELECT", on="INHERITED TABLES IN DATABASE MY_DB", to="READER"),
+            ],
+        )
+
+        with patch("snowcap.data_provider.fetch_inherited_grants_enabled", return_value=False):
+            with pytest.raises(MissingPrivilegeException):
+                raise_if_inherited_grants_unavailable(MagicMock(), manifest)
+
+    def test_inherited_grants_are_applied_after_the_feature_flag(self, session_ctx):
+        """Both are account-scoped with nothing else linking them, so without an explicit
+        dependency they would land in the same level and run concurrently."""
+        flag = res.AccountParameter(name="FEATURE_RBAC_INHERITED_GRANTS", value="ENABLED")
+        grant = res.Grant(priv="SELECT", on="INHERITED TABLES IN DATABASE MY_DB", to="READER")
+        manifest = self._manifest(session_ctx, [flag, res.Database(name="MY_DB"), res.Role(name="READER"), grant])
+
+        resource_set = set(manifest.urns)
+        for parent, ref in manifest.refs:
+            resource_set.add(parent)
+            resource_set.add(ref)
+        levels = compute_levels(resource_set, set(manifest.refs))
+
+        locator = session_ctx["account_locator"]
+        flag_level = levels[URN.from_resource(account_locator=locator, resource=flag)]
+        grant_level = levels[URN.from_resource(account_locator=locator, resource=grant)]
+        assert grant_level > flag_level
+
+    def test_grants_on_all_are_not_linked_to_the_feature_flag(self, session_ctx):
+        """Only inherited grants need the preview; an ON ALL grant must not be held back."""
+        flag = res.AccountParameter(name="FEATURE_RBAC_INHERITED_GRANTS", value="ENABLED")
+        grant = res.Grant(priv="SELECT", on="ALL TABLES IN DATABASE MY_DB", to="READER")
+        manifest = self._manifest(session_ctx, [flag, res.Database(name="MY_DB"), res.Role(name="READER"), grant])
+
+        locator = session_ctx["account_locator"]
+        flag_urn = URN.from_resource(account_locator=locator, resource=flag)
+        grant_urn = URN.from_resource(account_locator=locator, resource=grant)
+        assert (grant_urn, flag_urn) not in manifest.refs
