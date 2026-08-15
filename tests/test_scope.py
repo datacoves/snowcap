@@ -259,6 +259,7 @@ class TestResourceCanBeContainedIn:
 
     def test_account_scope_in_account_container(self):
         """Account-scoped resource can be contained in Account container."""
+
         class MockResource:
             scope = AccountScope()
 
@@ -270,6 +271,7 @@ class TestResourceCanBeContainedIn:
 
     def test_database_scope_in_database_container(self):
         """Database-scoped resource can be contained in Database container."""
+
         class MockResource:
             scope = DatabaseScope()
 
@@ -281,6 +283,7 @@ class TestResourceCanBeContainedIn:
 
     def test_schema_scope_in_schema_container(self):
         """Schema-scoped resource can be contained in Schema container."""
+
         class MockResource:
             scope = SchemaScope()
 
@@ -292,6 +295,7 @@ class TestResourceCanBeContainedIn:
 
     def test_account_scope_not_in_database_container(self):
         """Account-scoped resource cannot be contained in Database container."""
+
         class MockResource:
             scope = AccountScope()
 
@@ -303,6 +307,7 @@ class TestResourceCanBeContainedIn:
 
     def test_database_scope_not_in_account_container(self):
         """Database-scoped resource cannot be contained in Account container."""
+
         class MockResource:
             scope = DatabaseScope()
 
@@ -314,6 +319,7 @@ class TestResourceCanBeContainedIn:
 
     def test_schema_scope_not_in_database_container(self):
         """Schema-scoped resource cannot be contained in Database container."""
+
         class MockResource:
             scope = SchemaScope()
 
@@ -325,6 +331,7 @@ class TestResourceCanBeContainedIn:
 
     def test_organization_scope_not_in_any_container(self):
         """Organization-scoped resource is not contained in standard containers."""
+
         class MockResource:
             scope = OrganizationScope()
 
@@ -336,6 +343,7 @@ class TestResourceCanBeContainedIn:
 
     def test_anonymous_scope_not_in_any_container(self):
         """Anonymous-scoped resource is not contained in standard containers."""
+
         class MockResource:
             scope = AnonymousScope()
 

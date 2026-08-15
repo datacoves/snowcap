@@ -14,7 +14,6 @@ import pytest
 from snowcap import data_provider
 from snowcap.client import reset_cache
 
-
 TEST_ROLE = os.environ.get("TEST_SNOWFLAKE_ROLE")
 
 pytestmark = pytest.mark.requires_snowflake
@@ -99,8 +98,16 @@ class TestAccountUsageGrantFetching:
                 grant = result[0]
                 assert isinstance(grant, dict)
                 # Check expected keys (normalized to lowercase)
-                expected_keys = {"created_on", "privilege", "granted_on", "name",
-                                "granted_to", "grantee_name", "grant_option", "granted_by"}
+                expected_keys = {
+                    "created_on",
+                    "privilege",
+                    "granted_on",
+                    "name",
+                    "granted_to",
+                    "grantee_name",
+                    "grant_option",
+                    "granted_by",
+                }
                 assert expected_keys.issubset(grant.keys())
         else:
             # Without access, should return None (signaling fallback)
@@ -264,7 +271,8 @@ class TestAccountUsageWithRealGrants:
 
         # Filter for our database grants (excluding OWNERSHIP and ROLE grants)
         test_grants = [
-            g for g in grants
+            g
+            for g in grants
             if g["granted_on"] == "DATABASE"
             and g["name"].upper() == test_db.upper()
             and g["privilege"] in ("USAGE", "MONITOR")
@@ -299,10 +307,7 @@ class TestAccountUsageWithRealGrants:
         role_grants = execute(session, f"SHOW GRANTS OF ROLE {child_name}", cacheable=False)
 
         # Find our test grant (child granted to parent)
-        test_grants = [
-            g for g in role_grants
-            if g["grantee_name"].upper() == parent_name.upper()
-        ]
+        test_grants = [g for g in role_grants if g["grantee_name"].upper() == parent_name.upper()]
 
         # Should have our role grant
         assert len(test_grants) >= 1, f"Expected role grant for {child_name}, got {test_grants}"

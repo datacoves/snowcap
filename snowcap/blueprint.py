@@ -2217,7 +2217,7 @@ def sql_commands_for_change(
         - Otherwise, the PUBLIC role is activated (PUBLIC cannot be revoked)
     - Any time the USE ROLE command is run, the active role is switched
 
-    A session may run any command thats allowed by the active role or any role downstream from it in the role hierarchy.
+    A session may run any command that's allowed by the active role or any role downstream from it in the role hierarchy.
     When secondary roles are active (by running the command USE SECONDARY ROLES ALL), then the session may also run any
     command that any secondary role or a role downstream from it is allowed to run.
 

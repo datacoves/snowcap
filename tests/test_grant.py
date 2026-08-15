@@ -14,7 +14,8 @@ def test_grant_global_priv():
     assert grant.on == "ACCOUNT"
     assert grant.to.name == "somerole"
     assert (
-        str(URN.from_resource(grant)) == "urn:::grant/GRANT?grant_type=OBJECT&priv=CREATE WAREHOUSE&on=account/ACCOUNT&to=role/SOMEROLE"
+        str(URN.from_resource(grant))
+        == "urn:::grant/GRANT?grant_type=OBJECT&priv=CREATE WAREHOUSE&on=account/ACCOUNT&to=role/SOMEROLE"
     )
     assert grant.create_sql() == "GRANT CREATE WAREHOUSE ON ACCOUNT TO ROLE SOMEROLE"
 
@@ -70,7 +71,10 @@ def test_grant_all():
     assert grant.on_type == ResourceType.WAREHOUSE
     assert grant.to.name == "SOMEROLE"
     assert grant._data._privs == all_privs_for_resource_type(ResourceType.WAREHOUSE)
-    assert str(URN.from_resource(grant)) == "urn:::grant/GRANT?grant_type=OBJECT&priv=ALL&on=warehouse/SOMEWH&to=role/SOMEROLE"
+    assert (
+        str(URN.from_resource(grant))
+        == "urn:::grant/GRANT?grant_type=OBJECT&priv=ALL&on=warehouse/SOMEWH&to=role/SOMEROLE"
+    )
 
 
 def test_role_grant_to_user():
@@ -385,7 +389,7 @@ def test_grant_to_database_role_string():
     grant = res.Grant(
         priv="SELECT",
         on_table="somedb.someschema.sometable",
-        to="somedb.mydbrole"  # Database role inferred from dot notation
+        to="somedb.mydbrole",  # Database role inferred from dot notation
     )
     assert grant.to_type == ResourceType.DATABASE_ROLE
     assert grant.to.name == "MYDBROLE"
@@ -395,11 +399,7 @@ def test_grant_to_database_role_string():
 def test_grant_to_database_role_object():
     """Test grant TO a database role using DatabaseRole object."""
     db_role = res.DatabaseRole(name="mydbrole", database="somedb")
-    grant = res.Grant(
-        priv="SELECT",
-        on_table="somedb.someschema.sometable",
-        to=db_role
-    )
+    grant = res.Grant(priv="SELECT", on_table="somedb.someschema.sometable", to=db_role)
     assert grant.to_type == ResourceType.DATABASE_ROLE
     assert grant.to.name == "MYDBROLE"
     assert "TO DATABASE ROLE SOMEDB.MYDBROLE" in grant.create_sql()
@@ -407,11 +407,7 @@ def test_grant_to_database_role_object():
 
 def test_future_grant_to_database_role():
     """Test future grant TO a database role."""
-    grant = res.Grant(
-        priv="SELECT",
-        on="FUTURE TABLES IN SCHEMA somedb.someschema",
-        to="somedb.mydbrole"
-    )
+    grant = res.Grant(priv="SELECT", on="FUTURE TABLES IN SCHEMA somedb.someschema", to="somedb.mydbrole")
     assert grant.to_type == ResourceType.DATABASE_ROLE
     assert grant.grant_type == GrantType.FUTURE
     sql = grant.create_sql()
@@ -421,11 +417,7 @@ def test_future_grant_to_database_role():
 def test_future_grant_to_database_role_object():
     """Test future grant TO a database role using DatabaseRole object."""
     db_role = res.DatabaseRole(name="mydbrole", database="somedb")
-    grant = res.Grant(
-        priv="CREATE VIEW",
-        on=["FUTURE", "SCHEMAS", res.Database(name="somedb")],
-        to=db_role
-    )
+    grant = res.Grant(priv="CREATE VIEW", on=["FUTURE", "SCHEMAS", res.Database(name="somedb")], to=db_role)
     assert grant.to_type == ResourceType.DATABASE_ROLE
     assert grant.grant_type == GrantType.FUTURE
     sql = grant.create_sql()
@@ -581,11 +573,7 @@ class TestRoleGrantsWithRolesList:
         """Test: role_grants: with role: X, to_role: Y creates one grant."""
         from snowcap.gitops import collect_blueprint_config
 
-        config = {
-            "role_grants": [
-                {"role": "ANALYST", "to_role": "SYSADMIN"}
-            ]
-        }
+        config = {"role_grants": [{"role": "ANALYST", "to_role": "SYSADMIN"}]}
         blueprint_config = collect_blueprint_config(config)
         assert len(blueprint_config.resources) == 1
         grant = blueprint_config.resources[0]
@@ -596,11 +584,7 @@ class TestRoleGrantsWithRolesList:
         """Test: role_grants: with role: X, to_user: Y creates one grant."""
         from snowcap.gitops import collect_blueprint_config
 
-        config = {
-            "role_grants": [
-                {"role": "ANALYST", "to_user": "john_doe"}
-            ]
-        }
+        config = {"role_grants": [{"role": "ANALYST", "to_user": "john_doe"}]}
         blueprint_config = collect_blueprint_config(config)
         assert len(blueprint_config.resources) == 1
         grant = blueprint_config.resources[0]
@@ -611,14 +595,7 @@ class TestRoleGrantsWithRolesList:
         """Test: role_grants: with roles: [X, Y, Z] to_role: creates multiple grants."""
         from snowcap.gitops import collect_blueprint_config
 
-        config = {
-            "role_grants": [
-                {
-                    "roles": ["ANALYST", "ENGINEER", "DATA_SCIENTIST"],
-                    "to_role": "SYSADMIN"
-                }
-            ]
-        }
+        config = {"role_grants": [{"roles": ["ANALYST", "ENGINEER", "DATA_SCIENTIST"], "to_role": "SYSADMIN"}]}
         blueprint_config = collect_blueprint_config(config)
         assert len(blueprint_config.resources) == 3
 
@@ -635,14 +612,7 @@ class TestRoleGrantsWithRolesList:
         """Test: role_grants: with roles: [X, Y, Z] to_user: creates multiple grants."""
         from snowcap.gitops import collect_blueprint_config
 
-        config = {
-            "role_grants": [
-                {
-                    "roles": ["ANALYST", "ENGINEER"],
-                    "to_user": "jane_doe"
-                }
-            ]
-        }
+        config = {"role_grants": [{"roles": ["ANALYST", "ENGINEER"], "to_user": "jane_doe"}]}
         blueprint_config = collect_blueprint_config(config)
         assert len(blueprint_config.resources) == 2
 
@@ -658,14 +628,7 @@ class TestRoleGrantsWithRolesList:
         """Test: role_grants: with role: X, to_roles: [Y, Z] creates multiple grants."""
         from snowcap.gitops import collect_blueprint_config
 
-        config = {
-            "role_grants": [
-                {
-                    "role": "ANALYST",
-                    "to_roles": ["SYSADMIN", "ACCOUNTADMIN", "SECURITYADMIN"]
-                }
-            ]
-        }
+        config = {"role_grants": [{"role": "ANALYST", "to_roles": ["SYSADMIN", "ACCOUNTADMIN", "SECURITYADMIN"]}]}
         blueprint_config = collect_blueprint_config(config)
         assert len(blueprint_config.resources) == 3
 
@@ -683,14 +646,7 @@ class TestRoleGrantsWithRolesList:
         """Test: role_grants: with role: X, to_users: [Y, Z] creates multiple grants."""
         from snowcap.gitops import collect_blueprint_config
 
-        config = {
-            "role_grants": [
-                {
-                    "role": "ANALYST",
-                    "to_users": ["john_doe", "jane_doe", "bob_smith"]
-                }
-            ]
-        }
+        config = {"role_grants": [{"role": "ANALYST", "to_users": ["john_doe", "jane_doe", "bob_smith"]}]}
         blueprint_config = collect_blueprint_config(config)
         assert len(blueprint_config.resources) == 3
 
@@ -714,10 +670,7 @@ class TestRoleGrantsWithRolesList:
                 {"role": "DEV_ANALYST", "to_role": "DEV_ADMIN"},
                 {"role": "DEV_ADMIN", "to_role": "SYSADMIN"},
                 # Also grant DEV_ANALYST to users
-                {
-                    "role": "DEV_ANALYST",
-                    "to_users": ["developer1", "developer2"]
-                }
+                {"role": "DEV_ANALYST", "to_users": ["developer1", "developer2"]},
             ]
         }
         blueprint_config = collect_blueprint_config(config)
@@ -735,14 +688,7 @@ class TestRoleGrantsWithRolesList:
         """Test: Empty roles list raises error."""
         from snowcap.gitops import collect_blueprint_config
 
-        config = {
-            "role_grants": [
-                {
-                    "roles": [],
-                    "to_role": "SYSADMIN"
-                }
-            ]
-        }
+        config = {"role_grants": [{"roles": [], "to_role": "SYSADMIN"}]}
         with pytest.raises(ValueError, match="No role grants found"):
             collect_blueprint_config(config)
 

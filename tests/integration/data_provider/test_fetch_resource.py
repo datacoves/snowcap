@@ -726,5 +726,3 @@ def test_fetch_grant_of_database_role_multiple_grantees(cursor, suffix, marked_f
     assert clean_resource_data(res.DatabaseRoleGrant.spec, result_b) == clean_resource_data(
         res.DatabaseRoleGrant.spec, grant_b.to_dict()
     )
-
-

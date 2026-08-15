@@ -250,9 +250,7 @@ class TestGrantsFetchBackIntegration:
 class TestSPCSGrantsIntegration:
     """Test that grants on compute pools, image repositories, and services work correctly."""
 
-    def test_grants_on_compute_pool_image_repository_and_service(
-        self, cursor, suffix, test_db, marked_for_cleanup
-    ):
+    def test_grants_on_compute_pool_image_repository_and_service(self, cursor, suffix, test_db, marked_for_cleanup):
         """Test: USAGE on compute pool + ALL on image repository + ALL on service in one apply.
 
         Compute pools are slow to provision, so this test creates one compute
@@ -272,8 +270,7 @@ class TestSPCSGrantsIntegration:
 
         pool_name = f"SPCS_POOL_{suffix}"
         cursor.execute(
-            f"CREATE COMPUTE POOL IF NOT EXISTS {pool_name} "
-            "MIN_NODES = 1 MAX_NODES = 1 INSTANCE_FAMILY = CPU_X64_XS"
+            f"CREATE COMPUTE POOL IF NOT EXISTS {pool_name} " "MIN_NODES = 1 MAX_NODES = 1 INSTANCE_FAMILY = CPU_X64_XS"
         )
 
         repo_name = f"SPCS_REPO_{suffix}"
@@ -282,8 +279,7 @@ class TestSPCSGrantsIntegration:
 
         svc_name = f"SPCS_SVC_{suffix}"
         svc_fqn = f"{test_db}.{schema_name}.{svc_name}"
-        cursor.execute(
-            f"""
+        cursor.execute(f"""
 CREATE SERVICE IF NOT EXISTS {svc_fqn}
   IN COMPUTE POOL {pool_name}
   FROM SPECIFICATION $$
@@ -298,8 +294,7 @@ spec:
 $$
   MIN_INSTANCES=1
   MAX_INSTANCES=1
-"""
-        )
+""")
         # Cleanup order: service and compute pool are billable and account-scoped
         # (outside the DROP DATABASE safety net), so register them first - the
         # cleanup loop drops in this append order, and an aborted loop must
@@ -374,9 +369,7 @@ class TestRoleGrantsIntegration:
 
         # Create role grant
         yaml_config = {
-            "role_grants": [
-                {"role": source_role_name, "to_role": target_role_name}
-            ],
+            "role_grants": [{"role": source_role_name, "to_role": target_role_name}],
         }
 
         bc = collect_blueprint_config(yaml_config)

@@ -49,7 +49,6 @@ from snowcap import resources as res
 from snowcap.blueprint import Blueprint
 from snowcap.identifiers import parse_URN
 
-
 # =============================================================================
 # Exception Class Tests
 # =============================================================================
@@ -490,13 +489,7 @@ class TestYamlParsingErrors:
         from snowcap.gitops import collect_blueprint_config
 
         # Config with missing required 'name' for database
-        config = {
-            "databases": [
-                {
-                    "comment": "a database without a name"
-                }
-            ]
-        }
+        config = {"databases": [{"comment": "a database without a name"}]}
         with pytest.raises((ValueError, KeyError, TypeError)):
             collect_blueprint_config(config)
 
@@ -505,11 +498,7 @@ class TestYamlParsingErrors:
         from snowcap.gitops import collect_blueprint_config
 
         # 'invalid_resources' is not a valid key
-        config = {
-            "invalid_resources": [
-                {"name": "test"}
-            ]
-        }
+        config = {"invalid_resources": [{"name": "test"}]}
         # Invalid keys are ignored, but if no valid resources are found, ValueError is raised
         with pytest.raises(ValueError) as exc_info:
             collect_blueprint_config(config)

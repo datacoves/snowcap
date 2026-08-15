@@ -68,9 +68,7 @@ def _validate_role_grant_structure(role_grant: dict) -> None:
                 "        - finance_team"
             )
         if has_to_roles:
-            raise ValueError(
-                'Cannot use "to_roles" with "roles". Use "to_role" (singular) instead.'
-            )
+            raise ValueError('Cannot use "to_roles" with "roles". Use "to_role" (singular) instead.')
 
 
 def _resources_from_role_grants_config(role_grants_config: list) -> list:

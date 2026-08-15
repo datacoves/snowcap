@@ -38,15 +38,15 @@ def _extract_table_refs_from_sql(sql: str) -> list[str]:
     # Table names can be: simple (table), qualified (schema.table), or fully qualified (db.schema.table)
     # Also handles quoted identifiers like "TABLE_NAME" or "db"."schema"."table"
     identifier = r'(?:"[^"]+"|[A-Za-z_][A-Za-z0-9_$]*)'
-    qualified_name = rf'{identifier}(?:\.{identifier})*'
+    qualified_name = rf"{identifier}(?:\.{identifier})*"
 
     # Match FROM or any type of JOIN followed by a table name
     # Use word boundary and handle optional keywords like LATERAL, NATURAL, etc.
-    pattern = rf'''
+    pattern = rf"""
         (?:FROM|(?:CROSS|INNER|LEFT|RIGHT|FULL|NATURAL|LATERAL)\s+(?:OUTER\s+)?JOIN|JOIN)
         \s+
         ({qualified_name})
-    '''
+    """
 
     matches = re.findall(pattern, sql, re.IGNORECASE | re.VERBOSE)
 
@@ -54,9 +54,7 @@ def _extract_table_refs_from_sql(sql: str) -> list[str]:
     result = []
     for match in matches:
         # Remove surrounding quotes from each part if present
-        cleaned = ".".join(
-            part.strip('"') for part in match.split(".")
-        )
+        cleaned = ".".join(part.strip('"') for part in match.split("."))
         result.append(cleaned)
 
     return result

@@ -324,11 +324,7 @@ class TestExecuteErrorHandling:
         mock_connection.user = "testuser"
         mock_connection.role = "testrole"
 
-        result = execute(
-            mock_connection,
-            "SELECT * FROM missing",
-            empty_response_codes=[DOES_NOT_EXIST_ERR]
-        )
+        result = execute(mock_connection, "SELECT * FROM missing", empty_response_codes=[DOES_NOT_EXIST_ERR])
 
         assert result == []
 
@@ -344,12 +340,7 @@ class TestExecuteErrorHandling:
         mock_connection.user = "testuser"
         mock_connection.role = "TESTROLE"
 
-        execute(
-            mock_connection,
-            "SELECT * FROM missing",
-            cacheable=True,
-            empty_response_codes=[DOES_NOT_EXIST_ERR]
-        )
+        execute(mock_connection, "SELECT * FROM missing", cacheable=True, empty_response_codes=[DOES_NOT_EXIST_ERR])
 
         assert snowcap.client._EXECUTION_CACHE["TESTROLE"]["SELECT * FROM missing"] == []
 
@@ -473,6 +464,7 @@ class TestExecuteInParallel:
         mock_connection.role = "testrole"
 
         errors = []
+
         def error_handler(err, sql):
             errors.append((err, sql))
 

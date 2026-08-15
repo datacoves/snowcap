@@ -195,10 +195,7 @@ class Grant(Resource):
             # Heuristic: form (1) starts with the keyword FUTURE or ALL as its
             # first element. Anything else is form (2).
             first = on[0]
-            first_is_grant_type_keyword = (
-                isinstance(first, str)
-                and first.upper() in (GrantType.FUTURE, GrantType.ALL)
-            )
+            first_is_grant_type_keyword = isinstance(first, str) and first.upper() in (GrantType.FUTURE, GrantType.ALL)
             for item in on:
                 if isinstance(item, list):
                     if item[0].upper() not in (GrantType.FUTURE, GrantType.ALL):
@@ -251,7 +248,7 @@ class Grant(Resource):
                 on_type = on.resource_type
                 on = str(on.name)
             elif isinstance(on, NamedResource):
-                # It might make sense to explicitly fail if we cant fully resolve the resource
+                # It might make sense to explicitly fail if we can't fully resolve the resource
                 on_type = on.resource_type
                 on = str(on.fqn)
             elif isinstance(on, str) and on.upper() == "ACCOUNT":
@@ -322,7 +319,7 @@ class Grant(Resource):
 
                     if isinstance(in_object, Resource):
                         if len(on_items) > 4:
-                            raise ValueError("You must specify only three paramters: [grant_type, items_type, object]")
+                            raise ValueError("You must specify only three parameters: [grant_type, items_type, object]")
 
                         items_type = resource_type_for_label(singularize(" ".join(on_items[1:-1])))
                         on_type = in_object.resource_type
@@ -672,7 +669,7 @@ class DatabaseRoleGrant(Resource):
         to = kwargs.pop("to", None)
         if to:
             if to_role or to_database_role:
-                raise ValueError("You cant specify both to_role and to_database_role")
+                raise ValueError("You can't specify both to_role and to_database_role")
             if isinstance(to, Role):
                 to_role = to
             elif isinstance(to, DatabaseRole):

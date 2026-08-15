@@ -574,7 +574,7 @@ class Resource(metaclass=_Resource):
                 raise Exception(f"Cannot resolve vars for container {self.container} of {self}")
 
             # Only extract fields if container has a proper _data dataclass
-            if hasattr(container, '_data') and container._data is not None:
+            if hasattr(container, "_data") and container._data is not None:
                 try:
                     for f in fields(container._data):
                         field_value = getattr(container._data, f.name)

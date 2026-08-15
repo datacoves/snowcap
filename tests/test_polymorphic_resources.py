@@ -6,7 +6,6 @@ from snowcap import Resource
 from snowcap.enums import ResourceType
 from tests.helpers import get_json_fixture, camelcase_to_snakecase
 
-
 logger = logging.getLogger("snowcap")
 
 

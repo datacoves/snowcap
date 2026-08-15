@@ -139,7 +139,7 @@ class TestSharedDatabase:
     @pytest.mark.xfail(
         reason=(
             "ResourceName wraps from_share as a single opaque string, so a compound identifier "
-            "with one quoted component (e.g. SOME_ORG.\"My Share\") gets uppercased wholesale by "
+            'with one quoted component (e.g. SOME_ORG."My Share") gets uppercased wholesale by '
             "ResourceName.__str__ instead of preserving the quoted part. ResourceName has no "
             "concept of compound (dotted) identifiers with independently-quoted components -- "
             "this is a pre-existing limitation shared by every IdentifierProp field, not "
@@ -153,9 +153,7 @@ class TestSharedDatabase:
         db = res.SharedDatabase(name="gong", from_share='SOME_ORG."My Share"')
         assert db.create_sql() == 'CREATE DATABASE GONG FROM SHARE SOME_ORG."My Share"'
 
-        round_tripped = res.SharedDatabase.from_sql(
-            'CREATE DATABASE gong FROM SHARE SOME_ORG."My Share"'
-        )
+        round_tripped = res.SharedDatabase.from_sql('CREATE DATABASE gong FROM SHARE SOME_ORG."My Share"')
         assert round_tripped._data.from_share == 'SOME_ORG."My Share"'
 
 
@@ -1707,7 +1705,10 @@ class TestResourceCommon:
             (res.Role, {"name": "test"}),
             (res.Warehouse, {"name": "test"}),
             (res.User, {"name": "test"}),
-            (res.Table, {"name": "test", "database": "db", "schema": "sch", "columns": [{"name": "id", "data_type": "INT"}]}),
+            (
+                res.Table,
+                {"name": "test", "database": "db", "schema": "sch", "columns": [{"name": "id", "data_type": "INT"}]},
+            ),
             (res.View, {"name": "test", "database": "db", "schema": "sch", "as_": "SELECT 1"}),
             (res.NetworkPolicy, {"name": "test"}),
         ],

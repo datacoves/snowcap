@@ -96,37 +96,23 @@ class TestGetOwnerIdentifier:
 
     def test_database_role_owner(self):
         # Lowercase names from Snowflake metadata get quoted
-        data = {
-            "owner": "my_role",
-            "owner_role_type": "DATABASE_ROLE",
-            "database_name": "my_db"
-        }
+        data = {"owner": "my_role", "owner_role_type": "DATABASE_ROLE", "database_name": "my_db"}
         result = _get_owner_identifier(data)
         assert result == '"my_db"."my_role"'
 
     def test_database_role_owner_uppercase(self):
         # Uppercase names pass through without quotes
-        data = {
-            "owner": "MY_ROLE",
-            "owner_role_type": "DATABASE_ROLE",
-            "database_name": "MY_DB"
-        }
+        data = {"owner": "MY_ROLE", "owner_role_type": "DATABASE_ROLE", "database_name": "MY_DB"}
         result = _get_owner_identifier(data)
         assert result == "MY_DB.MY_ROLE"
 
     def test_role_type_owner(self):
-        data = {
-            "owner": "SYSADMIN",
-            "owner_role_type": "ROLE"
-        }
+        data = {"owner": "SYSADMIN", "owner_role_type": "ROLE"}
         result = _get_owner_identifier(data)
         assert result == "SYSADMIN"
 
     def test_empty_owner_with_role_type(self):
-        data = {
-            "owner": "",
-            "owner_role_type": "ROLE"
-        }
+        data = {"owner": "", "owner_role_type": "ROLE"}
         result = _get_owner_identifier(data)
         assert result == ""
 
@@ -141,11 +127,7 @@ class TestGetOwnerIdentifier:
         assert result == ""
 
     def test_unsupported_owner_role_type_raises(self):
-        data = {
-            "owner": "my_role",
-            "owner_role_type": "UNKNOWN_TYPE",
-            "database_name": "my_db"
-        }
+        data = {"owner": "my_role", "owner_role_type": "UNKNOWN_TYPE", "database_name": "my_db"}
         with pytest.raises(Exception, match="Unsupported owner role type"):
             _get_owner_identifier(data)
 
@@ -178,65 +160,47 @@ class TestDescType2ResultToDict:
     """Tests for _desc_type2_result_to_dict helper function."""
 
     def test_boolean_property(self):
-        desc_result = [
-            {"property": "ENABLED", "property_value": "true", "property_type": "Boolean"}
-        ]
+        desc_result = [{"property": "ENABLED", "property_value": "true", "property_type": "Boolean"}]
         result = _desc_type2_result_to_dict(desc_result)
         assert result["ENABLED"] is True
 
     def test_boolean_false(self):
-        desc_result = [
-            {"property": "ENABLED", "property_value": "false", "property_type": "Boolean"}
-        ]
+        desc_result = [{"property": "ENABLED", "property_value": "false", "property_type": "Boolean"}]
         result = _desc_type2_result_to_dict(desc_result)
         assert result["ENABLED"] is False
 
     def test_long_property(self):
-        desc_result = [
-            {"property": "SIZE", "property_value": "1024", "property_type": "Long"}
-        ]
+        desc_result = [{"property": "SIZE", "property_value": "1024", "property_type": "Long"}]
         result = _desc_type2_result_to_dict(desc_result)
         assert result["SIZE"] == "1024"
 
     def test_long_empty_value(self):
-        desc_result = [
-            {"property": "SIZE", "property_value": "", "property_type": "Long"}
-        ]
+        desc_result = [{"property": "SIZE", "property_value": "", "property_type": "Long"}]
         result = _desc_type2_result_to_dict(desc_result)
         assert result["SIZE"] is None
 
     def test_integer_property(self):
-        desc_result = [
-            {"property": "COUNT", "property_value": "42", "property_type": "Integer"}
-        ]
+        desc_result = [{"property": "COUNT", "property_value": "42", "property_type": "Integer"}]
         result = _desc_type2_result_to_dict(desc_result)
         assert result["COUNT"] == 42
 
     def test_string_property(self):
-        desc_result = [
-            {"property": "NAME", "property_value": "my_name", "property_type": "String"}
-        ]
+        desc_result = [{"property": "NAME", "property_value": "my_name", "property_type": "String"}]
         result = _desc_type2_result_to_dict(desc_result)
         assert result["NAME"] == "my_name"
 
     def test_string_empty_value(self):
-        desc_result = [
-            {"property": "NAME", "property_value": "", "property_type": "String"}
-        ]
+        desc_result = [{"property": "NAME", "property_value": "", "property_type": "String"}]
         result = _desc_type2_result_to_dict(desc_result)
         assert result["NAME"] is None
 
     def test_list_property(self):
-        desc_result = [
-            {"property": "ROLES", "property_value": "[role1, role2]", "property_type": "List"}
-        ]
+        desc_result = [{"property": "ROLES", "property_value": "[role1, role2]", "property_type": "List"}]
         result = _desc_type2_result_to_dict(desc_result)
         assert result["ROLES"] == ["role1", "role2"]
 
     def test_object_property(self):
-        desc_result = [
-            {"property": "CONFIG", "property_value": "[a, b, c]", "property_type": "Object"}
-        ]
+        desc_result = [{"property": "CONFIG", "property_value": "[a, b, c]", "property_type": "Object"}]
         result = _desc_type2_result_to_dict(desc_result)
         assert result["CONFIG"] == ["a", "b", "c"]
 
@@ -245,9 +209,7 @@ class TestDescType3ResultToDict:
     """Tests for _desc_type3_result_to_dict helper function."""
 
     def test_flat_property(self):
-        desc_result = [
-            {"parent_property": "", "property": "NAME", "property_value": "test", "property_type": "String"}
-        ]
+        desc_result = [{"parent_property": "", "property": "NAME", "property_value": "test", "property_type": "String"}]
         result = _desc_type3_result_to_dict(desc_result)
         assert result["NAME"] == "test"
 
@@ -752,11 +714,7 @@ class TestFetchResource:
         mock_fetch_database.return_value = {"name": "MY_DB"}
         mock_session = MagicMock()
 
-        urn = URN(
-            resource_type=ResourceType.DATABASE,
-            account_locator="ABC123",
-            fqn=FQN(name=ResourceName("MY_DB"))
-        )
+        urn = URN(resource_type=ResourceType.DATABASE, account_locator="ABC123", fqn=FQN(name=ResourceName("MY_DB")))
 
         result = fetch_resource(mock_session, urn)
 
@@ -771,7 +729,7 @@ class TestFetchResource:
         urn = URN(
             resource_type=ResourceType.SCHEMA,
             account_locator="ABC123",
-            fqn=FQN(database=ResourceName("MY_DB"), name=ResourceName("MY_SCHEMA"))
+            fqn=FQN(database=ResourceName("MY_DB"), name=ResourceName("MY_SCHEMA")),
         )
 
         result = fetch_resource(mock_session, urn)
@@ -782,14 +740,11 @@ class TestFetchResource:
     @patch("snowcap.data_provider.fetch_role")
     def test_returns_none_on_does_not_exist_error(self, mock_fetch_role):
         from snowflake.connector.errors import ProgrammingError
+
         mock_fetch_role.side_effect = ProgrammingError(errno=2003)
         mock_session = MagicMock()
 
-        urn = URN(
-            resource_type=ResourceType.ROLE,
-            account_locator="ABC123",
-            fqn=FQN(name=ResourceName("MISSING_ROLE"))
-        )
+        urn = URN(resource_type=ResourceType.ROLE, account_locator="ABC123", fqn=FQN(name=ResourceName("MISSING_ROLE")))
 
         result = fetch_resource(mock_session, urn)
         assert result is None
@@ -797,14 +752,11 @@ class TestFetchResource:
     @patch("snowcap.data_provider.fetch_role")
     def test_raises_other_programming_errors(self, mock_fetch_role):
         from snowflake.connector.errors import ProgrammingError
+
         mock_fetch_role.side_effect = ProgrammingError(errno=1234)
         mock_session = MagicMock()
 
-        urn = URN(
-            resource_type=ResourceType.ROLE,
-            account_locator="ABC123",
-            fqn=FQN(name=ResourceName("MY_ROLE"))
-        )
+        urn = URN(resource_type=ResourceType.ROLE, account_locator="ABC123", fqn=FQN(name=ResourceName("MY_ROLE")))
 
         with pytest.raises(ProgrammingError):
             fetch_resource(mock_session, urn)
@@ -1465,6 +1417,7 @@ class TestHasAccountUsageAccess:
     def test_returns_true_when_access_granted(self, mock_execute):
         """When ACCOUNT_USAGE query succeeds, function returns True."""
         from snowcap.data_provider import _has_account_usage_access
+
         mock_execute.return_value = [{"1": 1}]  # Query succeeds
         mock_session = MagicMock()
 
@@ -1504,6 +1457,7 @@ class TestHasAccountUsageAccess:
     def test_caches_result_per_session(self, mock_execute):
         """Result should be cached per session to avoid repeated queries."""
         from snowcap.data_provider import _has_account_usage_access
+
         mock_execute.return_value = [{"1": 1}]
         mock_session = MagicMock()
 
@@ -1521,6 +1475,7 @@ class TestHasAccountUsageAccess:
     def test_different_sessions_have_independent_cache(self, mock_execute):
         """Different sessions should have independent cache entries."""
         from snowcap.data_provider import _has_account_usage_access
+
         mock_execute.return_value = [{"1": 1}]
         session1 = MagicMock()
         session2 = MagicMock()
@@ -1687,6 +1642,7 @@ class TestShouldUseAccountUsage:
     def test_returns_false_when_config_disabled(self, mock_has_access):
         """Returns False when use_account_usage config is False."""
         from snowcap.data_provider import _should_use_account_usage
+
         mock_session = MagicMock()
 
         result = _should_use_account_usage(mock_session, use_account_usage=False)
@@ -1702,6 +1658,7 @@ class TestShouldUseAccountUsage:
             _should_use_account_usage,
             _ACCOUNT_USAGE_FALLBACK_CACHE,
         )
+
         mock_session = MagicMock()
         _ACCOUNT_USAGE_FALLBACK_CACHE[id(mock_session)] = True
 
@@ -1715,6 +1672,7 @@ class TestShouldUseAccountUsage:
     def test_returns_access_check_result_when_enabled(self, mock_has_access):
         """Returns result of _has_account_usage_access when config is enabled."""
         from snowcap.data_provider import _should_use_account_usage
+
         mock_session = MagicMock()
         mock_has_access.return_value = True
 
@@ -1727,6 +1685,7 @@ class TestShouldUseAccountUsage:
     def test_returns_false_when_no_access(self, mock_has_access):
         """Returns False when session doesn't have ACCOUNT_USAGE access."""
         from snowcap.data_provider import _should_use_account_usage
+
         mock_session = MagicMock()
         mock_has_access.return_value = False
 
@@ -1744,6 +1703,7 @@ class TestMarkAccountUsageFallback:
             _mark_account_usage_fallback,
             _ACCOUNT_USAGE_FALLBACK_CACHE,
         )
+
         mock_session = MagicMock()
 
         _mark_account_usage_fallback(mock_session)
@@ -1757,9 +1717,7 @@ class TestFetchRolePrivilegesAccountUsage:
     @patch("snowcap.data_provider._should_use_account_usage")
     @patch("snowcap.data_provider._fetch_grants_from_account_usage")
     @patch("snowcap.data_provider._show_grants_to_role")
-    def test_uses_account_usage_when_enabled_and_available(
-        self, mock_show_grants, mock_fetch_au, mock_should_use
-    ):
+    def test_uses_account_usage_when_enabled_and_available(self, mock_show_grants, mock_fetch_au, mock_should_use):
         """When ACCOUNT_USAGE is enabled and available, uses ACCOUNT_USAGE."""
         from snowcap.data_provider import fetch_role_privileges
         from datetime import datetime
@@ -1806,9 +1764,7 @@ class TestFetchRolePrivilegesAccountUsage:
     @patch("snowcap.data_provider._should_use_account_usage")
     @patch("snowcap.data_provider._fetch_grants_from_account_usage")
     @patch("snowcap.data_provider._show_grants_to_role")
-    def test_falls_back_when_account_usage_returns_none(
-        self, mock_show_grants, mock_fetch_au, mock_should_use
-    ):
+    def test_falls_back_when_account_usage_returns_none(self, mock_show_grants, mock_fetch_au, mock_should_use):
         """When ACCOUNT_USAGE query fails (returns None), falls back to SHOW."""
         from snowcap.data_provider import fetch_role_privileges
 

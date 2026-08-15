@@ -238,7 +238,7 @@ def format_invalid_key_error(
         if resource_name:
             msg = f'Invalid keys {keys_str} in {resource_type} "{resource_name}".'
         else:
-            msg = f'Invalid keys {keys_str} in {resource_type}.'
+            msg = f"Invalid keys {keys_str} in {resource_type}."
         for key, suggestion in suggestions.items():
             msg += f'\n  "{key}" -> Did you mean: {suggestion}?'
 

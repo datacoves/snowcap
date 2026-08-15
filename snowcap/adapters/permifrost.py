@@ -11,7 +11,6 @@ from snowcap.privs import DatabasePriv, TablePriv, SchemaPriv, ViewPriv, Warehou
 from snowcap.resources import Grant, RoleGrant
 from snowcap.resources.resource import ResourcePointer
 
-
 DATABASE_READ_PRIVS = [DatabasePriv.USAGE]
 DATABASE_WRITE_PRIVS = [DatabasePriv.USAGE, DatabasePriv.MONITOR, DatabasePriv.CREATE_SCHEMA]
 

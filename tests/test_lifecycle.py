@@ -60,7 +60,6 @@ from snowcap.identifiers import FQN, URN
 from snowcap.resource_name import ResourceName
 from snowcap.props import Props
 
-
 # ============================================================================
 # Test fixtures and helpers
 # ============================================================================

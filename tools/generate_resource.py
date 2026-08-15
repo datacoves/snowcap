@@ -1,7 +1,6 @@
 import os
 import sys
 
-
 # Set repo_root to the parent directory that this file lives in
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 

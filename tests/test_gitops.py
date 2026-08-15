@@ -50,7 +50,9 @@ def test_resource_config(resource_config):
     bp_config = collect_blueprint_config(resource_config)
     resource_types = set([resource.resource_type for resource in bp_config.resources])
     # Exclude COLUMN types - they are pseudo-resources embedded in tables, not collected via config
-    expected_resource_types = set([resource_cls.resource_type for resource_cls, _ in JSON_FIXTURES if resource_cls.resource_type.name != "COLUMN"])
+    expected_resource_types = set(
+        [resource_cls.resource_type for resource_cls, _ in JSON_FIXTURES if resource_cls.resource_type.name != "COLUMN"]
+    )
     assert resource_types == expected_resource_types
 
 

@@ -19,7 +19,7 @@ def _format_missing_key_error(key: str, available_keys: list[str], context: str 
         msg = f'Key "{key}" not found.'
 
     if suggestions:
-        msg += f'\n  Did you mean: {suggestions[0]}?'
+        msg += f"\n  Did you mean: {suggestions[0]}?"
 
     if available_keys:
         msg += f'\n  Available keys: {", ".join(sorted(available_keys))}'
@@ -48,7 +48,9 @@ class VarString:
                     raise MissingVarException(
                         _format_missing_key_error(missing_key, available_keys, context="vars")
                         + f"\n  Template: {self.string}"
-                        + "\n  Provide vars with: --vars '{\"" + missing_key + "\": ...}'"
+                        + "\n  Provide vars with: --vars '{\""
+                        + missing_key
+                        + "\": ...}'"
                     ) from e
 
             raise MissingVarException(f"Missing var in template: {self.string}\n  Error: {e}")

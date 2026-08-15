@@ -28,7 +28,6 @@ from snowcap.parse import (
 from snowcap.enums import ResourceType, Scope
 from snowcap.scope import DatabaseScope, SchemaScope
 
-
 # =============================================================================
 # Test: parse_region (existing tests refactored)
 # =============================================================================

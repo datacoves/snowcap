@@ -398,7 +398,7 @@ def _resolver(data: dict):
     elif "on_view" in data:
         return ViewStream
     # using this as a workaround because there may not be enough properties during a small change to disambiguate
-    # really the different stream types should probably have seperate resource types.
+    # really the different stream types should probably have separate resource types.
     # Either that, or the resolver would need to look at the database to see what type of stream it is
     return TableStream
 

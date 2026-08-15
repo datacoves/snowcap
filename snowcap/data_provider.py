@@ -894,7 +894,7 @@ def fetch_role_privileges(
                         name=grant["name"],
                     )
                     role_privileges[role_match].append(granted_priv)
-                # If snowcap isnt aware of the privilege, ignore it
+                # If snowcap isn't aware of the privilege, ignore it
                 except ValueError:
                     continue
 
@@ -913,7 +913,7 @@ def fetch_role_privileges(
                     name=grant["name"],
                 )
                 role_privileges[role].append(granted_priv)
-            # If snowcap isnt aware of the privilege, ignore it
+            # If snowcap isn't aware of the privilege, ignore it
             except ValueError:
                 continue
     return role_privileges
@@ -2464,7 +2464,7 @@ def fetch_pipe(session: SnowflakeConnection, fqn: FQN):
 
 def fetch_procedure(session: SnowflakeConnection, fqn: FQN):
     # SHOW PROCEDURES IN SCHEMA {}.{}
-    # FIXME: This will fail if the database doesnt exist
+    # FIXME: This will fail if the database doesn't exist
     show_result = execute(session, f"SHOW PROCEDURES IN SCHEMA {fqn.database}.{fqn.schema}", cacheable=True)
     sprocs = _filter_result(show_result, name=fqn.name)
     if len(sprocs) == 0:
@@ -3424,9 +3424,7 @@ def fetch_warehouse(session: SnowflakeConnection, fqn: FQN, include_params: bool
     if generation is not None:
         generation = str(generation)
     resource_constraint = _normalize_snowflake_optional(data.get("resource_constraint"), upper=True)
-    max_query_performance_level = _normalize_snowflake_optional(
-        data.get("max_query_performance_level"), upper=True
-    )
+    max_query_performance_level = _normalize_snowflake_optional(data.get("max_query_performance_level"), upper=True)
 
     if warehouse_type == "STANDARD":
         if resource_constraint is None and generation in {"1", "2"}:

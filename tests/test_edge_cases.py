@@ -25,7 +25,6 @@ from snowcap.exceptions import (
 )
 from snowcap.enums import ResourceType
 
-
 # =============================================================================
 # Empty Resource Name Tests
 # =============================================================================

@@ -554,9 +554,7 @@ class TestBalboaYamlFixtures:
     balboa patterns are valid and can be loaded by the config parser.
     """
 
-    FIXTURES_DIR = os.path.join(
-        os.path.dirname(__file__), "fixtures", "yaml"
-    )
+    FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures", "yaml")
 
     def _load_fixture(self, filename):
         """Load a YAML fixture file and return the dict."""
