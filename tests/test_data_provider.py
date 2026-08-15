@@ -1906,3 +1906,201 @@ class TestFetchStreamlit:
         mock_show_resources.return_value = []
 
         assert fetch_streamlit(MagicMock(), FQN(name=ResourceName("MY_APP"))) is None
+
+
+class TestInheritedGrants:
+    """
+    Tests for how Snowcap handles inherited grants (GRANT INHERITED ...) in remote state.
+
+    Inherited grants are container-level grants that apply to every current and future
+    object of a type in a container. Snowflake reports them in SHOW GRANTS and
+    ACCOUNT_USAGE.GRANTS_TO_ROLES with IS_INHERITED set and an empty NAME. Snowcap has no
+    representation for them and cannot revoke them with a per-object REVOKE, so they are
+    filtered out of remote state rather than mistaken for object grants.
+    """
+
+    def _inherited_row(self, **overrides):
+        row = {
+            "privilege": "SELECT",
+            "granted_on": "TABLE",
+            "name": "",
+            "granted_to": "ROLE",
+            "grantee_name": "MY_ROLE",
+            "grant_option": "false",
+            "granted_by": "SECURITYADMIN",
+            "is_inherited": "true",
+            "inherited_from": "DATABASE",
+            "inherited_from_database": "MY_DB",
+            "inherited_from_schema": "",
+        }
+        row.update(overrides)
+        return row
+
+    def _regular_row(self, **overrides):
+        row = {
+            "privilege": "SELECT",
+            "granted_on": "TABLE",
+            "name": "MY_DB.MY_SCHEMA.MY_TABLE",
+            "granted_to": "ROLE",
+            "grantee_name": "MY_ROLE",
+            "grant_option": "false",
+            "granted_by": "SYSADMIN",
+            "is_inherited": "false",
+        }
+        row.update(overrides)
+        return row
+
+    @pytest.mark.parametrize(
+        "row,expected",
+        [
+            ({"is_inherited": "true"}, True),
+            ({"is_inherited": "TRUE"}, True),
+            ({"is_inherited": True}, True),
+            ({"IS_INHERITED": True}, True),
+            ({"IS_INHERITED": "true"}, True),
+            ({"is_inherited": "false"}, False),
+            ({"is_inherited": False}, False),
+            ({"is_inherited": None}, False),
+            ({"IS_INHERITED": None}, False),
+            # Accounts without the preview, and Snowflake versions without the column,
+            # simply do not return it.
+            ({}, False),
+        ],
+    )
+    def test_is_inherited_grant_reads_both_casings_and_shapes(self, row, expected):
+        from snowcap.data_provider import _is_inherited_grant
+
+        assert _is_inherited_grant(row) is expected
+
+    def test_drop_inherited_grants_keeps_regular_grants(self):
+        from snowcap.data_provider import _drop_inherited_grants
+
+        rows = [self._regular_row(), self._inherited_row(), self._regular_row(privilege="INSERT")]
+
+        kept = _drop_inherited_grants(rows, "test")
+
+        assert len(kept) == 2
+        assert all(row["name"] for row in kept)
+
+    def test_drop_inherited_grants_is_a_noop_without_the_column(self):
+        from snowcap.data_provider import _drop_inherited_grants
+
+        rows = [{"privilege": "SELECT", "granted_on": "TABLE", "name": "MY_DB.MY_SCHEMA.MY_TABLE"}]
+
+        assert _drop_inherited_grants(rows, "test") == rows
+
+    @patch("snowcap.data_provider.execute")
+    def test_show_grants_to_role_filters_inherited_rows(self, mock_execute):
+        from snowcap.data_provider import _show_grants_to_role
+
+        mock_execute.return_value = [self._regular_row(), self._inherited_row()]
+
+        grants = _show_grants_to_role(MagicMock(), ResourceName("MY_ROLE"))
+
+        assert len(grants) == 1
+        assert grants[0]["name"] == "MY_DB.MY_SCHEMA.MY_TABLE"
+
+    @patch("snowcap.data_provider.execute")
+    def test_account_usage_query_requests_the_is_inherited_column(self, mock_execute):
+        from snowcap.data_provider import _fetch_grants_from_account_usage
+
+        mock_execute.return_value = []
+
+        _fetch_grants_from_account_usage(MagicMock())
+
+        query = mock_execute.call_args[0][1]
+        assert "IS_INHERITED" in query
+
+    @patch("snowcap.data_provider.execute")
+    def test_account_usage_drops_inherited_rows(self, mock_execute):
+        from datetime import datetime
+
+        from snowcap.data_provider import _fetch_grants_from_account_usage
+
+        mock_execute.return_value = [
+            {
+                "CREATED_ON": datetime(2024, 1, 1, 12, 0, 0),
+                "PRIVILEGE": "SELECT",
+                "GRANTED_ON": "TABLE",
+                "NAME": "MY_TABLE",
+                "TABLE_CATALOG": "MY_DB",
+                "TABLE_SCHEMA": "MY_SCHEMA",
+                "GRANTED_TO": "ACCOUNT ROLE",
+                "GRANTEE_NAME": "MY_ROLE",
+                "GRANT_OPTION": False,
+                "GRANTED_BY": "SYSADMIN",
+                "IS_INHERITED": False,
+            },
+            {
+                "CREATED_ON": datetime(2024, 1, 1, 12, 0, 0),
+                "PRIVILEGE": "SELECT",
+                "GRANTED_ON": "TABLE",
+                "NAME": None,
+                "TABLE_CATALOG": "MY_DB",
+                "TABLE_SCHEMA": None,
+                "GRANTED_TO": "ACCOUNT ROLE",
+                "GRANTEE_NAME": "MY_ROLE",
+                "GRANT_OPTION": False,
+                "GRANTED_BY": "SECURITYADMIN",
+                "IS_INHERITED": True,
+            },
+        ]
+
+        result = _fetch_grants_from_account_usage(MagicMock())
+
+        assert result is not None
+        assert len(result) == 1
+        assert result[0]["name"] == "MY_DB.MY_SCHEMA.MY_TABLE"
+
+    @patch("snowcap.data_provider.execute")
+    def test_account_usage_retries_without_the_column_when_unsupported(self, mock_execute):
+        """Snowflake versions without IS_INHERITED must not push the whole session onto the
+        slower per-role SHOW GRANTS path."""
+        from snowflake.connector.errors import ProgrammingError
+
+        from snowcap.client import INVALID_COLUMN_ERR
+        from snowcap.data_provider import _fetch_grants_from_account_usage
+
+        mock_execute.side_effect = [ProgrammingError(errno=INVALID_COLUMN_ERR), []]
+
+        result = _fetch_grants_from_account_usage(MagicMock())
+
+        assert result == []
+        assert mock_execute.call_count == 2
+        assert "IS_INHERITED" in mock_execute.call_args_list[0][0][1]
+        assert "IS_INHERITED" not in mock_execute.call_args_list[1][0][1]
+
+    @patch("snowcap.data_provider.execute")
+    def test_account_usage_still_falls_back_on_access_denied(self, mock_execute):
+        from snowflake.connector.errors import ProgrammingError
+
+        from snowcap.client import ACCESS_CONTROL_ERR
+        from snowcap.data_provider import _fetch_grants_from_account_usage
+
+        mock_execute.side_effect = ProgrammingError(errno=ACCESS_CONTROL_ERR)
+
+        assert _fetch_grants_from_account_usage(MagicMock()) is None
+        assert mock_execute.call_count == 1
+
+    @patch("snowcap.data_provider._show_grants_to_role")
+    @patch("snowcap.data_provider.list_database_roles")
+    @patch("snowcap.data_provider._should_use_account_usage")
+    @patch("snowcap.data_provider.execute")
+    def test_list_grants_does_not_surface_inherited_grants(
+        self, mock_execute, mock_should_use, mock_list_database_roles, mock_show_grants
+    ):
+        """A grant sync run must not try to REVOKE an inherited grant: there is no object
+        name to revoke it on, and it can only be removed with REVOKE INHERITED."""
+        from snowcap.data_provider import list_grants
+
+        mock_should_use.return_value = False
+        mock_list_database_roles.return_value = []
+        mock_execute.return_value = [{"name": "MY_ROLE"}]
+        # _show_grants_to_role does the filtering, so list_grants only ever sees the
+        # regular grant.
+        mock_show_grants.return_value = [self._regular_row()]
+
+        grants = list_grants(MagicMock(), include_future_grants=False)
+
+        assert len(grants) == 1
+        assert grants[0].params["on"] == "table/MY_DB.MY_SCHEMA.MY_TABLE"

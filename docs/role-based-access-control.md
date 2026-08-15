@@ -255,6 +255,20 @@ grants:
     contains managed access schemas, and when a schema-level future grant already shadows
     a database-level one.
 
+!!! note "Inherited grants are not managed by Snowcap"
+
+    Snowflake's [inherited grants](https://docs.snowflake.com/en/user-guide/inherited-grants-intro)
+    (`GRANT INHERITED <priv> ON ALL <type> IN <container>`, a preview feature enabled with
+    `FEATURE_RBAC_INHERITED_GRANTS`) are a single container-level grant covering every
+    current and future object of a type. They are not subject to the future grant
+    precedence rule above.
+
+    Snowcap cannot declare them yet. If your account has the feature enabled, Snowcap
+    ignores any inherited grants it finds: it will not manage them, and it will not try to
+    revoke them in grant sync mode or write them out of `snowcap export`. Privileges a
+    role holds only through an inherited grant are invisible to Snowcap, so grant them
+    explicitly to the role Snowcap runs as.
+
 ### Functional Roles and Hierarchy (roles__functional.yml)
 
 Define functional roles and assemble the role hierarchy:

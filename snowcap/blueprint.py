@@ -31,6 +31,7 @@ from .client import (
 )
 from .data_provider import SessionContext
 from .enums import (
+    OWNER_EXECUTED_RESOURCE_TYPES,
     AccountEdition,
     BlueprintScope,
     GrantType,
@@ -2147,6 +2148,19 @@ def execution_strategy_for_change(
         )
 
     elif isinstance(change, (UpdateResource, DropResource, TransferOwnership)):
+        if (
+            isinstance(change, TransferOwnership)
+            and change.urn.resource_type in OWNER_EXECUTED_RESOURCE_TYPES
+            and "SECURITYADMIN" in available_roles
+        ):
+            # Owner-executed objects run their body or schedule with the privileges of
+            # their owner. Snowflake tightened authorization for transferring them:
+            # GRANT OWNERSHIP fails unless the receiving role is in the caller's active
+            # role hierarchy or the caller holds account-level MANAGE GRANTS. Running the
+            # transfer as the outgoing owner, which is what Snowcap does for every other
+            # resource, satisfies neither condition in the common case.
+            # https://docs.snowflake.com/en/user-guide/inherited-grants-intro
+            return ResourceName("SECURITYADMIN"), False
         if change_owner:
             return change_owner, False
         else:

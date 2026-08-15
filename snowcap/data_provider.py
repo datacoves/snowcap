@@ -21,6 +21,7 @@ from .builtins import (
 from .client import (
     ACCESS_CONTROL_ERR,
     DOES_NOT_EXIST_ERR,
+    INVALID_COLUMN_ERR,
     INVALID_IDENTIFIER,
     OBJECT_DOES_NOT_EXIST_ERR,
     UNSUPPORTED_FEATURE,
@@ -180,6 +181,56 @@ def _fail_if_not_granted(result, *args):
         raise Exception("Failed to create grant")
     if len(result) == 1 and result[0]["status"] == "Grant not executed: Insufficient privileges.":
         raise Exception(result[0]["status"], *args)
+
+
+def _is_inherited_grant(row: dict[str, Any]) -> bool:
+    """
+    True when a grant row was produced by an inherited grant (GRANT INHERITED ...).
+
+    An inherited grant is a container-level grant that applies to every current and future
+    object of a type in an ACCOUNT, DATABASE, or SCHEMA. Snowflake reports these rows in
+    SHOW GRANTS and in ACCOUNT_USAGE.GRANTS_TO_ROLES with IS_INHERITED set, and with an
+    empty NAME, because the grant is defined on the container rather than on individual
+    securables.
+
+    Accounts that have not enabled FEATURE_RBAC_INHERITED_GRANTS never produce these rows,
+    and older Snowflake versions do not return the column at all, so a missing column reads
+    as "not inherited".
+    """
+    for key in ("is_inherited", "IS_INHERITED"):
+        if key in row:
+            value = row[key]
+            if isinstance(value, str):
+                return value.strip().lower() in ("true", "t", "yes", "y")
+            return bool(value)
+    return False
+
+
+def _drop_inherited_grants(rows: list[dict[str, Any]], context: str) -> list[dict[str, Any]]:
+    """
+    Remove inherited grant rows from a grant listing.
+
+    Snowcap has no representation for an inherited grant, and the rows cannot be treated as
+    object grants: they carry no object name, and revoking one requires
+    REVOKE INHERITED <priv> ON ALL <type> IN <container> FROM <grantee> rather than a
+    per-object REVOKE. Left in remote state they would make grant sync mode emit invalid
+    REVOKEs and `snowcap export` write grants that cannot be applied.
+
+    Filtering them out means Snowcap neither manages nor disturbs inherited grants. It also
+    means privileges a role holds only through inheritance are invisible to Snowcap's
+    preflight privilege checks, which can make those checks over-strict; failing loudly is
+    the safer direction until inherited grants are modeled.
+    """
+    if not rows:
+        return rows
+    kept = [row for row in rows if not _is_inherited_grant(row)]
+    dropped = len(rows) - len(kept)
+    if dropped:
+        logger.debug(
+            f"Ignoring {dropped} inherited grant(s) in {context}. Snowcap does not manage grants created with "
+            "GRANT INHERITED."
+        )
+    return kept
 
 
 def _fetch_grant_to_role(
@@ -552,7 +603,7 @@ def _show_users(session) -> list[dict]:
 
 def _get_account_privilege_roles(session: SnowflakeConnection) -> dict[str, list[ResourceName]]:
     grant_map: dict[str, list[ResourceName]] = {}
-    grants = execute(session, "SHOW GRANTS ON ACCOUNT")
+    grants = _drop_inherited_grants(execute(session, "SHOW GRANTS ON ACCOUNT"), "SHOW GRANTS ON ACCOUNT")
     for grant in grants:
         # Skip system grants
         if grant["granted_by"] == "":
@@ -614,7 +665,7 @@ def _show_grants_to_role(
         cacheable=cacheable,
         empty_response_codes=[DOES_NOT_EXIST_ERR],
     )
-    return grants
+    return _drop_inherited_grants(grants, f"SHOW GRANTS TO {role_type} {role}")
 
 
 def _show_future_grants_to_role(
@@ -888,6 +939,10 @@ _ACCOUNT_USAGE_GRANTS_CACHE: dict[int, list[dict[str, Any]]] = {}
 # Stores the normalized grant list from GRANTS_TO_USERS
 _ACCOUNT_USAGE_USER_GRANTS_CACHE: dict[int, list[dict[str, Any]]] = {}
 
+# Tracks sessions whose GRANTS_TO_ROLES view has no IS_INHERITED column (keyed by session
+# id). Absent means "assume the column exists"; the first query proves it either way.
+_ACCOUNT_USAGE_INHERITED_COLUMN: dict[int, bool] = {}
+
 
 def reset_account_usage_caches() -> None:
     """
@@ -898,11 +953,13 @@ def reset_account_usage_caches() -> None:
     """
     global _ACCOUNT_USAGE_ACCESS_CACHE, _ACCOUNT_USAGE_FALLBACK_CACHE
     global _ACCOUNT_USAGE_GRANTS_CACHE, _ACCOUNT_USAGE_USER_GRANTS_CACHE
+    global _ACCOUNT_USAGE_INHERITED_COLUMN
 
     _ACCOUNT_USAGE_ACCESS_CACHE.clear()
     _ACCOUNT_USAGE_FALLBACK_CACHE.clear()
     _ACCOUNT_USAGE_GRANTS_CACHE.clear()
     _ACCOUNT_USAGE_USER_GRANTS_CACHE.clear()
+    _ACCOUNT_USAGE_INHERITED_COLUMN.clear()
 
 
 def _mark_account_usage_fallback(session: SnowflakeConnection) -> None:
@@ -1005,6 +1062,36 @@ def _has_account_usage_access(session: SnowflakeConnection) -> bool:
 # ------------------------------
 
 
+def _grants_to_roles_query(include_inherited: bool = True) -> str:
+    """
+    Build the GRANTS_TO_ROLES query.
+
+    IS_INHERITED is selected so inherited grants can be told apart from object grants and
+    dropped; see _drop_inherited_grants(). It is omitted for accounts whose view does not
+    expose the column, which are accounts that cannot have inherited grants anyway.
+    """
+    columns = [
+        "CREATED_ON",
+        "PRIVILEGE",
+        "GRANTED_ON",
+        "NAME",
+        "TABLE_CATALOG",
+        "TABLE_SCHEMA",
+        "GRANTED_TO",
+        "GRANTEE_NAME",
+        "GRANT_OPTION",
+        "GRANTED_BY",
+    ]
+    if include_inherited:
+        columns.append("IS_INHERITED")
+    return f"""
+        SELECT
+            {', '.join(columns)}
+        FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_ROLES
+        WHERE DELETED_ON IS NULL
+    """
+
+
 def _fetch_grants_from_account_usage(session: SnowflakeConnection) -> list[dict[str, Any]] | None:
     """
     Fetch all role grants from SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_ROLES in a single query.
@@ -1033,36 +1120,38 @@ def _fetch_grants_from_account_usage(session: SnowflakeConnection) -> list[dict[
     if session_id in _ACCOUNT_USAGE_GRANTS_CACHE:
         return _ACCOUNT_USAGE_GRANTS_CACHE[session_id]
 
-    query = """
-        SELECT
-            CREATED_ON,
-            PRIVILEGE,
-            GRANTED_ON,
-            NAME,
-            TABLE_CATALOG,
-            TABLE_SCHEMA,
-            GRANTED_TO,
-            GRANTEE_NAME,
-            GRANT_OPTION,
-            GRANTED_BY
-        FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_ROLES
-        WHERE DELETED_ON IS NULL
-    """
+    has_inherited_column = _ACCOUNT_USAGE_INHERITED_COLUMN.get(session_id, True)
     try:
-        results = execute(session, query, cacheable=True)
+        results = execute(session, _grants_to_roles_query(include_inherited=has_inherited_column), cacheable=True)
     except ProgrammingError as err:
-        if err.errno == ACCESS_CONTROL_ERR:
+        if has_inherited_column and err.errno in (INVALID_COLUMN_ERR, INVALID_IDENTIFIER):
+            # Not every Snowflake version exposes IS_INHERITED, so an account whose
+            # GRANTS_TO_ROLES view lacks the column is queried without it. Such an account
+            # cannot have inherited grants to filter out in the first place.
+            logger.debug("GRANTS_TO_ROLES has no IS_INHERITED column, querying without it")
+            _ACCOUNT_USAGE_INHERITED_COLUMN[session_id] = False
+            try:
+                results = execute(session, _grants_to_roles_query(include_inherited=False), cacheable=True)
+            except Exception as retry_err:
+                logger.warning(f"ACCOUNT_USAGE query failed unexpectedly: {retry_err} - falling back to SHOW queries")
+                _mark_account_usage_fallback(session)
+                return None
+        elif err.errno == ACCESS_CONTROL_ERR:
             logger.warning("ACCOUNT_USAGE query failed: access denied - falling back to SHOW queries")
+            _mark_account_usage_fallback(session)
+            return None
         else:
             logger.warning(
                 f"ACCOUNT_USAGE query failed with error {err.errno}: {err.msg} - falling back to SHOW queries"
             )
-        _mark_account_usage_fallback(session)
-        return None
+            _mark_account_usage_fallback(session)
+            return None
     except Exception as err:
         logger.warning(f"ACCOUNT_USAGE query failed unexpectedly: {err} - falling back to SHOW queries")
         _mark_account_usage_fallback(session)
         return None
+
+    results = _drop_inherited_grants(results, "ACCOUNT_USAGE.GRANTS_TO_ROLES")
 
     # Normalize results to match SHOW GRANTS structure
     normalized_grants = []

@@ -388,6 +388,42 @@ def resource_type_is_grant(resource_type: ResourceType) -> bool:
     )
 
 
+# Object types whose body or schedule runs with the privileges of their owner rather than
+# the caller. Snowflake requires stricter authorization to transfer ownership of these:
+# the receiving role must be in the caller's active role hierarchy, or the caller must hold
+# account-level MANAGE GRANTS.
+# https://docs.snowflake.com/en/user-guide/inherited-grants-intro
+OWNER_EXECUTED_RESOURCE_TYPES = frozenset(
+    {
+        # Queryable objects
+        ResourceType.VIEW,
+        ResourceType.MATERIALIZED_VIEW,
+        ResourceType.DYNAMIC_TABLE,
+        ResourceType.SEMANTIC_VIEW,
+        ResourceType.EXTERNAL_TABLE,
+        ResourceType.DIRECTORY_TABLE,
+        ResourceType.EVENT_TABLE,
+        # Procedures and functions
+        ResourceType.PROCEDURE,
+        ResourceType.FUNCTION,
+        # Schedulers and triggers
+        ResourceType.TASK,
+        ResourceType.ALERT,
+        # Ingest
+        ResourceType.PIPE,
+        # Function-based policies
+        ResourceType.MASKING_POLICY,
+        ResourceType.ROW_ACCESS_POLICY,
+        ResourceType.AGGREGATION_POLICY,
+        # File-based code
+        ResourceType.STREAMLIT,
+        # Container services and composites
+        ResourceType.SERVICE,
+        ResourceType.CORTEX_SEARCH_SERVICE,
+    }
+)
+
+
 class EncryptionType(ParseableEnum):
     SNOWFLAKE_FULL = "SNOWFLAKE_FULL"
     SNOWFLAKE_SSE = "SNOWFLAKE_SSE"
