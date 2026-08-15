@@ -361,3 +361,10 @@ integrations; `priv: ALL` is not supported either, so list privileges explicitly
 and can only be granted to account roles, not database roles. Snowflake's
 `SHOW GRANTS` reports it as `USAGE` on shared databases — snowcap's fetch
 logic handles this quirk transparently.
+
+One `IMPORTED PRIVILEGES` grant also fans out in `SHOW GRANTS` into a row per object the
+share exposes — every view, function, procedure, schema, database role, class, tag and
+image repository in the database, which on the `SNOWFLAKE` database is several hundred
+rows. Those rows are never in your config, so `--sync_resources grant` treats them as
+covered by the declared grant rather than revoking them, the same way it treats the
+per-object grants produced by an `ALL` or `INHERITED` grant.

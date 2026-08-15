@@ -2076,3 +2076,110 @@ class TestInheritedGrantPlanning:
 
         assert "account_parameters" in str(excinfo.value)
         assert "SYSTEM$ENABLE_PREVIEW_ACCESS" not in str(excinfo.value)
+
+
+class TestImportedPrivilegesPlanning:
+    """
+    A single IMPORTED PRIVILEGES grant on a shared database fans out in SHOW GRANTS into a
+    row per object the share exposes. Those rows can never be in the manifest, so sync must
+    recognise them as covered rather than revoking the access the declared grant provides.
+    """
+
+    def _shared_object_grant_state(self, priv, on, on_type, to="Z_DB__SNOWFLAKE"):
+        urn = parse_URN(
+            f"urn::ABCD123:grant/GRANT?grant_type=OBJECT&priv={priv}&on={on_type.lower()}/{on}&to=role/{to}"
+        )
+        return urn, {
+            "priv": priv,
+            "on": on,
+            "on_type": on_type,
+            "to": to,
+            "items_type": None,
+            "to_type": "ROLE",
+            "grant_option": False,
+            "grant_type": "OBJECT",
+            "owner": "SYSADMIN",
+            "_privs": [priv],
+        }
+
+    def _manifest(self, session_ctx, resources):
+        return Blueprint(resources=resources).generate_manifest(session_ctx)
+
+    def _snowflake_share_manifest(self, session_ctx, to="Z_DB__SNOWFLAKE"):
+        return self._manifest(
+            session_ctx,
+            [
+                res.Role(name=to),
+                res.Grant(priv="IMPORTED PRIVILEGES", on="database SNOWFLAKE", to=to),
+            ],
+        )
+
+    @pytest.mark.parametrize(
+        "priv,on,on_type",
+        [
+            # The fan-out carries whatever privilege each object type takes, never
+            # "IMPORTED PRIVILEGES" itself.
+            ("SELECT", "SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY", "VIEW"),
+            ("USAGE", "SNOWFLAKE.CORE.DUPLICATE_COUNT(TABLE(DATE)", "FUNCTION"),
+            ("USAGE", "SNOWFLAKE.CORTEX.CREATE_AI_FUNCTION(VARCHAR)", "PROCEDURE"),
+            ("USAGE", "SNOWFLAKE.ACCOUNT_USAGE", "SCHEMA"),
+            ("USAGE", "SNOWFLAKE.CORTEX_USER", "DATABASE_ROLE"),
+            ("READ", "SNOWFLAKE.IMAGES.SNOWFLAKE_IMAGES", "IMAGE_REPOSITORY"),
+            ("APPLY", "SNOWFLAKE.CORE.CERTIFICATION_STATUS", "TAG"),
+            # Snowflake also reports the database itself
+            ("USAGE", "SNOWFLAKE", "DATABASE"),
+            ("REFERENCE_USAGE", "SNOWFLAKE", "DATABASE"),
+        ],
+    )
+    def test_fan_out_of_an_imported_privileges_grant_is_not_dropped(self, session_ctx, remote_state, priv, on, on_type):
+        remote_state = remote_state.copy()
+        urn, data = self._shared_object_grant_state(priv, on, on_type)
+        remote_state[urn] = data
+
+        plan = diff(remote_state, self._snowflake_share_manifest(session_ctx))
+
+        assert not [change for change in plan if isinstance(change, DropResource) and change.urn == urn]
+
+    def test_fan_out_to_a_different_grantee_is_still_dropped(self, session_ctx, remote_state):
+        """Coverage is scoped to the role named by the declared grant."""
+        remote_state = remote_state.copy()
+        urn, data = self._shared_object_grant_state(
+            "SELECT", "SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY", "VIEW", to="SOME_OTHER_ROLE"
+        )
+        remote_state[urn] = data
+
+        plan = diff(remote_state, self._snowflake_share_manifest(session_ctx))
+
+        assert [change for change in plan if isinstance(change, DropResource) and change.urn == urn]
+
+    def test_grants_outside_the_shared_database_are_still_dropped(self, session_ctx, remote_state):
+        """An IMPORTED PRIVILEGES grant protects only objects inside its own database."""
+        remote_state = remote_state.copy()
+        urn, data = self._shared_object_grant_state("SELECT", "OTHER_DB.SCH.TBL", "TABLE")
+        remote_state[urn] = data
+
+        plan = diff(remote_state, self._snowflake_share_manifest(session_ctx))
+
+        assert [change for change in plan if isinstance(change, DropResource) and change.urn == urn]
+
+    def test_a_database_named_like_the_share_is_not_covered(self, session_ctx, remote_state):
+        """Containment is by identifier; a different database is a different container."""
+        remote_state = remote_state.copy()
+        urn, data = self._shared_object_grant_state("USAGE", "SNOWFLAKE_OTHER", "DATABASE")
+        remote_state[urn] = data
+
+        plan = diff(remote_state, self._snowflake_share_manifest(session_ctx))
+
+        assert [change for change in plan if isinstance(change, DropResource) and change.urn == urn]
+
+    def test_object_grants_are_dropped_when_no_imported_privileges_are_declared(self, session_ctx, remote_state):
+        """Without a declared IMPORTED PRIVILEGES grant nothing changes: undeclared object
+        grants are still reaped by sync."""
+        remote_state = remote_state.copy()
+        urn, data = self._shared_object_grant_state("SELECT", "SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY", "VIEW")
+        remote_state[urn] = data
+        manifest = self._manifest(session_ctx, [res.Role(name="Z_DB__SNOWFLAKE")])
+
+        plan = diff(remote_state, manifest)
+
+        assert [change for change in plan if isinstance(change, DropResource) and change.urn == urn]

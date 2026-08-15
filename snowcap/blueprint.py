@@ -451,6 +451,46 @@ def _covered_by_collection_grant(collection_grants: list["ManifestResource"], re
     return False
 
 
+def _covered_by_imported_privileges(imported_privilege_grants: list["ManifestResource"], remote_res: dict) -> bool:
+    """
+    Is a remote per-object grant already provided by a declared IMPORTED PRIVILEGES grant?
+
+    `GRANT IMPORTED PRIVILEGES ON DATABASE <shared_db> TO ROLE <r>` is one statement, but
+    Snowflake fans it out in SHOW GRANTS into a row per object the share exposes -- every
+    view, function, procedure, schema, database role, class, tag and image repository in
+    the database, plus a USAGE row on the database itself. On the SNOWFLAKE shared database
+    that is several hundred rows.
+
+    None of those rows can be in the manifest: config declares the single IMPORTED
+    PRIVILEGES grant, not the fan-out. Without this check they read as undeclared grants and
+    get revoked on every sync, undoing the access the declared grant just handed out.
+
+    Unlike `_covered_by_collection_grant` this deliberately ignores the privilege. The
+    fan-out rows carry whatever privilege each object type takes -- SELECT on views, USAGE
+    on functions, READ on image repositories, APPLY on tags -- none of which is
+    "IMPORTED PRIVILEGES". Grantee and containment are what identify them.
+
+    Matching on containment alone is safe because IMPORTED PRIVILEGES is only grantable on a
+    shared database, and objects in a shared database cannot be granted independently: the
+    share is the only source of privileges on them.
+    """
+    if remote_res.get("grant_type") != GrantType.OBJECT.value:
+        return False
+    for grant in imported_privilege_grants:
+        data = grant.data
+        if data["to"] != remote_res["to"]:
+            continue
+        database = data["on"]
+        # The USAGE (and REFERENCE_USAGE) row Snowflake reports on the shared database itself
+        if remote_res["on_type"] == ResourceType.DATABASE.value and ResourceName(remote_res["on"]) == ResourceName(
+            database
+        ):
+            return True
+        if _container_covers(ResourceType.DATABASE.value, database, remote_res["on"]):
+            return True
+    return False
+
+
 def manifest_inherited_grants(manifest: "Manifest") -> list["ManifestResource"]:
     """Inherited grants declared in the manifest."""
     inherited = []
@@ -2679,6 +2719,15 @@ def diff(remote_state: State, manifest: Manifest) -> list:
         and r.data["grant_type"] in (GrantType.ALL.value, GrantType.INHERITED.value)
     ]
 
+    imported_privilege_grants = [
+        r
+        for r in manifest.resources
+        if not isinstance(r, ResourcePointer)
+        and r.resource_cls == Grant
+        and r.data["priv"] == "IMPORTED PRIVILEGES"
+        and r.data["on_type"] == ResourceType.DATABASE.value
+    ]
+
     # Resources in remote state but not in the manifest should be removed
     for urn in state_urns - manifest_urns:
         remote_res = remote_state[urn]
@@ -2686,6 +2735,9 @@ def diff(remote_state: State, manifest: Manifest) -> list:
         # are in remote state but never in the manifest. Dropping those would revoke the
         # access the collection grant just handed out.
         if _covered_by_collection_grant(collection_grants, remote_res):
+            continue
+        # Same reasoning for the fan-out of an IMPORTED PRIVILEGES grant on a shared database.
+        if _covered_by_imported_privileges(imported_privilege_grants, remote_res):
             continue
         changes.append(DropResource(urn, remote_state[urn]))
 
