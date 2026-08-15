@@ -221,6 +221,40 @@ grants:
     to: z_tables_views__select
 ```
 
+!!! warning "Database-level future grants can be silently ignored"
+
+    When future grants exist on the **same object type** at both the database and the
+    schema level, Snowflake gives the schema-level grant precedence and
+    [ignores the database-level grant](https://docs.snowflake.com/en/sql-reference/sql/grant-privilege#future-grants-on-database-or-schema-objects)
+    for that schema. Objects created there never receive the privilege, and nothing
+    fails — access is simply missing.
+
+    This is easy to trip over with managed access schemas, where privilege management is
+    centralized on the schema owner: the schema-level future grant that shadows the
+    database-level one is often added later, by a different config or a different team.
+    Managed access does not by itself disable database-level future grants (the one
+    exception is future grants of `OWNERSHIP`, which Snowcap does not support), but it is
+    where the conflict tends to appear.
+
+    If your schemas use `managed_access: true`, declare the future grants at the schema
+    level, in the same template that creates the schemas:
+
+    ```yaml
+    grants:
+      - for_each: var.schemas
+        priv: SELECT
+        on:
+          - "all tables in schema {{ each.value.name }}"
+          - "all views in schema {{ each.value.name }}"
+          - "future tables in schema {{ each.value.name }}"
+          - "future views in schema {{ each.value.name }}"
+        to: z_tables_views__select
+    ```
+
+    `snowcap plan` warns when it finds database-level future grants in a database that
+    contains managed access schemas, and when a schema-level future grant already shadows
+    a database-level one.
+
 ### Functional Roles and Hierarchy (roles__functional.yml)
 
 Define functional roles and assemble the role hierarchy:

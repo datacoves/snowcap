@@ -53,6 +53,9 @@ from snowcap.blueprint import (
     compile_plan_to_sql,
     diff,
     dump_plan,
+    future_grant_precedence_warnings,
+    manifest_state_entries,
+    plan_entries,
 )
 from snowcap.blueprint_config import BlueprintConfig
 from snowcap.data_provider import fetch_warehouse
@@ -1389,6 +1392,8 @@ class TestMCPServerSpecChangeRegrantsManagedGrants:
         )
         grant_changes = [change for change in plan if change.urn == grant_urn]
         assert len(grant_changes) == 1
+
+
 def test_blueprint_shared_database_create_default_owner(session_ctx, remote_state):
     shared_db = res.SharedDatabase(name="GONG", from_share="provider_account.share_name")
     blueprint = Blueprint(name="blueprint", resources=[shared_db])
@@ -1583,3 +1588,168 @@ def test_schema_under_shared_database_raises_clear_error(session_ctx):
 
     with pytest.raises(OrphanResourceException, match="Cannot add SCHEMA '.*' to SharedDatabase 'GONG'"):
         blueprint.generate_manifest(session_ctx)
+
+
+class TestFutureGrantPrecedenceWarnings:
+    """
+    Tests for the database-level future grant warning surfaced by
+    Blueprint._warning_for_nonconforming_plan.
+
+    Snowflake gives schema-level future grants precedence over database-level future
+    grants on the same object type, and silently ignores the database-level grant for
+    that schema. Managed access schemas make the conflict easy to introduce from a
+    separate config, so the check calls both situations out at plan time.
+    """
+
+    def _database_future_grants(self, database="MY_DB", to="READER", priv="SELECT"):
+        return [
+            res.Grant(priv=priv, on=f"future tables in database {database}", to=to),
+            res.Grant(priv=priv, on=f"future views in database {database}", to=to),
+        ]
+
+    def _warnings_for(self, session_ctx, resources):
+        blueprint = Blueprint(resources=resources)
+        manifest = blueprint.generate_manifest(session_ctx)
+        return future_grant_precedence_warnings(manifest_state_entries(manifest))
+
+    def test_managed_access_schema_with_database_future_grants_warns(self, session_ctx):
+        resources = [
+            res.Database(name="MY_DB"),
+            res.Schema(name="MY_SCHEMA", database="MY_DB", managed_access=True),
+            res.Role(name="READER"),
+            *self._database_future_grants(),
+        ]
+
+        warnings = self._warnings_for(session_ctx, resources)
+
+        assert len(warnings) == 1
+        assert "MY_DB.MY_SCHEMA" in warnings[0]
+        assert "managed access" in warnings[0]
+        assert "TABLES" in warnings[0] and "VIEWS" in warnings[0]
+
+    def test_schema_without_managed_access_produces_no_warning(self, session_ctx):
+        resources = [
+            res.Database(name="MY_DB"),
+            res.Schema(name="MY_SCHEMA", database="MY_DB"),
+            res.Role(name="READER"),
+            *self._database_future_grants(),
+        ]
+
+        assert self._warnings_for(session_ctx, resources) == []
+
+    def test_shadowing_schema_future_grant_warns_that_database_grant_is_ignored(self, session_ctx):
+        resources = [
+            res.Database(name="MY_DB"),
+            res.Schema(name="MY_SCHEMA", database="MY_DB", managed_access=True),
+            res.Role(name="READER"),
+            res.Role(name="WRITER"),
+            res.Grant(priv="SELECT", on="future tables in database MY_DB", to="READER"),
+            # A future grant on the same object type at the schema level, even to a
+            # different role, makes Snowflake ignore the database-level grant.
+            res.Grant(priv="INSERT", on="future tables in schema MY_DB.MY_SCHEMA", to="WRITER"),
+        ]
+
+        warnings = self._warnings_for(session_ctx, resources)
+
+        assert len(warnings) == 1
+        assert "is ignored for MY_DB.MY_SCHEMA" in warnings[0]
+        assert "SELECT ON FUTURE TABLES IN DATABASE MY_DB to READER" in warnings[0]
+        assert "managed access" in warnings[0]
+
+    def test_shadowing_is_scoped_to_the_same_object_type(self, session_ctx):
+        resources = [
+            res.Database(name="MY_DB"),
+            res.Schema(name="MY_SCHEMA", database="MY_DB"),
+            res.Role(name="READER"),
+            res.Grant(priv="SELECT", on="future tables in database MY_DB", to="READER"),
+            res.Grant(priv="SELECT", on="future views in schema MY_DB.MY_SCHEMA", to="READER"),
+        ]
+
+        assert self._warnings_for(session_ctx, resources) == []
+
+    def test_shadowing_is_scoped_to_the_same_database(self, session_ctx):
+        resources = [
+            res.Database(name="MY_DB"),
+            res.Database(name="OTHER_DB"),
+            res.Schema(name="MY_SCHEMA", database="OTHER_DB"),
+            res.Role(name="READER"),
+            res.Grant(priv="SELECT", on="future tables in database MY_DB", to="READER"),
+            res.Grant(priv="SELECT", on="future tables in schema OTHER_DB.MY_SCHEMA", to="READER"),
+        ]
+
+        assert self._warnings_for(session_ctx, resources) == []
+
+    def test_schema_level_future_grants_alone_produce_no_warning(self, session_ctx):
+        """The fix for the database-level trap: declare the grants at the schema level."""
+        resources = [
+            res.Database(name="MY_DB"),
+            res.Schema(name="MY_SCHEMA", database="MY_DB", managed_access=True),
+            res.Role(name="READER"),
+            res.Grant(priv="SELECT", on="future tables in schema MY_DB.MY_SCHEMA", to="READER"),
+            res.Grant(priv="SELECT", on="all tables in schema MY_DB.MY_SCHEMA", to="READER"),
+        ]
+
+        assert self._warnings_for(session_ctx, resources) == []
+
+    def test_managed_access_from_remote_state_is_detected(self, session_ctx):
+        """The schema is already managed access in Snowflake and unchanged in this run, so
+        only remote state knows about it."""
+        blueprint = Blueprint(
+            resources=[
+                res.Database(name="MY_DB"),
+                res.Role(name="READER"),
+                *self._database_future_grants(),
+            ]
+        )
+        manifest = blueprint.generate_manifest(session_ctx)
+        schema_urn = URN(
+            resource_type=ResourceType.SCHEMA,
+            fqn=FQN(ResourceName("REMOTE_SCHEMA"), database=ResourceName("MY_DB")),
+            account_locator=session_ctx["account_locator"],
+        )
+        remote_state = {schema_urn: {"name": "REMOTE_SCHEMA", "managed_access": True}}
+
+        warnings = future_grant_precedence_warnings(manifest_state_entries(manifest, remote_state))
+
+        assert len(warnings) == 1
+        assert "MY_DB.REMOTE_SCHEMA" in warnings[0]
+
+    def test_warning_is_surfaced_by_the_plan_warning_hook(self, session_ctx, caplog):
+        blueprint = Blueprint(
+            resources=[
+                res.Database(name="MY_DB"),
+                res.Schema(name="MY_SCHEMA", database="MY_DB", managed_access=True),
+                res.Role(name="READER"),
+                *self._database_future_grants(),
+            ]
+        )
+        manifest = blueprint.generate_manifest(session_ctx)
+
+        with caplog.at_level(logging.WARNING, logger="snowcap"):
+            blueprint._warning_for_nonconforming_plan(session_ctx, [], manifest)
+
+        assert "managed access" in caplog.text
+        assert "MY_DB.MY_SCHEMA" in caplog.text
+
+    def test_prebuilt_plan_falls_back_to_plan_contents(self, session_ctx):
+        """`snowcap apply --plan plan.json` never rebuilds the manifest, so the check runs
+        over the changes in the plan instead."""
+        blueprint = Blueprint(
+            resources=[
+                res.Database(name="MY_DB"),
+                res.Schema(name="MY_SCHEMA", database="MY_DB", managed_access=True),
+                res.Role(name="READER"),
+                *self._database_future_grants(),
+            ]
+        )
+        manifest = blueprint.generate_manifest(session_ctx)
+        plan = [
+            CreateResource(urn, item.resource_cls, None, item.data)
+            for urn, item in manifest.items()
+            if hasattr(item, "data")
+        ]
+
+        warnings = future_grant_precedence_warnings(plan_entries(plan))
+
+        assert len(warnings) == 1
+        assert "MY_DB.MY_SCHEMA" in warnings[0]

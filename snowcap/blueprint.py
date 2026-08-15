@@ -17,6 +17,7 @@ from typing import (
 )
 
 import snowflake.connector
+from inflection import pluralize
 
 from . import data_provider, lifecycle
 from .blueprint_config import BlueprintConfig
@@ -264,6 +265,176 @@ def manifest_future_grant_roles(manifest: "Manifest") -> set:
                         role_name = to
                     roles.add(role_name.upper())
     return roles
+
+
+FUTURE_GRANT_PRECEDENCE_DOCS = (
+    "https://docs.snowflake.com/en/sql-reference/sql/grant-privilege#future-grants-on-database-or-schema-objects"
+)
+
+
+def _grant_grantee_label(data: dict) -> str:
+    """Render the grantee of a grant for display. `to` is either a bare role name or a
+    labelled FQN like `database_role/DB.ROLE`, depending on how the grant was built."""
+    to = str(data.get("to") or "")
+    if "/" in to:
+        to = to.split("/", 1)[1]
+    return to
+
+
+def _future_grant_scopes(entries) -> tuple[set[str], list[dict], set[tuple[str, str]]]:
+    """
+    Bucket resources into the three things the managed-access check needs:
+    managed access schemas, database-level future grants, and schema-level future grants.
+
+    `entries` is an iterable of (urn, resource_type, data) so the check can run over a
+    manifest, over remote state, or over a plan without caring which it was handed.
+    """
+    managed_access_schemas: set[str] = set()
+    database_future_grants: list[dict] = []
+    schema_future_grants: set[tuple[str, str]] = set()
+
+    for urn, resource_type, data in entries:
+        if resource_type == ResourceType.SCHEMA:
+            if data.get("managed_access") and urn.fqn.database:
+                managed_access_schemas.add(f"{urn.fqn.database}.{urn.fqn.name}".upper())
+        elif resource_type == ResourceType.GRANT:
+            if data.get("grant_type") != GrantType.FUTURE.value:
+                continue
+            items_type = str(data.get("items_type") or "").upper()
+            on_type = str(data.get("on_type") or "").upper()
+            on = str(data.get("on") or "").upper()
+            if not items_type or not on:
+                continue
+            if on_type == ResourceType.DATABASE.value:
+                database_future_grants.append(
+                    {
+                        "database": on,
+                        "items_type": items_type,
+                        "priv": str(data.get("priv") or ""),
+                        "to": _grant_grantee_label(data),
+                    }
+                )
+            elif on_type == ResourceType.SCHEMA.value:
+                schema_future_grants.add((on, items_type))
+
+    return managed_access_schemas, database_future_grants, schema_future_grants
+
+
+def _format_schema_list(schemas: Sequence[str], limit: int = 3) -> str:
+    shown = list(schemas[:limit])
+    remainder = len(schemas) - len(shown)
+    if remainder > 0:
+        return f"{', '.join(shown)} (and {remainder} more)"
+    return ", ".join(shown)
+
+
+def future_grant_precedence_warnings(entries) -> list[str]:
+    """
+    Warn about database-level future grants that Snowflake will silently ignore.
+
+    Snowflake gives schema-level future grants precedence over database-level future
+    grants on the same object type: when both exist, the database-level grant is ignored
+    for that schema, and objects created there never receive the privilege.
+
+    Managed access schemas are where this bites hardest. They centralize privilege
+    management on the schema owner, so the schema-level future grants that shadow a
+    database-level grant are typically added by a different config (or a different team)
+    than the one that declared the database-level grant, and nothing surfaces the
+    conflict until someone reports missing access on a newly created table.
+
+    Note that this precedence rule is not specific to managed access schemas, and that
+    managed access does not by itself disable database-level future grants -- Snowflake
+    documents that they apply to regular and managed access schemas alike. The one
+    managed-access-specific exception is future grants of OWNERSHIP, which Snowcap does
+    not support.
+    """
+    managed_access_schemas, database_future_grants, schema_future_grants = _future_grant_scopes(entries)
+
+    if not database_future_grants:
+        return []
+
+    warnings = []
+
+    # Case 1: a schema-level future grant on the same object type already shadows the
+    # database-level grant. This is a live misconfiguration, not just a risk.
+    shadowed: dict[tuple[str, str, str, str], list[str]] = defaultdict(list)
+    for grant in database_future_grants:
+        prefix = grant["database"] + "."
+        for schema_fqn, schema_items_type in schema_future_grants:
+            if schema_items_type == grant["items_type"] and schema_fqn.startswith(prefix):
+                key = (grant["database"], grant["items_type"], grant["priv"], grant["to"])
+                shadowed[key].append(schema_fqn)
+
+    for (database, items_type, priv, to), schemas in sorted(shadowed.items()):
+        schemas = sorted(set(schemas))
+        managed = [schema for schema in schemas if schema in managed_access_schemas]
+        managed_note = (
+            f" {_format_schema_list(managed)} {'is a' if len(managed) == 1 else 'are'} managed access "
+            f"{'schema' if len(managed) == 1 else 'schemas'}."
+            if managed
+            else ""
+        )
+        warnings.append(
+            f"{priv} ON FUTURE {pluralize(items_type).upper()} IN DATABASE {database} to {to} is ignored for "
+            f"{_format_schema_list(schemas)}, which define their own future grants on {items_type}. "
+            f"Snowflake gives schema-level future grants precedence over database-level future grants on the "
+            f"same object type, so objects created in those schemas will not receive this privilege."
+            f"{managed_note} Declare the privilege as a schema-level future grant on those schemas. "
+            f"See {FUTURE_GRANT_PRECEDENCE_DOCS}"
+        )
+
+    # Case 2: managed access schemas covered only by database-level future grants. Not
+    # broken today, but a single schema-level future grant on the same object type --
+    # added anywhere, by anyone -- silently switches the privilege off for that schema.
+    databases_with_managed_access: dict[str, list[str]] = defaultdict(list)
+    for schema_fqn in managed_access_schemas:
+        databases_with_managed_access[schema_fqn.split(".", 1)[0]].append(schema_fqn)
+
+    at_risk: dict[str, set[str]] = defaultdict(set)
+    for grant in database_future_grants:
+        database = grant["database"]
+        if database not in databases_with_managed_access:
+            continue
+        if (database, grant["items_type"], grant["priv"], grant["to"]) in shadowed:
+            continue
+        at_risk[database].add(grant["items_type"])
+
+    for database, items_types in sorted(at_risk.items()):
+        schemas = sorted(databases_with_managed_access[database])
+        types = ", ".join(pluralize(items_type).upper() for items_type in sorted(items_types))
+        warnings.append(
+            f"Database {database} grants access to {types} with database-level future grants and contains "
+            f"managed access {'schema' if len(schemas) == 1 else 'schemas'} {_format_schema_list(schemas)}. "
+            f"Adding a schema-level future grant on the same object type to any of those schemas silently "
+            f"disables the database-level grant for that schema. Declaring future grants at the schema level "
+            f"alongside managed_access is the durable pattern. See {FUTURE_GRANT_PRECEDENCE_DOCS}"
+        )
+
+    return warnings
+
+
+def manifest_state_entries(manifest: "Manifest", remote_state: Optional["State"] = None):
+    """Yield (urn, resource_type, data) for every concrete resource in the manifest, plus
+    anything remote state knows about that the manifest doesn't declare."""
+    seen = set()
+    for urn, item in manifest.items():
+        if isinstance(item, ManifestResource):
+            seen.add(urn)
+            yield urn, urn.resource_type, item.data
+    for urn, data in (remote_state or {}).items():
+        if urn not in seen and isinstance(data, dict):
+            yield urn, urn.resource_type, data
+
+
+def plan_entries(plan: "Plan"):
+    """Yield (urn, resource_type, data) for the resources a plan creates or updates.
+
+    A plan only carries what is changing, so this sees less than the manifest does. It is
+    the fallback for `snowcap apply --plan plan.json`, where the manifest isn't rebuilt.
+    """
+    for change in plan:
+        if isinstance(change, (CreateResource, UpdateResource)):
+            yield change.urn, change.urn.resource_type, change.after
 
 
 def manifest_future_grant_database_roles(manifest: "Manifest") -> set:
@@ -1166,8 +1337,22 @@ class Blueprint:
                 exception_block = "\n".join(exceptions)
             raise NonConformingPlanException("Non-conforming actions found in plan:\n" + exception_block)
 
-    def _warning_for_nonconforming_plan(self, session_ctx: SessionContext, plan: Plan):
+    def _warning_for_nonconforming_plan(
+        self,
+        session_ctx: SessionContext,
+        plan: Plan,
+        manifest: Optional[Manifest] = None,
+        remote_state: Optional[State] = None,
+    ):
         warnings = []
+
+        # Future grant precedence is a property of the whole config, not of the changes in
+        # the plan, so use the manifest when we have it and fall back to the plan when we
+        # were handed a pre-built one.
+        if manifest is not None:
+            warnings.extend(future_grant_precedence_warnings(manifest_state_entries(manifest, remote_state)))
+        else:
+            warnings.extend(future_grant_precedence_warnings(plan_entries(plan)))
 
         grant_to_system = False
         role_grant_to_system = False
@@ -1715,7 +1900,7 @@ class Blueprint:
             logger.error(manifest)
             raise
         self._raise_for_nonconforming_plan(session_ctx, finished_plan)
-        self._warning_for_nonconforming_plan(session_ctx, finished_plan)
+        self._warning_for_nonconforming_plan(session_ctx, finished_plan, manifest, remote_state)
         return finished_plan
 
     def apply(self, session, plan: Optional[Plan] = None) -> None:
@@ -2098,9 +2283,7 @@ def sql_commands_for_change(
     return execution_role, [cmd for cmd in all_cmds if cmd is not None]
 
 
-def compile_plan_to_sql(
-    session_ctx: SessionContext, plan: Plan
-) -> tuple[list[dict], list[ResourceName]]:
+def compile_plan_to_sql(session_ctx: SessionContext, plan: Plan) -> tuple[list[dict], list[ResourceName]]:
     """Compile the plan into a list of SQL command lists, one per change.
 
     Returns:
@@ -2120,7 +2303,11 @@ def compile_plan_to_sql(
                 if change.after.get("to_role") and change.after["to_role"] in available_roles:
                     available_roles.append(ResourceName(change.after["role"]))
                 # Handle role grants to the current user
-                elif current_user and change.after.get("to_user") and ResourceName(change.after["to_user"]) == current_user:
+                elif (
+                    current_user
+                    and change.after.get("to_user")
+                    and ResourceName(change.after["to_user"]) == current_user
+                ):
                     available_roles.append(ResourceName(change.after["role"]))
     for change in plan:
         role, commands = sql_commands_for_change(change, available_roles, default_role)
