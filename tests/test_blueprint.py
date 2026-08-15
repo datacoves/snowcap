@@ -2041,3 +2041,38 @@ class TestInheritedGrantPlanning:
         flag_urn = URN.from_resource(account_locator=locator, resource=flag)
         grant_urn = URN.from_resource(account_locator=locator, resource=grant)
         assert (grant_urn, flag_urn) not in manifest.refs
+
+    def test_error_points_at_preview_access_when_it_is_disabled(self, session_ctx):
+        """Setting the parameter will not help while preview features are off account-wide,
+        and Snowcap cannot turn them on -- it is a system function, not a resource."""
+        manifest = self._manifest(
+            session_ctx,
+            [
+                res.Database(name="MY_DB"),
+                res.Role(name="READER"),
+                res.Grant(priv="SELECT", on="INHERITED TABLES IN DATABASE MY_DB", to="READER"),
+            ],
+        )
+
+        with patch("snowcap.data_provider.fetch_inherited_grants_enabled", return_value=False):
+            with patch("snowcap.data_provider.fetch_preview_access_enabled", return_value=False):
+                with pytest.raises(MissingPrivilegeException, match=r"SYSTEM\$ENABLE_PREVIEW_ACCESS"):
+                    raise_if_inherited_grants_unavailable(MagicMock(), manifest)
+
+    def test_error_suggests_the_parameter_when_preview_access_is_fine(self, session_ctx):
+        manifest = self._manifest(
+            session_ctx,
+            [
+                res.Database(name="MY_DB"),
+                res.Role(name="READER"),
+                res.Grant(priv="SELECT", on="INHERITED TABLES IN DATABASE MY_DB", to="READER"),
+            ],
+        )
+
+        with patch("snowcap.data_provider.fetch_inherited_grants_enabled", return_value=False):
+            with patch("snowcap.data_provider.fetch_preview_access_enabled", return_value=True):
+                with pytest.raises(MissingPrivilegeException) as excinfo:
+                    raise_if_inherited_grants_unavailable(MagicMock(), manifest)
+
+        assert "account_parameters" in str(excinfo.value)
+        assert "SYSTEM$ENABLE_PREVIEW_ACCESS" not in str(excinfo.value)

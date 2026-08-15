@@ -494,19 +494,37 @@ def raise_if_inherited_grants_unavailable(session, manifest: "Manifest") -> None
     if manifest_enables_inherited_grants(manifest):
         return
 
-    if data_provider.fetch_inherited_grants_enabled(session) is False:
-        example = grant_on_clause(_Grant(**declared[0].data))
-        raise MissingPrivilegeException(
-            f"This config declares {len(declared)} inherited grant(s), for example '{example}', but "
-            f"{INHERITED_GRANTS_FEATURE_FLAG} is not enabled on this account.\n"
-            "  Enable preview features for the account, then either run:\n"
-            f"    ALTER ACCOUNT SET {INHERITED_GRANTS_FEATURE_FLAG} = 'ENABLED';\n"
-            "  or let Snowcap manage it:\n"
-            "    account_parameters:\n"
-            f"      - name: {INHERITED_GRANTS_FEATURE_FLAG}\n"
-            "        value: ENABLED\n"
-            f"  See {INHERITED_GRANT_DOCS}"
+    if data_provider.fetch_inherited_grants_enabled(session) is not False:
+        return
+
+    example = grant_on_clause(_Grant(**declared[0].data))
+    message = (
+        f"This config declares {len(declared)} inherited grant(s), for example '{example}', but "
+        f"{INHERITED_GRANTS_FEATURE_FLAG} is not enabled on this account.\n"
+    )
+
+    # Preview access gates every preview feature at once and is normally on. When it is
+    # off, setting the parameter alone will not help, so say that rather than sending the
+    # operator down the wrong path.
+    if data_provider.fetch_preview_access_enabled(session) is False:
+        message += (
+            "  Preview features are disabled account-wide. Snowcap cannot change that -- it is a\n"
+            "  system function, not a resource -- so an account admin needs to run:\n"
+            "    SELECT SYSTEM$ENABLE_PREVIEW_ACCESS();\n"
+            "  after which Snowcap can manage the parameter itself:\n"
         )
+    else:
+        message += "  Let Snowcap manage it:\n"
+
+    message += (
+        "    account_parameters:\n"
+        f"      - name: {INHERITED_GRANTS_FEATURE_FLAG}\n"
+        "        value: ENABLED\n"
+        "  Or set it directly:\n"
+        f"    ALTER ACCOUNT SET {INHERITED_GRANTS_FEATURE_FLAG} = 'ENABLED';\n"
+        f"  See {INHERITED_GRANT_DOCS}"
+    )
+    raise MissingPrivilegeException(message)
 
 
 def manifest_state_entries(manifest: "Manifest", remote_state: Optional["State"] = None):

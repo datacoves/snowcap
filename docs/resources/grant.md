@@ -340,10 +340,9 @@ inherited_grant = Grant(
   Turns a grant on all objects in a container into an inherited grant, which also covers
   objects created later. Defaults to `false`.
 
-**Note:** Inherited grants are a Snowflake preview feature. Once preview features are
-enabled for the account, Snowcap can manage the opt-in with an
-[AccountParameter](account_parameter.md), which it applies before any inherited grant that
-depends on it:
+**Note:** Inherited grants are a Snowflake preview feature, opted into with an account
+parameter. Snowcap manages it with an [AccountParameter](account_parameter.md), applied
+before any inherited grant that depends on it:
 
 ```yaml
 account_parameters:

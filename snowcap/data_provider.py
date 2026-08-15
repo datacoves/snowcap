@@ -912,6 +912,35 @@ def fetch_inherited_grants_enabled(session: SnowflakeConnection) -> Optional[boo
     return enabled
 
 
+def fetch_preview_access_enabled(session: SnowflakeConnection) -> Optional[bool]:
+    """
+    Does this account have access to preview features at all?
+
+    Preview access is on by default for most accounts, and it gates every preview feature
+    at once. It is toggled with the SYSTEM$ENABLE_PREVIEW_ACCESS and
+    SYSTEM$DISABLE_PREVIEW_ACCESS functions rather than with an account parameter, so it is
+    not something Snowcap can manage as a resource -- but knowing the answer turns
+    "GRANT INHERITED failed" into an actionable message.
+
+    Returns None when the status cannot be read.
+    https://docs.snowflake.com/en/release-notes/preview-features
+    """
+    try:
+        rows = execute(session, "SELECT SYSTEM$GET_PREVIEW_ACCESS_STATUS() AS status", cacheable=True)
+    except Exception as err:
+        logger.debug(f"Could not read preview access status: {err}")
+        return None
+
+    if not rows:
+        return None
+    status = str(rows[0].get("STATUS") or rows[0].get("status") or "").upper()
+    if "ENABLED" in status:
+        return True
+    if "DISABLED" in status:
+        return False
+    return None
+
+
 def fetch_session(session: SnowflakeConnection) -> SessionContext:
     session_obj = execute(
         session,

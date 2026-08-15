@@ -2219,3 +2219,27 @@ class TestInheritedGrants:
         mock_execute.side_effect = Exception("Insufficient privileges")
 
         assert fetch_inherited_grants_enabled(MagicMock()) is None
+
+    @pytest.mark.parametrize(
+        "status,expected",
+        [
+            ("Preview access is ENABLED for this account", True),
+            ("Preview access is DISABLED for this account", False),
+            ("something unexpected", None),
+        ],
+    )
+    @patch("snowcap.data_provider.execute")
+    def test_preview_access_status_is_read_from_the_system_function(self, mock_execute, status, expected):
+        from snowcap.data_provider import fetch_preview_access_enabled
+
+        mock_execute.return_value = [{"STATUS": status}]
+
+        assert fetch_preview_access_enabled(MagicMock()) is expected
+
+    @patch("snowcap.data_provider.execute")
+    def test_preview_access_status_is_undetermined_when_unreadable(self, mock_execute):
+        from snowcap.data_provider import fetch_preview_access_enabled
+
+        mock_execute.side_effect = Exception("Insufficient privileges")
+
+        assert fetch_preview_access_enabled(MagicMock()) is None

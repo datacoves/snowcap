@@ -428,9 +428,8 @@ they are reapplied on every run.
 
 ### Requirements
 
-Inherited grants are a Snowflake preview feature. Once preview features are enabled for
-the account, Snowcap can manage the opt-in itself — declare it alongside your other
-account parameters:
+Inherited grants are a Snowflake preview feature, opted into with an account parameter.
+Snowcap manages that parameter like any other — declare it alongside the rest:
 
 ```yaml
 # account.yml
@@ -440,8 +439,9 @@ account_parameters:
 ```
 
 Snowcap applies the parameter before any inherited grant that depends on it, so a single
-`snowcap apply` can enable the preview and create the grants in one run. The equivalent
-SQL, if you would rather set it outside of Snowcap:
+`snowcap apply` can enable the preview and create the grants in one run. `ALTER ACCOUNT`
+requires `ACCOUNTADMIN`, which is the role Snowcap already uses for account parameters.
+The equivalent SQL, if you would rather set it outside of Snowcap:
 
 ```sql
 ALTER ACCOUNT SET FEATURE_RBAC_INHERITED_GRANTS = 'ENABLED';
@@ -450,13 +450,22 @@ ALTER ACCOUNT SET FEATURE_RBAC_INHERITED_GRANTS = 'ENABLED';
 Either way, `snowcap plan` fails with a clear message if your config declares inherited
 grants and neither the account nor the config has opted in.
 
-!!! note
+!!! note "If preview features are turned off account-wide"
 
-    Enabling preview features for the account is a separate, prior step that Snowcap
-    cannot do for you — see Snowflake's
-    [preview features](https://docs.snowflake.com/en/release-notes/preview-features)
-    documentation. `ALTER ACCOUNT` requires `ACCOUNTADMIN`, which is the role Snowcap uses
-    for account parameters.
+    Preview access gates every preview feature at once and is
+    [enabled by default for most accounts](https://docs.snowflake.com/en/release-notes/preview-features),
+    so usually there is nothing to do. If it has been disabled, the parameter above will
+    not take effect until an account admin re-enables it:
+
+    ```sql
+    SELECT SYSTEM$GET_PREVIEW_ACCESS_STATUS();  -- check
+    SELECT SYSTEM$ENABLE_PREVIEW_ACCESS();      -- enable
+    ```
+
+    These are system function calls rather than resources, so Snowcap cannot manage them
+    declaratively. It does detect the situation: if preview access is off, `snowcap plan`
+    says so and points at the function to call, rather than suggesting the parameter that
+    would not help.
 
 Creating one requires `MANAGE GRANTS` on the container, not just ownership of it. By
 default Snowcap issues grants as `SECURITYADMIN`. To delegate to a database or schema
