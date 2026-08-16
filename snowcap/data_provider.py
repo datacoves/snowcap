@@ -3845,6 +3845,18 @@ def list_databases(session: SnowflakeConnection) -> list[FQN]:
     return [FQN(name=database) for database in databases]
 
 
+def list_database_owners(session: SnowflakeConnection) -> dict[str, str]:
+    """
+    Owner role of every database in the account, keyed by upper-cased name.
+
+    Used to manage grants held by database roles, which live inside a database and cannot
+    be reached with account-level authority alone. Reads the same cached SHOW DATABASES
+    response _list_databases uses, so this costs no extra query.
+    """
+    show_result = execute(session, "SHOW DATABASES", cacheable=True)
+    return {row["name"].upper(): row["owner"] for row in show_result if row.get("owner")}
+
+
 def list_shared_database_names(session: SnowflakeConnection) -> set[str]:
     """
     Names of databases mounted from a share, upper-cased.
