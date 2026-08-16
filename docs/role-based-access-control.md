@@ -646,6 +646,49 @@ schemas:
 
 With `managed_access: true`, even if an analyst creates a view, they cannot grant SELECT on it—only the schema owner can. This ensures all access flows through your defined role hierarchy.
 
+### Cloned Databases (QA, blue-green, PR environments)
+
+Cloning a database does two different things to grants:
+
+| What | Happens to grants |
+|------|-------------------|
+| The database itself | **Not** copied — the clone starts with no grants on it |
+| Schemas, tables and other child objects | **Copied** — each keeps the grants its source had |
+
+So after `CREATE DATABASE BALBOA_QA CLONE BALBOA`, every `z_schema__<name>` role
+already holds USAGE on the clone's copy of its schema, without anyone writing
+that down. Only the database-level grant is missing, which is why a clone is
+normally followed by a re-grant of `USAGE ON DATABASE` to `z_db__<name>`.
+
+That is the behaviour you want — a role named for a schema keeps its meaning in
+every copy of that schema — but Snowcap does not know about it. With
+`--sync_resources grant`, those copied grants are remote state that no config
+declares, so a plan proposes dropping them. Applying that leaves roles with
+usage on the clone's database and no access to anything inside it.
+
+Declare them with a filtered loop over the schema list you already keep:
+
+```yaml
+grants:
+  - for_each: var.schemas
+    where: "each.value.name.split('.')[0] == 'BALBOA'"
+    priv: USAGE
+    on: "schema BALBOA_QA.{{ each.value.name.split('.')[1] }}"
+    to: "z_schema__{{ each.value.name.split('.')[1] }}"
+```
+
+The `where` keeps the block off schemas in databases that have no clone. Adding
+a schema to the source layer covers its clone automatically, so the two cannot
+drift apart. The clone's schemas themselves stay undeclared — the clone creates
+them, and Snowcap only needs to describe the access.
+
+**Do not reach for `all schemas in database` here.** It looks like less
+configuration, but it grants every role that holds it the entire clone. If
+roles are scoped by layer — an analyst role seeing L1 through L3 and a reporter
+role seeing only L3 — a database-wide grant silently flattens that distinction
+in the clone while leaving it intact in the source, which is the kind of gap
+that survives review precisely because the source still looks correct.
+
 ## See Also
 
 - [Grant](resources/grant.md)
