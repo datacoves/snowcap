@@ -2213,7 +2213,14 @@ class Blueprint:
 
         _raise_if_plan_would_drop_session_user(session_ctx, plan)
 
-        sql_commands_per_change, available_roles = compile_plan_to_sql(session_ctx, plan)
+        # Databases mounted from a share, resolved only when the plan actually revokes a
+        # grant: privileges on those cannot be revoked one at a time. See
+        # lifecycle.drop_shared_database_grant.
+        shared_databases: Optional[set[str]] = None
+        if any(isinstance(c, DropResource) and c.urn.resource_type == ResourceType.GRANT for c in plan):
+            shared_databases = data_provider.list_shared_database_names(session)
+
+        sql_commands_per_change, available_roles = compile_plan_to_sql(session_ctx, plan, shared_databases)
         roles_list: list[Any] = []
         additive_commands = []
         destructive_commands = []
@@ -2293,6 +2300,25 @@ def _inherited_grant_execution_role(change: ResourceChange) -> Optional[str]:
     if not owner or owner in ("SYSADMIN", "ACCOUNTADMIN"):
         return None
     return str(owner)
+
+
+def _shared_database_for_grant(change: ResourceChange, shared_databases: Optional[set[str]]) -> Optional[str]:
+    """
+    The shared database a grant being dropped belongs to, if any.
+
+    A grant on a shared database, or on anything inside one, is part of the fan-out of an
+    IMPORTED PRIVILEGES grant and cannot be revoked on its own. Returns the database so the
+    caller can revoke the share instead; None for ordinary grants.
+    """
+    if not shared_databases or not isinstance(change, DropResource):
+        return None
+    if change.urn.resource_type != ResourceType.GRANT:
+        return None
+    on = change.before.get("on")
+    if not on:
+        return None
+    database = str(on).split(".")[0].strip('"').upper()
+    return database if database in shared_databases else None
 
 
 def execution_strategy_for_change(
@@ -2436,6 +2462,7 @@ def sql_commands_for_change(
     available_roles: list[ResourceName],
     default_role: ResourceName,
     transferred_owners: Optional[dict[URN, ResourceName]] = None,
+    shared_databases: Optional[set[str]] = None,
 ) -> tuple[ResourceName, list[str]]:
     """
     In Snowflake's RBAC model, a session has an active role, and zero or more secondary roles.
@@ -2511,11 +2538,15 @@ def sql_commands_for_change(
                     copy_current_grants=True,
                 )
             )
-        change_cmd = lifecycle.drop_resource(
-            change.urn,
-            change.before,
-            if_exists=True,
-        )
+        shared_database = _shared_database_for_grant(change, shared_databases)
+        if shared_database:
+            change_cmd = lifecycle.drop_shared_database_grant(change.before, shared_database)
+        else:
+            change_cmd = lifecycle.drop_resource(
+                change.urn,
+                change.before,
+                if_exists=True,
+            )
     elif isinstance(change, TransferOwnership):
         change_cmd = lifecycle.transfer_resource(
             change.urn,
@@ -2528,7 +2559,9 @@ def sql_commands_for_change(
     return execution_role, [cmd for cmd in all_cmds if cmd is not None]
 
 
-def compile_plan_to_sql(session_ctx: SessionContext, plan: Plan) -> tuple[list[dict], list[ResourceName]]:
+def compile_plan_to_sql(
+    session_ctx: SessionContext, plan: Plan, shared_databases: Optional[set[str]] = None
+) -> tuple[list[dict], list[ResourceName]]:
     """Compile the plan into a list of SQL command lists, one per change.
 
     Returns:
@@ -2561,7 +2594,9 @@ def compile_plan_to_sql(session_ctx: SessionContext, plan: Plan) -> tuple[list[d
                 ):
                     available_roles.append(ResourceName(change.after["role"]))
     for change in plan:
-        role, commands = sql_commands_for_change(change, available_roles, default_role, transferred_owners)
+        role, commands = sql_commands_for_change(
+            change, available_roles, default_role, transferred_owners, shared_databases
+        )
         sql_commands_per_change.append({"role": role, "commands": commands, "change": change})
     return sql_commands_per_change, available_roles
 

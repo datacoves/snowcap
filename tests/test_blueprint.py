@@ -1319,7 +1319,9 @@ class TestWarningForNonconformingPlanMCPServer:
         blueprint = Blueprint(resources=[])
 
         monkeypatch.setattr("snowcap.blueprint.data_provider.fetch_session", lambda session: session_ctx)
-        monkeypatch.setattr("snowcap.blueprint.compile_plan_to_sql", lambda session_ctx, plan: ([], []))
+        monkeypatch.setattr(
+            "snowcap.blueprint.compile_plan_to_sql", lambda session_ctx, plan, shared_databases=None: ([], [])
+        )
 
         with caplog.at_level(logging.WARNING, logger="snowcap"):
             blueprint.apply(session=None, plan=[change])
@@ -2256,3 +2258,64 @@ class TestCreateInsideTransferredContainer:
 
         create = [c for c in commands if isinstance(c["change"], CreateResource)][0]
         assert create["role"] == ResourceName("TRANSFORMER_DBT")
+
+
+class TestDroppingGrantsOnSharedDatabases:
+    """Privileges on a shared database arrive as the fan-out of one IMPORTED PRIVILEGES
+    grant and cannot be revoked one at a time. Snowflake rejects the individual revoke with
+    "Revoking individual privileges on imported database is not allowed", and because that
+    is a SQL compilation error rather than a permissions one it aborts the apply."""
+
+    def _drop(self, priv, on, on_type, to="ANALYST"):
+        return DropResource(
+            urn=parse_URN(
+                f"urn::ABCD123:grant/GRANT?grant_type=OBJECT&priv={priv}&on={on_type.lower()}/{on}&to=role/{to}"
+            ),
+            before={
+                "priv": priv,
+                "on": on,
+                "on_type": on_type,
+                "to": to,
+                "to_type": "ROLE",
+                "items_type": None,
+                "grant_option": False,
+                "grant_type": "OBJECT",
+                "owner": "SYSADMIN",
+                "_privs": [priv],
+            },
+        )
+
+    @pytest.mark.parametrize(
+        "priv,on,on_type",
+        [
+            ("USAGE", "WORLDWIDE_ADDRESS_DATA", "DATABASE"),
+            ("USAGE", "WORLDWIDE_ADDRESS_DATA.ADDRESS", "SCHEMA"),
+            ("SELECT", "WORLDWIDE_ADDRESS_DATA.ADDRESS.OPENADDRESS", "TABLE"),
+        ],
+    )
+    def test_every_row_of_the_fan_out_revokes_the_share(self, session_ctx, priv, on, on_type):
+        """Database, schema and object rows all map to the same statement -- the share is
+        the only thing that can be given back."""
+        commands, _ = compile_plan_to_sql(
+            session_ctx, [self._drop(priv, on, on_type)], {"WORLDWIDE_ADDRESS_DATA"}
+        )
+
+        sql = " ".join(commands[0]["commands"])
+        assert "REVOKE IMPORTED PRIVILEGES ON DATABASE WORLDWIDE_ADDRESS_DATA FROM ROLE ANALYST" in sql
+        assert "REVOKE USAGE ON DATABASE WORLDWIDE_ADDRESS_DATA" not in sql
+
+    def test_ordinary_databases_still_revoke_the_individual_privilege(self, session_ctx):
+        """The share form must not leak onto normal databases, where it is invalid."""
+        commands, _ = compile_plan_to_sql(
+            session_ctx, [self._drop("USAGE", "BALBOA", "DATABASE")], {"WORLDWIDE_ADDRESS_DATA"}
+        )
+
+        sql = " ".join(commands[0]["commands"])
+        assert "REVOKE USAGE ON DATABASE BALBOA FROM ROLE ANALYST" in sql
+        assert "IMPORTED PRIVILEGES" not in sql
+
+    def test_no_shared_databases_known_leaves_behaviour_unchanged(self, session_ctx):
+        commands, _ = compile_plan_to_sql(session_ctx, [self._drop("USAGE", "WORLDWIDE_ADDRESS_DATA", "DATABASE")])
+
+        sql = " ".join(commands[0]["commands"])
+        assert "REVOKE USAGE ON DATABASE WORLDWIDE_ADDRESS_DATA" in sql

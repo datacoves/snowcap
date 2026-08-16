@@ -3820,6 +3820,18 @@ def list_databases(session: SnowflakeConnection) -> list[FQN]:
     return [FQN(name=database) for database in databases]
 
 
+def list_shared_database_names(session: SnowflakeConnection) -> set[str]:
+    """
+    Names of databases mounted from a share, upper-cased.
+
+    Grants on these cannot be revoked one privilege at a time; see
+    lifecycle.drop_shared_database_grant. Reads the same cached SHOW DATABASES response
+    _list_databases uses, so this costs no extra query.
+    """
+    show_result = execute(session, "SHOW DATABASES", cacheable=True)
+    return {row["name"].upper() for row in show_result if row["kind"] == "IMPORTED DATABASE"}
+
+
 def list_database_roles(session: SnowflakeConnection, database=None) -> list[FQN]:
     databases: list[ResourceName]
     if database:

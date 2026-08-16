@@ -604,6 +604,33 @@ def drop_database_role_grant(urn: URN, data: dict, **kwargs):
     )
 
 
+def drop_shared_database_grant(data: dict, database: str) -> str:
+    """
+    Revoke a grant that a share handed out, given any one row of its fan-out.
+
+    Privileges on a shared database are not independently revocable. Snowflake grants them
+    with one statement, GRANT IMPORTED PRIVILEGES ON DATABASE <db>, then reports them in
+    SHOW GRANTS as a row per object the share exposes -- USAGE on the database, USAGE on
+    each schema, SELECT on each view, and so on. Revoking any of those rows on its own is
+    rejected:
+
+        Revoking individual privileges on imported database is not allowed.
+        Use 'REVOKE IMPORTED PRIVILEGES'
+
+    The share is the only source of privileges on those objects, so revoking IMPORTED
+    PRIVILEGES removes the whole fan-out for that grantee in one statement. Every row of the
+    fan-out therefore maps to the same revoke, which is idempotent: the first one takes the
+    access away and any repeat finds nothing left to revoke.
+    """
+    return tidy_sql(
+        "REVOKE IMPORTED PRIVILEGES ON DATABASE",
+        ResourceName(database),
+        "FROM",
+        data["to_type"],
+        data["to"],
+    )
+
+
 def drop_function(urn: URN, data: dict, if_exists: bool) -> str:
     return tidy_sql(
         "DROP",
