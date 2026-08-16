@@ -101,3 +101,33 @@ def test_for_each():
     assert blueprint_config.resources is not None
     assert len(blueprint_config.resources) == 2
     assert [resource.urn.fqn.name for resource in blueprint_config.resources] == ["role_bar", "role_baz"]
+
+
+def test_for_each_where_filters_items():
+    """`where` narrows a for_each to a subset without a second var.
+
+    Lets one list drive several blocks that each cover part of it -- e.g. the
+    same schema list granting on a source database and on a clone of it.
+    """
+    config = {
+        "vars": [{"name": "schemas", "default": ["SRC.ONE", "SRC.TWO", "OTHER.THREE"], "type": "list"}],
+        "roles": [
+            {
+                "for_each": "var.schemas",
+                "where": "each.value.split('.')[0] == 'SRC'",
+                "name": "role_{{ each.value.split('.')[1] }}",
+            }
+        ],
+    }
+    blueprint_config = collect_blueprint_config(config)
+    assert blueprint_config.resources is not None
+    assert [resource.urn.fqn.name for resource in blueprint_config.resources] == ["role_ONE", "role_TWO"]
+
+
+def test_for_each_without_where_is_unfiltered():
+    config = {
+        "vars": [{"name": "schemas", "default": ["SRC.ONE", "OTHER.TWO"], "type": "list"}],
+        "roles": [{"for_each": "var.schemas", "name": "role_{{ each.value.split('.')[1] }}"}],
+    }
+    blueprint_config = collect_blueprint_config(config)
+    assert [resource.urn.fqn.name for resource in blueprint_config.resources] == ["role_ONE", "role_TWO"]

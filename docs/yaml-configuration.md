@@ -95,6 +95,27 @@ Inside a `for_each` block, you have access to:
 | `each.value.<field>` | Access a field of the current item |
 | `each.index` | The index of the current item (0-based) |
 
+### Filtering a Loop (where)
+
+Add `where` to run a block over only part of a list. The expression is bare
+Jinja — no `{{ }}` — and items it evaluates falsy for are skipped:
+
+```yaml
+grants:
+  # The schema list also covers databases other than BALBOA, so narrow it
+  - for_each: var.schemas
+    where: "each.value.name.split('.')[0] == 'BALBOA'"
+    priv: USAGE
+    on: "schema BALBOA_QA.{{ each.value.name.split('.')[1] }}"
+    to: "z_schema__{{ each.value.name.split('.')[1] }}"
+```
+
+This lets one list drive several blocks that each cover a subset of it, rather
+than maintaining a second list per subset. It is the usual way to grant on a
+clone of a database — a QA or blue-green copy — without restating every schema:
+the same `z_schema__<name>` role reaches the copy, so per-schema roles keep
+their meaning and tiered roles stay tiered.
+
 ### Creating Roles and Grants
 
 A common pattern is creating a role and grant for each resource:

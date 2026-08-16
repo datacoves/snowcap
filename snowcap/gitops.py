@@ -14,7 +14,7 @@ from .exceptions import InvalidKeyException, MissingVarException, MultipleValida
 from .identifiers import resource_label_for_type, resource_type_for_label
 from .resources import DatabaseRoleGrant, Resource, RoleGrant
 from .resources.resource import ResourcePointer
-from .var import process_for_each, string_contains_var
+from .var import evaluate_for_each_where, process_for_each, string_contains_var
 
 logger = logging.getLogger("snowcap")
 
@@ -197,6 +197,7 @@ def _resources_for_config(config: dict, vars: dict):
                         resource_cls = Resource.resolve_resource_cls(resource_type, resource_data)
                         resource_instance = resource_data.copy()
                         for_each = resource_instance.pop("for_each")
+                        for_each_where = resource_instance.pop("where", None)
 
                         if isinstance(for_each, str) and for_each.startswith("var."):
                             var_name = for_each.split(".")[1]
@@ -207,8 +208,12 @@ def _resources_for_config(config: dict, vars: dict):
                             raise ValueError(f"for_each must be a var reference. Got: `{for_each}`")
 
                         for each_value in for_each_input:
+                            if for_each_where is not None and not evaluate_for_each_where(for_each_where, each_value):
+                                continue
                             try:
                                 for key, value in resource_data.items():
+                                    if key in ("for_each", "where"):
+                                        continue
                                     if isinstance(value, str) and string_contains_var(value):
                                         key_type = getattr(resource_cls.spec, key, None)
                                         resource_instance[key] = process_for_each(value, each_value)

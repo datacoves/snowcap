@@ -106,3 +106,23 @@ def process_for_each(resource_value: str, each_value: Any) -> str:
                 ) from e
         # Fallback to original error if we can't parse it
         raise MissingVarException(f"Error in for_each template '{resource_value}': {e}") from e
+
+
+def evaluate_for_each_where(condition: str, each_value: Any) -> bool:
+    """Evaluate a for_each `where` expression against one item.
+
+    The expression is bare Jinja (no braces), e.g.
+
+        where: each.value.name.split('.')[0] == 'BALBOA'
+
+    Items whose expression is falsy are skipped, which lets one var drive
+    several blocks that each cover a subset of it.
+    """
+    try:
+        expression = GLOBAL_JINJA_ENV.compile_expression(condition)
+    except jinja2.exceptions.TemplateSyntaxError as e:
+        raise MissingVarException(f"Invalid for_each where expression '{condition}': {e}") from e
+    try:
+        return bool(expression(var=VarStub(), parent=ParentStub(), each={"value": each_value}))
+    except jinja2.exceptions.UndefinedError as e:
+        raise MissingVarException(f"Error in for_each where expression '{condition}': {e}") from e
