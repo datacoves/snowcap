@@ -121,13 +121,6 @@ class ComputePoolPriv(Priv):
     USAGE = "USAGE"
 
 
-class CortexAgentServerPriv(Priv):
-    ALL = "ALL"
-    MONITOR = "MONITOR"
-    OWNERSHIP = "OWNERSHIP"
-    USAGE = "USAGE"
-
-
 class CortexSearchServicePriv(Priv):
     ALL = "ALL"
     MONITOR = "MONITOR"
@@ -447,7 +440,6 @@ PRIVS_FOR_RESOURCE_TYPE: dict[ResourceType, Optional[type[Priv]]] = {
     ResourceType.CLASS: None,
     ResourceType.COLUMN: None,
     ResourceType.COMPUTE_POOL: ComputePoolPriv,
-    ResourceType.CORTEX_AGENT_SERVER: CortexAgentServerPriv,
     ResourceType.CORTEX_SEARCH_SERVICE: CortexSearchServicePriv,
     ResourceType.DATABASE_ROLE: DatabaseRolePriv,
     ResourceType.DATABASE: DatabasePriv,

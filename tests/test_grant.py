@@ -179,34 +179,38 @@ def test_grant_on_cortex_search_service():
     assert "MONITOR ON CORTEX SEARCH SERVICE" in monitor_grant.create_sql()
 
 
-def test_grant_on_cortex_agent_server():
-    """Grants on a CORTEX AGENT SERVER parse and render correctly.
+def test_grant_on_cortex_agent_server_resolves_to_mcp_server():
+    """'CORTEX AGENT SERVER' is the grant-side spelling of an MCP server.
 
-    Snowflake creates a cortex agent server when an account connects an MCP
-    client. Its grants surface in SHOW GRANTS with granted_on
-    'CORTEX_AGENT_SERVER'; before this type was known, reading that remote
-    state raised "Expected Grant.on_type to be one of (...)" and aborted plan.
+    Snowflake creates an MCP server when an account connects an MCP client.
+    SHOW MCP SERVERS lists it, but SHOW GRANTS reports privileges on it with
+    granted_on 'CORTEX_AGENT_SERVER', and the DDL grammar accepts only
+    MCP SERVER -- GRANT ... ON CORTEX AGENT SERVER is a syntax error. Reading
+    that remote state used to abort plan with "Expected Grant.on_type to be
+    one of (...)".
     """
-    grant = res.Grant(
-        priv="USAGE",
-        on_cortex_agent_server="somedb.someschema.someserver",
-        to="somerole",
-    )
-    assert grant._data.on == "SOMEDB.SOMESCHEMA.SOMESERVER"
-    assert grant._data.on_type == ResourceType.CORTEX_AGENT_SERVER
-    assert "USAGE ON CORTEX AGENT SERVER" in grant.create_sql()
+    assert ResourceType("CORTEX AGENT SERVER") is ResourceType.MCP_SERVER
 
-    # Reading remote state is what actually broke: fetch_remote_state builds the
-    # spec directly via resource_cls.spec(**data), bypassing Grant.__init__ (and
-    # so its OWNERSHIP rejection). Snowflake reports the agent server it creates
-    # for an MCP client as an OWNERSHIP grant to ACCOUNTADMIN.
+    # fetch_remote_state builds the spec directly via resource_cls.spec(**data),
+    # bypassing Grant.__init__ and its OWNERSHIP rejection. Snowflake reports
+    # the server it creates for an MCP client as OWNERSHIP to ACCOUNTADMIN.
     remote_spec = _Grant(
         priv="OWNERSHIP",
         on="somedb.someschema.someserver",
         on_type="CORTEX_AGENT_SERVER".replace("_", " "),
         to="somerole",
     )
-    assert remote_spec.on_type == ResourceType.CORTEX_AGENT_SERVER
+    assert remote_spec.on_type == ResourceType.MCP_SERVER
+
+    # However it is spelled in config, it renders as the DDL Snowflake accepts
+    grant = res.Grant(
+        priv="USAGE",
+        on_cortex_agent_server="somedb.someschema.someserver",
+        to="somerole",
+    )
+    assert grant._data.on == "SOMEDB.SOMESCHEMA.SOMESERVER"
+    assert grant._data.on_type == ResourceType.MCP_SERVER
+    assert "USAGE ON MCP SERVER" in grant.create_sql()
 
 
 def test_grant_on_dbt_project():

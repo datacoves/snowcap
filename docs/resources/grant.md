@@ -65,12 +65,6 @@ grants:
     on: cortex search service somedb.someschema.someservice
     to: search_observability_role
 
-  # AI: USAGE on a Cortex Agent Server, which backs Snowflake's MCP server
-  # integration. Snowflake creates one when an account connects an MCP client.
-  - priv: USAGE
-    on: cortex agent server somedb.someschema.someserver
-    to: mcp_client_role
-
   # AI: schema-scope privilege to allow a role to create semantic views
   - priv: CREATE SEMANTIC VIEW
     on: schema somedb.someschema
@@ -91,7 +85,9 @@ grants:
     on: dbt project somedb.someschema.analytics_dbt
     to: analytics_observer
 
-  # AI: USAGE on an MCP Server so MCP clients can call its tools
+  # AI: USAGE on an MCP Server so MCP clients can call its tools.
+  # Snowflake reports grants on these with granted_on 'CORTEX_AGENT_SERVER',
+  # which Snowcap accepts as a synonym; the DDL grammar only takes MCP SERVER.
   - priv: USAGE
     on: mcp server somedb.someschema.someserver
     to: mcp_client_role

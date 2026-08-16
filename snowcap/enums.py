@@ -55,7 +55,6 @@ class ResourceType(ParseableEnum):
     CLASS = "CLASS"
     COLUMN = "COLUMN"
     COMPUTE_POOL = "COMPUTE POOL"
-    CORTEX_AGENT_SERVER = "CORTEX AGENT SERVER"
     CORTEX_SEARCH_SERVICE = "CORTEX SEARCH SERVICE"
     DATABASE = "DATABASE"
     DATABASE_ROLE = "DATABASE ROLE"
@@ -114,6 +113,14 @@ class ResourceType(ParseableEnum):
     USER = "USER"
     VIEW = "VIEW"
     WAREHOUSE = "WAREHOUSE"
+
+    @classmethod
+    def synonyms(cls):
+        # Snowflake reports grants on an MCP server with granted_on
+        # 'CORTEX_AGENT_SERVER', but the DDL grammar only accepts MCP SERVER --
+        # GRANT ... ON CORTEX AGENT SERVER is a syntax error. Same object, two
+        # names, so map the grant-side spelling onto the DDL one.
+        return {"CORTEX AGENT SERVER": "MCP_SERVER"}
 
 
 class Scope(ParseableEnum):
