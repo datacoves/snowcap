@@ -5,6 +5,7 @@ from snowcap.enums import GrantType, ResourceType
 from snowcap.privs import GrantedPrivilege, all_privs_for_resource_type
 from snowcap.identifiers import URN
 from snowcap.resource_name import ResourceName
+from snowcap.resources.grant import _Grant
 from snowcap.resources.resource import ResourcePointer
 
 
@@ -195,15 +196,17 @@ def test_grant_on_cortex_agent_server():
     assert grant._data.on_type == ResourceType.CORTEX_AGENT_SERVER
     assert "USAGE ON CORTEX AGENT SERVER" in grant.create_sql()
 
-    # The on_type spelling data_provider derives from a SHOW GRANTS granted_on
-    # value of 'CORTEX_AGENT_SERVER'
-    remote_grant = res.Grant(
-        priv="USAGE",
+    # Reading remote state is what actually broke: fetch_remote_state builds the
+    # spec directly via resource_cls.spec(**data), bypassing Grant.__init__ (and
+    # so its OWNERSHIP rejection). Snowflake reports the agent server it creates
+    # for an MCP client as an OWNERSHIP grant to ACCOUNTADMIN.
+    remote_spec = _Grant(
+        priv="OWNERSHIP",
         on="somedb.someschema.someserver",
         on_type="CORTEX_AGENT_SERVER".replace("_", " "),
         to="somerole",
     )
-    assert remote_grant._data.on_type == ResourceType.CORTEX_AGENT_SERVER
+    assert remote_spec.on_type == ResourceType.CORTEX_AGENT_SERVER
 
 
 def test_grant_on_dbt_project():
