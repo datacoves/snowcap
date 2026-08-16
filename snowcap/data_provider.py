@@ -236,6 +236,33 @@ def _is_role_hierarchy_grant(row: dict[str, Any]) -> bool:
     return row["granted_on"].replace("_", " ").upper() in ("ROLE", "DATABASE ROLE")
 
 
+def _is_intrinsic_database_role_usage(row: dict[str, Any], grantee: str) -> bool:
+    """
+    True when a row is the USAGE on its own database that a database role is born with.
+
+    Creating a database role gives it USAGE on the database it belongs to. Snowflake
+    reports that in SHOW GRANTS like any other grant, but with an empty granted_by and a
+    timestamp matching the CREATE, because no role granted it -- it is part of the role
+    existing, the way OWNERSHIP is.
+
+    Nothing can revoke it. REVOKE reports success and leaves it in place, even run as the
+    database owner, so listing it as a grant puts a row in remote state that no config can
+    declare away and no apply can remove: sync proposes the same drop on every run, forever.
+
+    An explicitly granted USAGE on the same database is a second, separate row with
+    granted_by populated. The two are indistinguishable once reduced to a grant URN, so
+    this skips both and a declared USAGE on a database role's own database simply re-grants
+    each apply -- harmless, since the role already has it.
+    """
+    if row["privilege"] != "USAGE":
+        return False
+    if row["granted_on"].replace("_", " ").upper() != "DATABASE":
+        return False
+    if "." not in grantee:
+        return False
+    return str(row["name"]).upper() == grantee.split(".")[0].upper()
+
+
 def _granted_on_label(granted_on: str) -> str:
     """
     The object-type half of a grant URN's `on`, normalized the way the manifest builds it.
@@ -4129,6 +4156,10 @@ def list_grants(
                 if data["privilege"] == "OWNERSHIP":
                     continue
 
+                # A database role is born holding usage on its own database
+                if to_prefix == "database_role" and _is_intrinsic_database_role_usage(data, grantee):
+                    continue
+
                 # Skip undocumented privs
                 if data["privilege"] in ["CANCEL QUERY"]:
                     continue
@@ -4222,6 +4253,10 @@ def list_grants(
 
                 # Snowcap Grants don't support OWNERSHIP privilege
                 if data["privilege"] == "OWNERSHIP":
+                    continue
+
+                # A database role is born holding usage on its own database
+                if _is_intrinsic_database_role_usage(data, fq_db_role_name):
                     continue
 
                 # Skip undocumented privs

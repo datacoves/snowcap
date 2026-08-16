@@ -2392,3 +2392,85 @@ class TestGrantsReportedUnderASynonym:
         grants = list_grants(MagicMock(), include_future_grants=False)
 
         assert [fqn.params["on"] for fqn in grants] == ["mcp_server/ADMIN_DB.MCPS.DATACOVES"]
+
+
+class TestIntrinsicDatabaseRoleUsage:
+    """Creating a database role gives it USAGE on the database it belongs to. Snowflake
+    reports that like any other grant but with an empty granted_by, because no role granted
+    it -- it is part of the role existing, the way OWNERSHIP is. Nothing can revoke it:
+    REVOKE reports success and leaves it in place even when run as the database owner. So
+    listing it puts a row in remote state no config can declare away and no apply can
+    remove, and sync proposes the same drop on every run forever."""
+
+    def _row(self, **overrides):
+        row = {
+            "privilege": "USAGE",
+            "granted_on": "DATABASE",
+            "name": "GREAT_BAY",
+            "granted_to": "DATABASE_ROLE",
+            "grantee_name": "GREAT_BAY.DR_CREATE_ROLE",
+            "grant_option": "false",
+            "granted_by": "",
+            "is_inherited": "false",
+        }
+        row.update(overrides)
+        return row
+
+    @pytest.mark.parametrize(
+        "row_overrides,grantee,expected,because",
+        [
+            ({}, "GREAT_BAY.DR_CREATE_ROLE", True, "usage on its own database"),
+            ({"name": "OTHER_DB"}, "GREAT_BAY.DR_CREATE_ROLE", False, "usage on a different database is real"),
+            (
+                {"granted_on": "SCHEMA", "name": "GREAT_BAY.PUBLIC"},
+                "GREAT_BAY.DR_CREATE_ROLE",
+                False,
+                "schema usage is real",
+            ),
+            ({"privilege": "SELECT"}, "GREAT_BAY.DR_CREATE_ROLE", False, "only USAGE is intrinsic"),
+            ({}, "ANALYST", False, "an account role has no own database"),
+        ],
+    )
+    def test_only_the_roles_own_database_usage_is_intrinsic(self, row_overrides, grantee, expected, because):
+        from snowcap.data_provider import _is_intrinsic_database_role_usage
+
+        assert _is_intrinsic_database_role_usage(self._row(**row_overrides), grantee) is expected, because
+
+    def test_an_explicit_grant_is_indistinguishable_and_also_skipped(self):
+        """Snowflake keeps a second row with granted_by populated when the same usage is
+        granted explicitly. Both reduce to one grant URN, so both are skipped and a declared
+        usage on a database role's own database simply re-grants -- the role already has it."""
+        from snowcap.data_provider import _is_intrinsic_database_role_usage
+
+        explicit = self._row(granted_by="TRANSFORMER_DBT")
+
+        assert _is_intrinsic_database_role_usage(explicit, "GREAT_BAY.DR_CREATE_ROLE") is True
+
+    @patch("snowcap.data_provider.list_database_roles")
+    @patch("snowcap.data_provider._should_use_account_usage")
+    @patch("snowcap.data_provider.execute")
+    def test_list_grants_omits_it_but_keeps_real_grants(
+        self, mock_execute, mock_should_use, mock_list_database_roles
+    ):
+        from snowcap.data_provider import list_grants
+        from snowcap.identifiers import FQN
+        from snowcap.resource_name import ResourceName
+
+        mock_should_use.return_value = False
+        mock_list_database_roles.return_value = [
+            FQN(name=ResourceName("DR_CREATE_ROLE"), database=ResourceName("GREAT_BAY"))
+        ]
+
+        def execute_side_effect(session, query, **kwargs):
+            if "SHOW ROLES" in query:
+                return []
+            return [
+                self._row(),  # intrinsic, must not be listed
+                self._row(granted_on="SCHEMA", name="GREAT_BAY.COVE_MARKETING", granted_by="TRANSFORMER_DBT"),
+            ]
+
+        mock_execute.side_effect = execute_side_effect
+
+        grants = list_grants(MagicMock(), include_future_grants=False)
+
+        assert [fqn.params["on"] for fqn in grants] == ["schema/GREAT_BAY.COVE_MARKETING"]
