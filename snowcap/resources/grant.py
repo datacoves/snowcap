@@ -782,6 +782,15 @@ class DatabaseRoleGrant(Resource):
             to_database_role: somedb.someotherrole
           - database_role: somedb.somerole
             to_role: somerole
+
+          # `roles` and `database_roles` grant the same database role to several
+          # targets, and both kinds may appear in one entry
+          - database_role: somedb.somerole
+            roles:
+              - analyst
+              - loader
+            database_roles:
+              - somedb.someotherrole
         ```
     """
 

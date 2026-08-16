@@ -131,3 +131,77 @@ def test_for_each_without_where_is_unfiltered():
     }
     blueprint_config = collect_blueprint_config(config)
     assert [resource.urn.fqn.name for resource in blueprint_config.resources] == ["role_ONE", "role_TWO"]
+
+
+class TestDatabaseRoleGrantsFromYaml:
+    """A database role can be granted to an account role or to another database role.
+    DatabaseRoleGrant and the SQL either side of it have always handled both; only this
+    loader did not, so nesting was expressible in Python and not in config -- and an entry
+    asking for it produced no resource rather than an error, so the grant never appeared in
+    the plan at all."""
+
+    def _build(self, config):
+        from snowcap.gitops import _resources_from_database_role_grants_config
+
+        return [r.create_sql() for r in _resources_from_database_role_grants_config(config)]
+
+    def test_grant_to_an_account_role(self):
+        assert self._build([{"database_role": "db.child", "to_role": "analyst"}]) == [
+            "GRANT DATABASE ROLE DB.CHILD TO ROLE ANALYST"
+        ]
+
+    def test_grant_to_several_account_roles(self):
+        """`roles` is the long-standing plural here and has to keep working."""
+        assert self._build([{"database_role": "db.child", "roles": ["analyst", "loader"]}]) == [
+            "GRANT DATABASE ROLE DB.CHILD TO ROLE ANALYST",
+            "GRANT DATABASE ROLE DB.CHILD TO ROLE LOADER",
+        ]
+
+    def test_grant_to_another_database_role(self):
+        assert self._build([{"database_role": "db.child", "to_database_role": "db.parent"}]) == [
+            "GRANT DATABASE ROLE DB.CHILD TO DATABASE ROLE DB.PARENT"
+        ]
+
+    def test_grant_to_several_database_roles(self):
+        assert self._build([{"database_role": "db.child", "database_roles": ["db.p1", "db.p2"]}]) == [
+            "GRANT DATABASE ROLE DB.CHILD TO DATABASE ROLE DB.P1",
+            "GRANT DATABASE ROLE DB.CHILD TO DATABASE ROLE DB.P2",
+        ]
+
+    def test_both_kinds_of_target_in_one_entry(self):
+        assert self._build(
+            [{"database_role": "db.child", "roles": ["analyst"], "database_roles": ["db.parent"]}]
+        ) == [
+            "GRANT DATABASE ROLE DB.CHILD TO ROLE ANALYST",
+            "GRANT DATABASE ROLE DB.CHILD TO DATABASE ROLE DB.PARENT",
+        ]
+
+    def test_an_entry_that_grants_to_nothing_is_an_error(self):
+        """This is what made the gap invisible: it used to yield no resource and no
+        complaint, so the grant was simply missing from the plan."""
+        with pytest.raises(ValueError, match="grants it to nothing"):
+            self._build([{"database_role": "db.child"}])
+
+    def test_a_misspelled_key_is_an_error(self):
+        with pytest.raises(ValueError, match="to_rolez"):
+            self._build([{"database_role": "db.child", "to_rolez": "analyst"}])
+
+    def test_an_entry_without_a_database_role_is_an_error(self):
+        with pytest.raises(ValueError, match="must specify"):
+            self._build([{"to_role": "analyst"}])
+
+    def test_empty_config_builds_nothing(self):
+        assert self._build([]) == []
+
+    @pytest.mark.parametrize(
+        "config",
+        [
+            {"database_role": "db.child", "to_role": "analyst", "to_database_role": None},
+            {"database_role": "db.child", "to_role": "analyst", "database_roles": None},
+            {"database_role": "db.child", "to_role": "analyst", "roles": None},
+        ],
+    )
+    def test_a_key_present_but_null_counts_as_absent(self, config):
+        """YAML spells "not specified" as a key with nothing after it, and serialized
+        configs round-trip unset fields as explicit nulls."""
+        assert self._build([config]) == ["GRANT DATABASE ROLE DB.CHILD TO ROLE ANALYST"]

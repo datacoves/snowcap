@@ -36,6 +36,26 @@ yaml.add_constructor("tag:yaml.org,2002:bool", construct_string_on_off, yaml.Saf
 
 VALID_ROLE_GRANT_KEYS = {"role", "roles", "to_user", "to_users", "to_role", "to_roles"}
 
+# `roles` is the long-standing plural of `to_role` here, kept for compatibility;
+# `database_roles` is the matching plural of `to_database_role`.
+VALID_DATABASE_ROLE_GRANT_KEYS = {"database_role", "to_role", "roles", "to_database_role", "database_roles"}
+
+
+def _as_list(config: dict, singular: str, plural: str) -> list:
+    """
+    Values given under either the singular or plural spelling of a key.
+
+    A key present but null counts as absent. `to_role:` with nothing after it is how YAML
+    spells "not specified", and serialized configs round-trip unset fields as explicit
+    nulls, so testing for the key rather than the value would read those as a request to
+    grant to nothing.
+    """
+    values = []
+    if config.get(singular) is not None:
+        values.append(config[singular])
+    values.extend(config.get(plural) or [])
+    return values
+
 
 def _validate_role_grant_structure(role_grant: dict) -> None:
     """Validate that role_grant has a valid key combination."""
@@ -143,25 +163,41 @@ def _resources_from_role_grants_config(role_grants_config: list) -> list:
 
 
 def _resources_from_database_role_grants_config(database_role_grants_config: list) -> list:
+    """
+    Build DatabaseRoleGrants from the `database_role_grants` block.
+
+    A database role can be granted to an account role or to another database role;
+    DatabaseRoleGrant and the SQL either side of it have always handled both. Only this
+    loader did not, so nesting one database role inside another was expressible in Python
+    and not in config -- and an entry that asked for it produced no resource at all rather
+    than an error, so the grant simply never appeared in the plan.
+    """
     if len(database_role_grants_config) == 0:
         return []
     resources = []
     for database_role_grant in database_role_grants_config:
-        if "to_role" in database_role_grant:
-            resources.append(
-                DatabaseRoleGrant(
-                    database_role=database_role_grant["database_role"],
-                    to_role=database_role_grant["to_role"],
-                )
+        invalid_keys = set(database_role_grant.keys()) - VALID_DATABASE_ROLE_GRANT_KEYS
+        if invalid_keys:
+            raise ValueError(format_invalid_role_grant_keys(invalid_keys, VALID_DATABASE_ROLE_GRANT_KEYS))
+
+        if "database_role" not in database_role_grant:
+            raise ValueError('database_role_grant must specify "database_role"')
+
+        granted = database_role_grant["database_role"]
+        targets = [(to_role, "to_role") for to_role in _as_list(database_role_grant, "to_role", "roles")]
+        targets += [
+            (to_database_role, "to_database_role")
+            for to_database_role in _as_list(database_role_grant, "to_database_role", "database_roles")
+        ]
+
+        if not targets:
+            raise ValueError(
+                f'database_role_grant for "{granted}" grants it to nothing. Specify one of '
+                f"{', '.join(sorted(VALID_DATABASE_ROLE_GRANT_KEYS - {'database_role'}))}."
             )
-        else:
-            for role in database_role_grant.get("roles", []):
-                resources.append(
-                    DatabaseRoleGrant(
-                        database_role=database_role_grant["database_role"],
-                        to_role=role,
-                    )
-                )
+
+        for target, keyword in targets:
+            resources.append(DatabaseRoleGrant(database_role=granted, **{keyword: target}))
     return resources
 
 
