@@ -1193,6 +1193,31 @@ def print_plan(plan: Plan):
     print(dump_plan(plan, format="text"))
 
 
+def print_surviving_drops(survivors: list["ResourceChange"]):
+    """
+    Report drops Snowflake accepted without carrying out.
+
+    Printed rather than logged: a logger warning scrolls past in the middle of an apply,
+    and the whole problem with these is that nothing tells you they happened. Formatted the
+    way the plan formats the same change, so the line reads as the one the user just saw
+    under DROP rather than as a raw URN.
+    """
+    if not survivors:
+        return
+
+    yellow = "\033[93m"
+    reset = "\033[0m"
+    print(f"\n{yellow}!{reset} {len(survivors)} drop(s) reported success but the resource is still there:\n")
+    for change in survivors:
+        print(f"    {_format_resource_name(change.urn, change)}")
+    print(
+        "\n  Snowflake accepted these statements without carrying them out. A REVOKE does that\n"
+        "  when the executing role does not own the privilege or cannot resolve the grantee.\n"
+        "  They will appear in the next plan as well. Check what granted the privilege\n"
+        "  (SHOW GRANTS ... , granted_by) and whether that role is available to this session.\n"
+    )
+
+
 def print_diffs(diffs):
     for action, target, deltas in diffs:
         print(f"[{action}]", target)
@@ -2252,6 +2277,9 @@ class Blueprint:
         # Print completion summary
         print_apply_summary(plan, "end")
 
+        if not self._config.dry_run:
+            print_surviving_drops(surviving_drops(session, [c["change"] for c in destructive_commands]))
+
     def _add(self, resource: Resource):
         if self._finalized:
             raise Exception("Cannot add resources to a finalized blueprint")
@@ -2324,6 +2352,41 @@ def _shared_database_for_grant(change: ResourceChange, shared_databases: Optiona
         return None
     database = str(on).split(".")[0].strip('"').upper()
     return database if database in shared_databases else None
+
+
+def surviving_drops(session, changes: list[ResourceChange]) -> list[ResourceChange]:
+    """
+    Which of the resources an apply just dropped are still there.
+
+    Snowflake does not always fail a statement it could not carry out. REVOKE is the
+    conspicuous case: it reports success when the executing role does not own the privilege
+    or cannot resolve the grantee, rather than raising. The apply sees no exception, counts
+    the drop as applied, and the grant survives -- so the same drop comes back in the next
+    plan, and the one after that, with nothing in any output saying why.
+
+    Treating "no exception" as "applied" is what makes that invisible. Reading the dropped
+    resources back is the only thing that distinguishes a real drop from one Snowflake
+    quietly declined.
+
+    Costs one existence check per dropped resource, and runs only when a plan dropped
+    something. A resource type that cannot be read back is skipped rather than reported: not
+    being able to confirm a drop is not evidence that it failed.
+    """
+    dropped = [change for change in changes if isinstance(change, DropResource)]
+    if not dropped:
+        return []
+
+    # The apply just changed the very state these checks read.
+    reset_cache()
+
+    survivors = []
+    for change in dropped:
+        try:
+            if data_provider.fetch_resource(session, change.urn, existence_only=True) is not None:
+                survivors.append(change)
+        except Exception:  # pragma: no cover - defensive, see docstring
+            logger.debug(f"Could not verify drop of {change.urn}", exc_info=True)
+    return survivors
 
 
 def _database_of_database_role_grantee(change: ResourceChange) -> Optional[str]:

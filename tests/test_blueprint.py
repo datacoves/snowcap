@@ -2504,3 +2504,102 @@ class TestGrantsHeldByDatabaseRoles:
         )
 
         assert role == ResourceName("SECURITYADMIN")
+
+
+class TestSurvivingDropsAreReported:
+    """Snowflake does not always fail a statement it could not carry out -- REVOKE reports
+    success when the executing role does not own the privilege or cannot resolve the
+    grantee. The apply sees no exception and counts the drop as applied, so the grant
+    survives and the same drop returns in every later plan with nothing explaining why."""
+
+    def _drop(self, to="ANALYST"):
+        return DropResource(
+            urn=parse_URN(
+                f"urn::ABCD123:grant/GRANT?grant_type=OBJECT&priv=USAGE&on=database/GREAT_BAY&to=role/{to}"
+            ),
+            before={
+                "priv": "USAGE",
+                "on": "GREAT_BAY",
+                "on_type": "DATABASE",
+                "to": to,
+                "to_type": "ROLE",
+                "items_type": None,
+                "grant_option": False,
+                "grant_type": "OBJECT",
+                "owner": "SECURITYADMIN",
+                "_privs": ["USAGE"],
+            },
+        )
+
+    @patch("snowcap.blueprint.reset_cache")
+    @patch("snowcap.blueprint.data_provider.fetch_resource")
+    def test_a_drop_whose_resource_is_still_there_is_reported(self, mock_fetch, _mock_reset):
+        from snowcap.blueprint import surviving_drops
+
+        mock_fetch.return_value = {"priv": "USAGE"}  # still present after the revoke
+        change = self._drop()
+
+        assert surviving_drops(MagicMock(), [change]) == [change]
+
+    @patch("snowcap.blueprint.reset_cache")
+    @patch("snowcap.blueprint.data_provider.fetch_resource")
+    def test_a_drop_that_took_effect_is_not_reported(self, mock_fetch, _mock_reset):
+        from snowcap.blueprint import surviving_drops
+
+        mock_fetch.return_value = None
+
+        assert surviving_drops(MagicMock(), [self._drop()]) == []
+
+    @patch("snowcap.blueprint.reset_cache")
+    @patch("snowcap.blueprint.data_provider.fetch_resource")
+    def test_state_is_re_read_rather_than_served_from_the_apply_s_cache(self, mock_fetch, mock_reset):
+        """The apply just changed the state these checks read."""
+        from snowcap.blueprint import surviving_drops
+
+        mock_fetch.return_value = None
+        surviving_drops(MagicMock(), [self._drop()])
+
+        mock_reset.assert_called_once()
+
+    @patch("snowcap.blueprint.reset_cache")
+    @patch("snowcap.blueprint.data_provider.fetch_resource")
+    def test_a_resource_that_cannot_be_read_back_is_not_reported_as_surviving(self, mock_fetch, _mock_reset):
+        """Not being able to confirm a drop is not evidence that it failed."""
+        from snowcap.blueprint import surviving_drops
+
+        mock_fetch.side_effect = Exception("no fetch function for this resource type")
+
+        assert surviving_drops(MagicMock(), [self._drop()]) == []
+
+    @patch("snowcap.blueprint.reset_cache")
+    @patch("snowcap.blueprint.data_provider.fetch_resource")
+    def test_nothing_is_read_back_when_the_plan_dropped_nothing(self, mock_fetch, mock_reset):
+        """Applies that only create must not pay for this."""
+        from snowcap.blueprint import surviving_drops
+
+        change = CreateResource(
+            urn=parse_URN("urn::ABCD123:role/SOME_ROLE"),
+            resource_cls=res.Role,
+            container=None,
+            after={"name": "SOME_ROLE", "owner": "USERADMIN"},
+        )
+
+        assert surviving_drops(MagicMock(), [change]) == []
+        mock_fetch.assert_not_called()
+        mock_reset.assert_not_called()
+
+    def test_report_names_each_survivor(self, capsys):
+        from snowcap.blueprint import print_surviving_drops
+
+        print_surviving_drops([self._drop()])
+        out = capsys.readouterr().out
+
+        assert "1 drop(s) reported success" in out
+        assert "USAGE on DATABASE.GREAT_BAY \u2192 ROLE.ANALYST" in out
+
+    def test_report_is_silent_when_every_drop_took_effect(self, capsys):
+        from snowcap.blueprint import print_surviving_drops
+
+        print_surviving_drops([])
+
+        assert capsys.readouterr().out == ""
