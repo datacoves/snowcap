@@ -35,7 +35,7 @@ from .enums import (
     ResourceType,
     WarehouseSize,
 )
-from .identifiers import FQN, URN, parse_FQN, resource_type_for_label
+from .identifiers import FQN, URN, parse_FQN, resource_label_for_type, resource_type_for_label
 from .parse import (
     _parse_column,
     _parse_dynamic_table_text,
@@ -234,6 +234,31 @@ def _is_role_hierarchy_grant(row: dict[str, Any]) -> bool:
     so both are matched.
     """
     return row["granted_on"].replace("_", " ").upper() in ("ROLE", "DATABASE ROLE")
+
+
+def _granted_on_label(granted_on: str) -> str:
+    """
+    The object-type half of a grant URN's `on`, normalized the way the manifest builds it.
+
+    Snowflake sometimes reports a grant against a different name than the one its DDL uses:
+    SHOW GRANTS says CORTEX_AGENT_SERVER for the object GRANT and CREATE call an MCP SERVER.
+    ResourceType maps those synonyms, and grant_fqn runs the manifest side through
+    resource_label_for_type, so going through the same function here is what makes the two
+    sides comparable.
+
+    Taking the raw string instead leaves remote state identifying the grant as
+    cortex_agent_server/... while the manifest calls it mcp_server/..., so the declared grant
+    never matches the one read back. Every plan then both creates and drops it, and since
+    drops run after creates, applying takes the access away.
+
+    ResourceType spells its members with spaces and Snowflake uses underscores, hence the
+    substitution. For every type that is not a synonym this returns exactly what
+    granted_on.lower() did, and anything ResourceType does not know falls back to it.
+    """
+    try:
+        return resource_label_for_type(ResourceType(granted_on.replace("_", " ")))
+    except ValueError:
+        return granted_on.lower()
 
 
 def inherited_grant_fqn(grant: dict[str, Any], to_label: str, grantee: str) -> Optional[FQN]:
@@ -4106,7 +4131,7 @@ def list_grants(
                 name = data["name"]
                 if data["granted_on"] == "ACCOUNT":
                     name = "ACCOUNT"
-                on = f"{data['granted_on'].lower()}/{name}"
+                on = f"{_granted_on_label(data['granted_on'])}/{name}"
                 to = f"{to_prefix}/{grantee}"
                 grants.append(
                     FQN(
@@ -4145,7 +4170,7 @@ def list_grants(
                 name = data["name"]
                 if data["granted_on"] == "ACCOUNT":
                     name = "ACCOUNT"
-                on = f"{data['granted_on'].lower()}/{name}"
+                on = f"{_granted_on_label(data['granted_on'])}/{name}"
                 to = f"role/{role_name}"
                 grants.append(
                     FQN(
@@ -4194,7 +4219,7 @@ def list_grants(
                 name = data["name"]
                 if data["granted_on"] == "ACCOUNT":
                     name = "ACCOUNT"
-                on = f"{data['granted_on'].lower()}/{name}"
+                on = f"{_granted_on_label(data['granted_on'])}/{name}"
                 to = f"database_role/{fq_db_role_name}"
                 grants.append(
                     FQN(

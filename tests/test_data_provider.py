@@ -2321,3 +2321,74 @@ class TestDatabaseRoleGrantsAreNotListedAsGrants:
         ons = [fqn.params["on"] for fqn in grants]
         assert ons == ["table/MY_DB.MY_SCHEMA.MY_TABLE"]
         assert not [on for on in ons if "database_role" in on]
+
+
+class TestGrantsReportedUnderASynonym:
+    """Snowflake reports a grant on an MCP server as CORTEX_AGENT_SERVER, while GRANT and
+    CREATE call the object an MCP SERVER. Remote state and the manifest have to identify it
+    the same way, or every plan both creates and drops the grant -- and drops run after
+    creates, so applying takes the access away."""
+
+    def _row(self, granted_on, name, **overrides):
+        row = {
+            "privilege": "USAGE",
+            "granted_on": granted_on,
+            "name": name,
+            "granted_to": "ROLE",
+            "grantee_name": "Z_MCP__DATACOVES",
+            "grant_option": "false",
+            "granted_by": "ACCOUNTADMIN",
+            "is_inherited": "false",
+        }
+        row.update(overrides)
+        return row
+
+    @pytest.mark.parametrize(
+        "granted_on,expected",
+        [
+            ("CORTEX_AGENT_SERVER", "mcp_server"),
+            ("MCP_SERVER", "mcp_server"),
+            ("TABLE", "table"),
+            ("MATERIALIZED_VIEW", "materialized_view"),
+            ("IMAGE_REPOSITORY", "image_repository"),
+            # Unknown to ResourceType: behaves exactly as the raw lowercase did
+            ("SOMETHING_SNOWFLAKE_ADDED_LATER", "something_snowflake_added_later"),
+        ],
+    )
+    def test_granted_on_label_matches_the_manifest_spelling(self, granted_on, expected):
+        from snowcap.data_provider import _granted_on_label
+
+        assert _granted_on_label(granted_on) == expected
+
+    def test_label_agrees_with_grant_fqn(self):
+        """The whole point is agreeing with the manifest, so assert against it directly
+        rather than against a hardcoded string."""
+        from snowcap.data_provider import _granted_on_label
+        from snowcap.resources.grant import Grant, grant_fqn
+
+        grant = Grant(priv="USAGE", on="mcp server ADMIN_DB.MCPS.DATACOVES", to="Z_MCP__DATACOVES")
+        manifest_on = grant_fqn(grant._data).params["on"]
+
+        assert manifest_on.split("/")[0] == _granted_on_label("CORTEX_AGENT_SERVER")
+
+    @patch("snowcap.data_provider.list_database_roles")
+    @patch("snowcap.data_provider._should_use_account_usage")
+    @patch("snowcap.data_provider.execute")
+    def test_list_grants_reports_a_cortex_agent_server_as_an_mcp_server(
+        self, mock_execute, mock_should_use, mock_list_database_roles
+    ):
+        from snowcap.data_provider import list_grants
+
+        mock_should_use.return_value = False
+        mock_list_database_roles.return_value = []
+
+        def execute_side_effect(session, query, **kwargs):
+            if "SHOW ROLES" in query:
+                return [{"name": "Z_MCP__DATACOVES"}]
+            return [self._row("CORTEX_AGENT_SERVER", "ADMIN_DB.MCPS.DATACOVES")]
+
+        mock_execute.side_effect = execute_side_effect
+
+        grants = list_grants(MagicMock(), include_future_grants=False)
+
+        assert [fqn.params["on"] for fqn in grants] == ["mcp_server/ADMIN_DB.MCPS.DATACOVES"]
