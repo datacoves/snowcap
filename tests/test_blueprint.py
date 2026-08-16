@@ -1320,8 +1320,7 @@ class TestWarningForNonconformingPlanMCPServer:
 
         monkeypatch.setattr("snowcap.blueprint.data_provider.fetch_session", lambda session: session_ctx)
         monkeypatch.setattr(
-            "snowcap.blueprint.compile_plan_to_sql",
-            lambda session_ctx, plan, shared_databases=None, database_owners=None: ([], []),
+            "snowcap.blueprint.compile_plan_to_sql", lambda session_ctx, plan, shared_databases=None: ([], [])
         )
 
         with caplog.at_level(logging.WARNING, logger="snowcap"):
@@ -2415,93 +2414,6 @@ class TestRevokingAccountLevelPrivileges:
         )
 
         role, _ = execution_strategy_for_change(change, self.ROLES, ResourceName("SECURITYADMIN"))
-
-        assert role == ResourceName("SECURITYADMIN")
-
-
-class TestGrantsHeldByDatabaseRoles:
-    """A database role is named <database>.<role> and lives inside its database. Managing a
-    grant it holds needs a role that can see that database. SECURITYADMIN can hold
-    account-level MANAGE GRANTS and still lack USAGE on the database, and REVOKE reports
-    success rather than failing on a grantee it cannot resolve -- so the grant survives and
-    the same drop reappears in every later plan, with nothing in the output to say why."""
-
-    OWNERS = {"GREAT_BAY": "TRANSFORMER_DBT"}
-
-    def _change(self, cls, to="GREAT_BAY.DR_CREATE_ROLE", to_type="DATABASE ROLE"):
-        data = {
-            "priv": "USAGE",
-            "on": "GREAT_BAY",
-            "on_type": "DATABASE",
-            "to": to,
-            "to_type": to_type,
-            "items_type": None,
-            "grant_option": False,
-            "grant_type": "OBJECT",
-            "owner": "SECURITYADMIN",
-            "_privs": ["USAGE"],
-        }
-        urn = parse_URN(
-            "urn::ABCD123:grant/GRANT?grant_type=OBJECT&priv=USAGE&on=database/GREAT_BAY"
-            f"&to={to_type.lower().replace(' ', '_')}/{to}"
-        )
-        if cls is DropResource:
-            return DropResource(urn=urn, before=data)
-        return CreateResource(urn=urn, resource_cls=res.Grant, container=None, after=data)
-
-    ROLES = [ResourceName("SECURITYADMIN"), ResourceName("TRANSFORMER_DBT")]
-
-    def test_revoke_runs_as_the_database_owner(self):
-        role, _ = execution_strategy_for_change(
-            self._change(DropResource), self.ROLES, ResourceName("SECURITYADMIN"), None, self.OWNERS
-        )
-
-        assert role == ResourceName("TRANSFORMER_DBT")
-
-    def test_grant_and_revoke_agree_on_the_role(self):
-        grant_role, _ = execution_strategy_for_change(
-            self._change(CreateResource), self.ROLES, ResourceName("SECURITYADMIN"), None, self.OWNERS
-        )
-        revoke_role, _ = execution_strategy_for_change(
-            self._change(DropResource), self.ROLES, ResourceName("SECURITYADMIN"), None, self.OWNERS
-        )
-
-        assert grant_role == revoke_role == ResourceName("TRANSFORMER_DBT")
-
-    def test_grants_to_account_roles_still_use_securityadmin(self):
-        """Account-level authority does reach an account role, so nothing changes there."""
-        role, _ = execution_strategy_for_change(
-            self._change(DropResource, to="ANALYST", to_type="ROLE"),
-            self.ROLES,
-            ResourceName("SECURITYADMIN"),
-            None,
-            self.OWNERS,
-        )
-
-        assert role == ResourceName("SECURITYADMIN")
-
-    def test_falls_back_when_the_database_owner_is_not_available(self):
-        role, _ = execution_strategy_for_change(
-            self._change(DropResource),
-            [ResourceName("SECURITYADMIN")],
-            ResourceName("SECURITYADMIN"),
-            None,
-            self.OWNERS,
-        )
-
-        assert role == ResourceName("SECURITYADMIN")
-
-    def test_falls_back_when_the_database_is_unknown(self):
-        role, _ = execution_strategy_for_change(
-            self._change(DropResource), self.ROLES, ResourceName("SECURITYADMIN"), None, {"OTHER_DB": "SYSADMIN"}
-        )
-
-        assert role == ResourceName("SECURITYADMIN")
-
-    def test_no_owner_map_leaves_behaviour_unchanged(self):
-        role, _ = execution_strategy_for_change(
-            self._change(DropResource), self.ROLES, ResourceName("SECURITYADMIN")
-        )
 
         assert role == ResourceName("SECURITYADMIN")
 
