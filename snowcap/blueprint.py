@@ -2242,10 +2242,15 @@ class Blueprint:
         # grant: privileges on those cannot be revoked one at a time. See
         # lifecycle.drop_shared_database_grant.
         shared_databases: Optional[set[str]] = None
-        if any(isinstance(c, DropResource) and c.urn.resource_type == ResourceType.GRANT for c in plan):
+        database_owners: Optional[dict[str, str]] = None
+        if any(c.urn.resource_type == ResourceType.GRANT for c in plan):
+            # Both read the same cached SHOW DATABASES response, so this is one query.
             shared_databases = data_provider.list_shared_database_names(session)
+            database_owners = data_provider.list_database_owners(session)
 
-        sql_commands_per_change, available_roles = compile_plan_to_sql(session_ctx, plan, shared_databases)
+        sql_commands_per_change, available_roles = compile_plan_to_sql(
+            session_ctx, plan, shared_databases, database_owners
+        )
         roles_list: list[Any] = []
         additive_commands = []
         destructive_commands = []
@@ -2384,11 +2389,40 @@ def surviving_drops(session, changes: list[ResourceChange]) -> list[ResourceChan
     return survivors
 
 
+def _database_of_database_role_grantee(change: ResourceChange) -> Optional[str]:
+    """
+    The database a grant's grantee belongs to, when that grantee is a database role.
+
+    A database role is named <database>.<role> and lives inside its database. Managing a
+    grant held by one needs a role that can see that database: account-level MANAGE GRANTS
+    lets SECURITYADMIN administer grants, but without USAGE on the database it cannot
+    resolve the grantee, and REVOKE reports success rather than failing on a grantee it
+    cannot resolve. The grant survives, and the same drop comes back in every later plan.
+
+    Returns None for grants to account roles, which account-level authority does reach.
+    """
+    if change.urn.resource_type != ResourceType.GRANT:
+        return None
+    if isinstance(change, CreateResource):
+        data = change.after
+    elif isinstance(change, DropResource):
+        data = change.before
+    else:
+        return None
+    if str(data.get("to_type", "")).replace("_", " ").upper() != "DATABASE ROLE":
+        return None
+    grantee = str(data.get("to", ""))
+    if "." not in grantee:
+        return None
+    return grantee.split(".")[0].strip('"').upper()
+
+
 def execution_strategy_for_change(
     change: ResourceChange,
     available_roles: list[ResourceName],
     default_role: ResourceName,
     transferred_owners: Optional[dict[URN, ResourceName]] = None,
+    database_owners: Optional[dict[str, str]] = None,
 ) -> tuple[ResourceName, bool]:
 
     change_owner = owner_for_change(change)
@@ -2415,6 +2449,15 @@ def execution_strategy_for_change(
             execution_role = system_role_for_priv(grant_data["priv"])
             if execution_role and execution_role in available_roles:
                 return ResourceName(execution_role), False
+
+        # Grants held by a database role are managed from inside that database, by the role
+        # that owns it. SECURITYADMIN can hold MANAGE GRANTS and still be unable to resolve
+        # the grantee without USAGE on the database.
+        grantee_database = _database_of_database_role_grantee(change)
+        if grantee_database and database_owners:
+            database_owner = database_owners.get(grantee_database)
+            if database_owner and ResourceName(database_owner) in available_roles:
+                return ResourceName(database_owner), False
 
         if "SECURITYADMIN" in available_roles:
             return ResourceName("SECURITYADMIN"), False
@@ -2533,6 +2576,7 @@ def sql_commands_for_change(
     default_role: ResourceName,
     transferred_owners: Optional[dict[URN, ResourceName]] = None,
     shared_databases: Optional[set[str]] = None,
+    database_owners: Optional[dict[str, str]] = None,
 ) -> tuple[ResourceName, list[str]]:
     """
     In Snowflake's RBAC model, a session has an active role, and zero or more secondary roles.
@@ -2564,6 +2608,7 @@ def sql_commands_for_change(
         available_roles,
         default_role,
         transferred_owners,
+        database_owners,
     )
 
     if isinstance(change, CreateResource):
@@ -2630,7 +2675,10 @@ def sql_commands_for_change(
 
 
 def compile_plan_to_sql(
-    session_ctx: SessionContext, plan: Plan, shared_databases: Optional[set[str]] = None
+    session_ctx: SessionContext,
+    plan: Plan,
+    shared_databases: Optional[set[str]] = None,
+    database_owners: Optional[dict[str, str]] = None,
 ) -> tuple[list[dict], list[ResourceName]]:
     """Compile the plan into a list of SQL command lists, one per change.
 
@@ -2665,7 +2713,7 @@ def compile_plan_to_sql(
                     available_roles.append(ResourceName(change.after["role"]))
     for change in plan:
         role, commands = sql_commands_for_change(
-            change, available_roles, default_role, transferred_owners, shared_databases
+            change, available_roles, default_role, transferred_owners, shared_databases, database_owners
         )
         sql_commands_per_change.append({"role": role, "commands": commands, "change": change})
     return sql_commands_per_change, available_roles
