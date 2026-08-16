@@ -2319,3 +2319,100 @@ class TestDroppingGrantsOnSharedDatabases:
 
         sql = " ".join(commands[0]["commands"])
         assert "REVOKE USAGE ON DATABASE WORLDWIDE_ADDRESS_DATA" in sql
+
+
+class TestRevokingAccountLevelPrivileges:
+    """An account-level privilege belongs to the system role that owns it. Snowflake will
+    not take one back from a role that does not own it -- and rather than failing, the
+    REVOKE reports success while leaving the privilege in place, so the same drop reappears
+    in every later plan and nothing in the output says why."""
+
+    def _account_grant_change(self, cls, priv="CREATE DATABASE", to="TRANSFORMER_DBT"):
+        data = {
+            "priv": priv,
+            "on": "ACCOUNT",
+            "on_type": "ACCOUNT",
+            "to": to,
+            "to_type": "ROLE",
+            "items_type": None,
+            "grant_option": False,
+            "grant_type": "OBJECT",
+            "owner": "SECURITYADMIN",
+            "_privs": [priv],
+        }
+        urn = parse_URN(
+            f"urn::ABCD123:grant/GRANT?grant_type=OBJECT&priv={priv.replace(' ', '%20')}"
+            f"&on=account/ACCOUNT&to=role/{to}"
+        )
+        if cls is DropResource:
+            return DropResource(urn=urn, before=data)
+        return CreateResource(urn=urn, resource_cls=res.Grant, container=None, after=data)
+
+    ROLES = [ResourceName("SYSADMIN"), ResourceName("SECURITYADMIN"), ResourceName("ACCOUNTADMIN")]
+
+    def test_revoke_runs_as_the_system_role_that_owns_the_privilege(self):
+        change = self._account_grant_change(DropResource)
+
+        role, _ = execution_strategy_for_change(change, self.ROLES, ResourceName("SECURITYADMIN"))
+
+        assert role == ResourceName("SYSADMIN")
+
+    def test_grant_and_revoke_agree_on_the_role(self):
+        """The asymmetry was the bug: grants already used the system role."""
+        grant_role, _ = execution_strategy_for_change(
+            self._account_grant_change(CreateResource), self.ROLES, ResourceName("SECURITYADMIN")
+        )
+        revoke_role, _ = execution_strategy_for_change(
+            self._account_grant_change(DropResource), self.ROLES, ResourceName("SECURITYADMIN")
+        )
+
+        assert grant_role == revoke_role == ResourceName("SYSADMIN")
+
+    def test_openflow_data_plane_integration_is_a_known_account_privilege(self):
+        """Snowcap did not know this privilege, so it fell through to SECURITYADMIN and the
+        revoke silently did nothing."""
+        from snowcap.privs import system_role_for_priv
+
+        assert system_role_for_priv("CREATE OPENFLOW DATA PLANE INTEGRATION") == "ACCOUNTADMIN"
+
+        change = self._account_grant_change(
+            DropResource, priv="CREATE OPENFLOW DATA PLANE INTEGRATION", to="LOADER"
+        )
+        role, _ = execution_strategy_for_change(change, self.ROLES, ResourceName("SECURITYADMIN"))
+
+        assert role == ResourceName("ACCOUNTADMIN")
+
+    def test_revoke_falls_back_to_securityadmin_without_the_system_role(self):
+        change = self._account_grant_change(DropResource)
+
+        role, _ = execution_strategy_for_change(
+            change, [ResourceName("SECURITYADMIN")], ResourceName("SECURITYADMIN")
+        )
+
+        assert role == ResourceName("SECURITYADMIN")
+
+    def test_object_grant_revokes_still_use_securityadmin(self):
+        """Only account-level privileges have an owning system role; ordinary object grants
+        must keep going through SECURITYADMIN."""
+        data = {
+            "priv": "USAGE",
+            "on": "BALBOA",
+            "on_type": "DATABASE",
+            "to": "ANALYST",
+            "to_type": "ROLE",
+            "items_type": None,
+            "grant_option": False,
+            "grant_type": "OBJECT",
+            "owner": "SECURITYADMIN",
+            "_privs": ["USAGE"],
+        }
+        change = DropResource(
+            urn=parse_URN(
+                "urn::ABCD123:grant/GRANT?grant_type=OBJECT&priv=USAGE&on=database/BALBOA&to=role/ANALYST"
+            ),
+            before=data,
+        )
+
+        role, _ = execution_strategy_for_change(change, self.ROLES, ResourceName("SECURITYADMIN"))
+
+        assert role == ResourceName("SECURITYADMIN")

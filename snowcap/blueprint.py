@@ -2341,8 +2341,15 @@ def execution_strategy_for_change(
             return ResourceName(inherited_grant_owner), False
 
         # 2024-10-22: maybe the better thing to do is check role privs selectively
-        if isinstance(change, CreateResource) and change.urn.resource_type == ResourceType.GRANT:
-            execution_role = system_role_for_priv(change.after["priv"])
+        #
+        # Revokes use the same role as grants. An account-level privilege belongs to the
+        # system role that owns it, and Snowflake will not take one back from a role that
+        # does not -- but it reports success rather than failing, so a revoke run as
+        # SECURITYADMIN silently leaves the privilege in place and the same drop reappears
+        # in every later plan.
+        if change.urn.resource_type == ResourceType.GRANT and isinstance(change, (CreateResource, DropResource)):
+            grant_data = change.after if isinstance(change, CreateResource) else change.before
+            execution_role = system_role_for_priv(grant_data["priv"])
             if execution_role and execution_role in available_roles:
                 return ResourceName(execution_role), False
 
