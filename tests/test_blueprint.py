@@ -49,6 +49,7 @@ from snowcap.blueprint import (
     Blueprint,
     CreateResource,
     DropResource,
+    TransferOwnership,
     UpdateResource,
     compute_levels,
     _merge_pointers,
@@ -2183,3 +2184,75 @@ class TestImportedPrivilegesPlanning:
         plan = diff(remote_state, manifest)
 
         assert [change for change in plan if isinstance(change, DropResource) and change.urn == urn]
+
+
+class TestCreateInsideTransferredContainer:
+    """A plan that adopts an existing database both transfers it and creates resources
+    inside it. Containers sit at a lower dependency level than their contents, so the
+    transfer runs first, and a CREATE planned against the container's old owner arrives
+    to find that role no longer owns anything."""
+
+    def _database_role_change(self, container_owner):
+        database_role = res.DatabaseRole(name="DR_READER_ROLE", database="GREAT_BAY_DEV", owner="USERADMIN")
+        return CreateResource(
+            urn=parse_URN("urn::ABCD123:database_role/GREAT_BAY_DEV.DR_READER_ROLE"),
+            resource_cls=res.DatabaseRole,
+            container=(parse_URN("urn::ABCD123:database/GREAT_BAY_DEV"), ResourceName(container_owner)),
+            after=database_role.to_dict(),
+        )
+
+    def test_create_runs_as_the_owner_the_container_ends_up_with(self):
+        change = self._database_role_change("ANALYST")
+        transferred = {parse_URN("urn::ABCD123:database/GREAT_BAY_DEV"): ResourceName("TRANSFORMER_DBT")}
+
+        role, _ = execution_strategy_for_change(
+            change,
+            [ResourceName("ANALYST"), ResourceName("TRANSFORMER_DBT"), ResourceName("SECURITYADMIN")],
+            ResourceName("SECURITYADMIN"),
+            transferred,
+        )
+
+        assert role == ResourceName("TRANSFORMER_DBT")
+
+    def test_create_runs_as_the_current_owner_when_the_container_is_not_transferred(self):
+        change = self._database_role_change("ANALYST")
+
+        role, _ = execution_strategy_for_change(
+            change,
+            [ResourceName("ANALYST"), ResourceName("TRANSFORMER_DBT"), ResourceName("SECURITYADMIN")],
+            ResourceName("SECURITYADMIN"),
+            {},
+        )
+
+        assert role == ResourceName("ANALYST")
+
+    def test_a_transfer_of_a_different_container_is_ignored(self):
+        change = self._database_role_change("ANALYST")
+        transferred = {parse_URN("urn::ABCD123:database/BALBOA_DEV"): ResourceName("TRANSFORMER_DBT")}
+
+        role, _ = execution_strategy_for_change(
+            change,
+            [ResourceName("ANALYST"), ResourceName("TRANSFORMER_DBT"), ResourceName("SECURITYADMIN")],
+            ResourceName("SECURITYADMIN"),
+            transferred,
+        )
+
+        assert role == ResourceName("ANALYST")
+
+    def test_compile_plan_to_sql_picks_up_the_transfer_from_the_plan(self, session_ctx):
+        """The end-to-end path: compile_plan_to_sql derives the mapping from the plan
+        itself, so a caller does not have to know the transfer happened."""
+        plan = [
+            TransferOwnership(
+                urn=parse_URN("urn::ABCD123:database/GREAT_BAY_DEV"),
+                resource_cls=res.Database,
+                from_owner="ANALYST",
+                to_owner="TRANSFORMER_DBT",
+            ),
+            self._database_role_change("ANALYST"),
+        ]
+
+        commands, _ = compile_plan_to_sql(session_ctx, plan)
+
+        create = [c for c in commands if isinstance(c["change"], CreateResource)][0]
+        assert create["role"] == ResourceName("TRANSFORMER_DBT")

@@ -2299,6 +2299,7 @@ def execution_strategy_for_change(
     change: ResourceChange,
     available_roles: list[ResourceName],
     default_role: ResourceName,
+    transferred_owners: Optional[dict[URN, ResourceName]] = None,
 ) -> tuple[ResourceName, bool]:
 
     change_owner = owner_for_change(change)
@@ -2413,7 +2414,15 @@ def execution_strategy_for_change(
                 f"    GRANT ROLE {system_role} TO USER your_user;"
             )
         elif isinstance(change.resource_cls.scope, (DatabaseScope, SchemaScope)) and change.container:
-            container_owner = ResourceName(change.container[1])
+            container_urn, container_owner = change.container
+            container_owner = ResourceName(container_owner)
+            # The container's owner is recorded when the plan is built. When the same plan
+            # also transfers that container, the transfer has already run by the time this
+            # CREATE executes -- a container sits at a lower dependency level than the
+            # resources inside it -- so the role recorded here no longer owns the container
+            # and cannot create anything in it. Use the owner the container ends up with.
+            if transferred_owners and container_urn in transferred_owners:
+                container_owner = transferred_owners[container_urn]
             transfer_ownership = container_owner != change_owner
             if transfer_ownership and change.urn.resource_type == ResourceType.NOTEBOOK:
                 raise Exception("Notebook ownership cannot be transferred")
@@ -2426,6 +2435,7 @@ def sql_commands_for_change(
     change: ResourceChange,
     available_roles: list[ResourceName],
     default_role: ResourceName,
+    transferred_owners: Optional[dict[URN, ResourceName]] = None,
 ) -> tuple[ResourceName, list[str]]:
     """
     In Snowflake's RBAC model, a session has an active role, and zero or more secondary roles.
@@ -2456,6 +2466,7 @@ def sql_commands_for_change(
         change,
         available_roles,
         default_role,
+        transferred_owners,
     )
 
     if isinstance(change, CreateResource):
@@ -2528,6 +2539,12 @@ def compile_plan_to_sql(session_ctx: SessionContext, plan: Plan) -> tuple[list[d
     available_roles = session_ctx["available_roles"].copy()
     default_role = session_ctx["role"]
     current_user = ResourceName(session_ctx.get("user", "")) if session_ctx.get("user") else None
+    # Containers this plan hands to a new owner. Resources created inside one of them
+    # have to be created by the owner it ends up with, not the one it had when the plan
+    # was built, because the transfer runs first.
+    transferred_owners: dict[URN, ResourceName] = {
+        change.urn: ResourceName(change.to_owner) for change in plan if isinstance(change, TransferOwnership)
+    }
     for change in plan:
         if isinstance(change, CreateResource):
             if change.urn.resource_type == ResourceType.ROLE:
@@ -2544,7 +2561,7 @@ def compile_plan_to_sql(session_ctx: SessionContext, plan: Plan) -> tuple[list[d
                 ):
                     available_roles.append(ResourceName(change.after["role"]))
     for change in plan:
-        role, commands = sql_commands_for_change(change, available_roles, default_role)
+        role, commands = sql_commands_for_change(change, available_roles, default_role, transferred_owners)
         sql_commands_per_change.append({"role": role, "commands": commands, "change": change})
     return sql_commands_per_change, available_roles
 
