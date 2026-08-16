@@ -213,6 +213,29 @@ def _is_inherited_grant(row: dict[str, Any]) -> bool:
     return False
 
 
+def _is_role_hierarchy_grant(row: dict[str, Any]) -> bool:
+    """
+    True when a grant row describes one role being granted to another.
+
+    Snowflake reports granting a role as a grant held by the grantee, so SHOW GRANTS and
+    ACCOUNT_USAGE return these alongside object grants. Snowcap models them separately, as
+    RoleGrant and DatabaseRoleGrant, listed by list_role_grants() and
+    list_database_role_grants(). Listing them as Grants as well would describe the same
+    Snowflake fact under two resource types, so the declared grant never matches the one
+    read back and sync proposes dropping it on every run.
+
+    That drop is also unrunnable for a database role: a Grant revokes with
+    REVOKE <priv> ON <on_type> ..., which for a database role reads REVOKE USAGE ON
+    DATABASE ROLE, and Snowflake rejects it as an unsupported feature. The revoke database
+    roles actually take is REVOKE DATABASE ROLE <name> FROM ROLE <grantee>, which
+    DatabaseRoleGrant already builds.
+
+    ACCOUNT_USAGE spells the type DATABASE_ROLE and SHOW GRANTS spells it DATABASE ROLE,
+    so both are matched.
+    """
+    return row["granted_on"].replace("_", " ").upper() in ("ROLE", "DATABASE ROLE")
+
+
 def inherited_grant_fqn(grant: dict[str, Any], to_label: str, grantee: str) -> Optional[FQN]:
     """
     Build the URN-level identity of an inherited grant from a SHOW GRANTS row.
@@ -4048,8 +4071,9 @@ def list_grants(
                     # Skip other grantee types (e.g., USER)
                     continue
 
-                # Skip role grants (hierarchy handled by list_role_grants)
-                if data["granted_on"] == "ROLE":
+                # Skip role and database role grants (hierarchy is handled by
+                # list_role_grants and list_database_role_grants)
+                if _is_role_hierarchy_grant(data):
                     continue
 
                 # Snowcap Grants don't support OWNERSHIP privilege
@@ -4093,7 +4117,9 @@ def list_grants(
                 session, role_name, role_type=ResourceType.ROLE, cacheable=True, use_account_usage=False
             )
             for data in grant_data:
-                if data["granted_on"] == "ROLE":
+                # Skip role and database role grants (hierarchy is handled by
+                # list_role_grants and list_database_role_grants)
+                if _is_role_hierarchy_grant(data):
                     continue
 
                 # Snowcap Grants don't support OWNERSHIP privilege
@@ -4140,8 +4166,9 @@ def list_grants(
                 use_account_usage=False,
             )
             for data in grant_data:
-                # Skip database role grants (hierarchy handled by list_database_role_grants)
-                if data["granted_on"] == "DATABASE ROLE":
+                # Skip role and database role grants (hierarchy is handled by
+                # list_role_grants and list_database_role_grants)
+                if _is_role_hierarchy_grant(data):
                     continue
 
                 # Snowcap Grants don't support OWNERSHIP privilege

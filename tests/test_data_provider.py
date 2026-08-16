@@ -2243,3 +2243,81 @@ class TestInheritedGrants:
         mock_execute.side_effect = Exception("Insufficient privileges")
 
         assert fetch_preview_access_enabled(MagicMock()) is None
+
+
+class TestDatabaseRoleGrantsAreNotListedAsGrants:
+    """Snowflake reports a database role granted to an account role as a USAGE grant held
+    by the grantee. Snowcap models that as a DatabaseRoleGrant, so listing it as a Grant
+    too describes one Snowflake fact under two resource types: the declared
+    DatabaseRoleGrant never matches, sync proposes dropping the stray Grant on every run,
+    and the revoke it builds -- REVOKE USAGE ON DATABASE ROLE -- is rejected by Snowflake
+    as an unsupported feature, which aborts the apply."""
+
+    def _row(self, **overrides):
+        row = {
+            "privilege": "USAGE",
+            "granted_on": "DATABASE_ROLE",
+            "name": "GREAT_BAY_DEV.DR_READER_ROLE",
+            "granted_to": "ROLE",
+            "grantee_name": "MY_ROLE",
+            "grant_option": "false",
+            "granted_by": "SECURITYADMIN",
+            "is_inherited": "false",
+        }
+        row.update(overrides)
+        return row
+
+    @pytest.mark.parametrize(
+        "granted_on,expected",
+        [
+            ("DATABASE_ROLE", True),
+            ("DATABASE ROLE", True),
+            ("ROLE", True),
+            ("TABLE", False),
+            ("DATABASE", False),
+            ("MCP_SERVER", False),
+        ],
+    )
+    def test_role_hierarchy_rows_are_recognized_in_both_spellings(self, granted_on, expected):
+        """ACCOUNT_USAGE spells it DATABASE_ROLE, SHOW GRANTS spells it DATABASE ROLE, and
+        an underscore in an unrelated object type must not be mistaken for either."""
+        from snowcap.data_provider import _is_role_hierarchy_grant
+
+        assert _is_role_hierarchy_grant({"granted_on": granted_on}) is expected
+
+    @patch("snowcap.data_provider.list_database_roles")
+    @patch("snowcap.data_provider._should_use_account_usage")
+    @patch("snowcap.data_provider.execute")
+    def test_list_grants_omits_database_role_grants(
+        self, mock_execute, mock_should_use, mock_list_database_roles
+    ):
+        from snowcap.data_provider import list_grants
+
+        mock_should_use.return_value = False
+        mock_list_database_roles.return_value = []
+
+        def execute_side_effect(session, query, **kwargs):
+            if "SHOW ROLES" in query:
+                return [{"name": "MY_ROLE"}]
+            return [
+                self._row(),
+                self._row(granted_on="DATABASE ROLE", name="SNOWFLAKE.CORTEX_USER"),
+                {
+                    "privilege": "SELECT",
+                    "granted_on": "TABLE",
+                    "name": "MY_DB.MY_SCHEMA.MY_TABLE",
+                    "granted_to": "ROLE",
+                    "grantee_name": "MY_ROLE",
+                    "grant_option": "false",
+                    "granted_by": "SYSADMIN",
+                    "is_inherited": "false",
+                },
+            ]
+
+        mock_execute.side_effect = execute_side_effect
+
+        grants = list_grants(MagicMock(), include_future_grants=False)
+
+        ons = [fqn.params["on"] for fqn in grants]
+        assert ons == ["table/MY_DB.MY_SCHEMA.MY_TABLE"]
+        assert not [on for on in ons if "database_role" in on]
