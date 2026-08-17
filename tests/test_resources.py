@@ -139,6 +139,7 @@ def test_warehouse_adaptive_construction_nulls_unsupported_fields():
         {"initially_suspended": True},
         {"enable_query_acceleration": True},
         {"resource_constraint": "STANDARD_GEN_2"},
+        {"max_concurrency_level": 8},
     ],
 )
 def test_warehouse_adaptive_rejects_unsupported_fields(kwargs):
@@ -177,6 +178,19 @@ def test_warehouse_adaptive_create_sql_with_optional_clauses():
     assert "MAX_QUERY_PERFORMANCE_LEVEL = X4LARGE" in sql
     assert "STATEMENT_TIMEOUT_IN_SECONDS = 3600" in sql
     assert "COMMENT = $$adaptive$$" in sql
+
+
+def test_warehouse_adaptive_query_throughput_multiplier_create_sql():
+    warehouse = res.Warehouse(name="WH", warehouse_type="ADAPTIVE", query_throughput_multiplier=4)
+    sql = warehouse.create_sql()
+    assert "QUERY_THROUGHPUT_MULTIPLIER = 4" in sql
+
+
+def test_warehouse_query_throughput_multiplier_requires_adaptive():
+    with pytest.raises(ValueError, match="query_throughput_multiplier"):
+        res.Warehouse(name="WH", query_throughput_multiplier=4)
+    with pytest.raises(ValueError, match="query_throughput_multiplier"):
+        res.Warehouse(name="WH", warehouse_type="SNOWPARK-OPTIMIZED", query_throughput_multiplier=4)
 
 
 @pytest.fixture(

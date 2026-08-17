@@ -85,6 +85,7 @@ ADAPTIVE_UNSUPPORTED_FIELDS = (
     "enable_query_acceleration",
     "query_acceleration_max_scale_factor",
     "resource_constraint",
+    "max_concurrency_level",
 )
 
 
@@ -97,6 +98,7 @@ class _Warehouse(ResourceSpec):
     generation: Optional[WarehouseGeneration] = None
     resource_constraint: Optional[WarehouseResourceConstraint] = None
     max_query_performance_level: Optional[WarehouseSize] = None
+    query_throughput_multiplier: Optional[int] = None
     max_cluster_count: int = field(
         default=1,
         metadata={"edition": {AccountEdition.ENTERPRISE, AccountEdition.BUSINESS_CRITICAL}},
@@ -164,6 +166,9 @@ class _Warehouse(ResourceSpec):
             if self.max_query_performance_level in {WarehouseSize.X5LARGE, WarehouseSize.X6LARGE}:
                 raise ValueError("max_query_performance_level supports XSMALL through X4LARGE")
 
+        if self.query_throughput_multiplier is not None and self.warehouse_type != WarehouseType.ADAPTIVE:
+            raise ValueError("query_throughput_multiplier is only valid for ADAPTIVE warehouses")
+
 
 # Real dataclass defaults for the adaptive-inapplicable fields, computed once from
 # dataclasses.fields (the single source of truth) instead of rebuilding this dict on
@@ -182,11 +187,12 @@ class Warehouse(NamedResource, TaggableResource, Resource):
     Fields:
         name (string, required): The name of the warehouse.
         owner (string): The owner of the warehouse. Defaults to "SYSADMIN".
-        warehouse_type (string or WarehouseType): The type of the warehouse: STANDARD, SNOWPARK-OPTIMIZED, or ADAPTIVE. Defaults to STANDARD. ADAPTIVE warehouses do not support warehouse_size, min_cluster_count, max_cluster_count, scaling_policy, auto_suspend, auto_resume, initially_suspended, enable_query_acceleration, query_acceleration_max_scale_factor, resource_constraint, or generation.
+        warehouse_type (string or WarehouseType): The type of the warehouse: STANDARD, SNOWPARK-OPTIMIZED, or ADAPTIVE. Defaults to STANDARD. ADAPTIVE warehouses do not support warehouse_size, min_cluster_count, max_cluster_count, scaling_policy, auto_suspend, auto_resume, initially_suspended, enable_query_acceleration, query_acceleration_max_scale_factor, resource_constraint, generation, or max_concurrency_level.
         warehouse_size (string or WarehouseSize): The size of the warehouse which defines the compute and storage capacity.
         generation (string or WarehouseGeneration): The standard warehouse generation, either "1" or "2".
         resource_constraint (string or WarehouseResourceConstraint): The warehouse resource constraint, either STANDARD_GEN_1/2 for standard warehouses or MEMORY_* for Snowpark-optimized warehouses.
         max_query_performance_level (string or WarehouseSize): The maximum size an ADAPTIVE warehouse may scale to: XSMALL, SMALL, MEDIUM, LARGE, XLARGE, XXLARGE, XXXLARGE, or X4LARGE. Only valid for ADAPTIVE warehouses; Snowflake defaults to XLARGE if omitted.
+        query_throughput_multiplier (int): The query throughput multiplier for an ADAPTIVE warehouse. Only valid for ADAPTIVE warehouses; Snowflake defaults to 2 if omitted.
         max_cluster_count (int): The maximum number of clusters for the warehouse.
         min_cluster_count (int): The minimum number of clusters for the warehouse.
         scaling_policy (string or WarehouseScalingPolicy): The policy that defines how the warehouse scales.
@@ -197,7 +203,7 @@ class Warehouse(NamedResource, TaggableResource, Resource):
         comment (string): A comment about the warehouse.
         enable_query_acceleration (bool): Whether query acceleration is enabled to improve performance. If omitted, Snowflake's default applies.
         query_acceleration_max_scale_factor (int): The maximum scale factor for query acceleration. If omitted, Snowflake's default applies.
-        max_concurrency_level (int): The maximum number of concurrent queries that the warehouse can handle.
+        max_concurrency_level (int): The maximum number of concurrent queries that the warehouse can handle. Not supported for ADAPTIVE warehouses.
         statement_queued_timeout_in_seconds (int): The time in seconds a statement can be queued before it times out.
         statement_timeout_in_seconds (int): The time in seconds a statement can run before it times out.
         tags (dict): Tags for the warehouse.
@@ -235,6 +241,7 @@ class Warehouse(NamedResource, TaggableResource, Resource):
             name="some_adaptive_warehouse",
             warehouse_type="ADAPTIVE",
             max_query_performance_level="LARGE",
+            query_throughput_multiplier=2,
         )
         ```
 
@@ -271,6 +278,7 @@ class Warehouse(NamedResource, TaggableResource, Resource):
           - name: some_adaptive_warehouse
             warehouse_type: ADAPTIVE
             max_query_performance_level: LARGE
+            query_throughput_multiplier: 2
         ```
     """
 
@@ -282,6 +290,7 @@ class Warehouse(NamedResource, TaggableResource, Resource):
         generation=EnumProp("GENERATION", WarehouseGeneration, quoted=True),
         resource_constraint=EnumProp("RESOURCE_CONSTRAINT", WarehouseResourceConstraint),
         max_query_performance_level=EnumProp("MAX_QUERY_PERFORMANCE_LEVEL", WarehouseSize),
+        query_throughput_multiplier=IntProp("QUERY_THROUGHPUT_MULTIPLIER"),
         max_cluster_count=IntProp("max_cluster_count"),
         min_cluster_count=IntProp("min_cluster_count"),
         scaling_policy=EnumProp("scaling_policy", WarehouseScalingPolicy),
@@ -309,6 +318,7 @@ class Warehouse(NamedResource, TaggableResource, Resource):
         generation: str = None,
         resource_constraint: str = None,
         max_query_performance_level: str = None,
+        query_throughput_multiplier: Optional[int] = None,
         max_cluster_count: int = 1,
         min_cluster_count: int = 1,
         scaling_policy: str = "STANDARD",
@@ -334,6 +344,7 @@ class Warehouse(NamedResource, TaggableResource, Resource):
             generation=generation,
             resource_constraint=resource_constraint,
             max_query_performance_level=max_query_performance_level,
+            query_throughput_multiplier=query_throughput_multiplier,
             max_cluster_count=max_cluster_count,
             min_cluster_count=min_cluster_count,
             scaling_policy=scaling_policy,

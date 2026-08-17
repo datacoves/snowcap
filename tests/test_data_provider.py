@@ -1060,6 +1060,7 @@ class TestFetchWarehouse:
                 type="ADAPTIVE",
                 size="",
                 max_query_performance_level="LARGE",
+                query_throughput_multiplier=2,
                 max_cluster_count=4,
                 min_cluster_count=2,
                 scaling_policy="ECONOMY",
@@ -1071,9 +1072,9 @@ class TestFetchWarehouse:
 
         assert result["warehouse_type"] == "ADAPTIVE"
         assert result["max_query_performance_level"] == "LARGE"
+        assert result["query_throughput_multiplier"] == 2
         for field_name in ADAPTIVE_UNSUPPORTED_FIELDS:
             assert result.get(field_name) is None, field_name
-        assert "query_throughput_multiplier" not in result
 
     @patch("snowcap.data_provider._show_resources")
     def test_fetch_warehouse_adaptive_missing_columns(self, mock_show_resources):
@@ -1085,7 +1086,7 @@ class TestFetchWarehouse:
 
         assert result["max_query_performance_level"] is None
         assert result["warehouse_size"] is None
-        assert "query_throughput_multiplier" not in result
+        assert result["query_throughput_multiplier"] is None
 
     @patch("snowcap.data_provider._show_resources")
     def test_fetch_warehouse_adaptive_size_does_not_raise(self, mock_show_resources):
@@ -1126,7 +1127,28 @@ class TestFetchWarehouse:
             if field_name == "initially_suspended":
                 continue
             assert result[field_name] == value, field_name
-        assert "query_throughput_multiplier" not in result
+        assert result["query_throughput_multiplier"] is None
+
+    @patch("snowcap.data_provider.execute")
+    @patch("snowcap.data_provider._show_resources")
+    def test_fetch_warehouse_adaptive_params_omit_max_concurrency_level(self, mock_show_resources, mock_execute):
+        # Live ADAPTIVE warehouses return exactly these four parameters from SHOW
+        # PARAMETERS; max_concurrency_level is absent (issue #55), so an unconditional
+        # params["max_concurrency_level"] read raises KeyError.
+        mock_show_resources.return_value = [_warehouse_show_row(type="ADAPTIVE", size="")]
+        mock_execute.return_value = [
+            {"key": "ENABLE_USE_STABLE_PATH", "value": "true", "type": "BOOLEAN"},
+            {"key": "FALLBACK_WAREHOUSE", "value": "", "type": "STRING"},
+            {"key": "STATEMENT_QUEUED_TIMEOUT_IN_SECONDS", "value": "0", "type": "NUMBER"},
+            {"key": "STATEMENT_TIMEOUT_IN_SECONDS", "value": "172800", "type": "NUMBER"},
+        ]
+        mock_session = MagicMock()
+
+        result = fetch_warehouse(mock_session, FQN(name=ResourceName("WH")), include_params=True)
+
+        assert result["max_concurrency_level"] is None
+        assert result["statement_queued_timeout_in_seconds"] == 0
+        assert result["statement_timeout_in_seconds"] == 172800
 
 
 def _security_integration_show_row(**overrides):

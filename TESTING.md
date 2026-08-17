@@ -97,7 +97,13 @@ python tools/manage_test_account.py provision --email you@example.com \
   --edition enterprise --cloud aws --region us_west_2
 ```
 
-`--cloud` requires `--region` to also be given. `--edition` defaults to your detected edition; `--admin-name` defaults to `SNOWCAP_ADMIN`; `--key-path` defaults to `tests/.snowcap_test_account_rsa_key.p8`.
+`--cloud` requires `--region` to also be given. `--edition` defaults to your detected edition; `--admin-name` defaults to `SNOWCAP_ADMIN`; `--key-path` defaults to `~/.snowcap/snowcap_test_account_rsa_key.p8`, or `$SNOWCAP_TEST_KEY_PATH` if that variable is set.
+
+The admin key is the only credential for the account's `SERVICE` admin user. Keep it outside the repository checkout: a key written into a checkout is deleted with it — for example when a git worktree is removed — and the account is then unrecoverable by self-service. The default already lives in your home directory; set `SNOWCAP_TEST_KEY_PATH` only to relocate it:
+
+```bash
+export SNOWCAP_TEST_KEY_PATH=~/.keys/snowflake/snowcap_test_account_rsa_key.p8
+```
 
 Provisioning:
 

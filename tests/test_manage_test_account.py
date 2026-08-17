@@ -34,6 +34,28 @@ _spec.loader.exec_module(manage_test_account)
 
 from snowcap.enums import AccountEdition  # noqa: E402
 
+
+def _load_module_copy():
+    spec = importlib.util.spec_from_file_location(
+        "manage_test_account_copy", REPO_ROOT / "tools" / "manage_test_account.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_default_key_path_honors_env_var(monkeypatch):
+    monkeypatch.setenv("SNOWCAP_TEST_KEY_PATH", "/durable/keys/test_key.p8")
+    module = _load_module_copy()
+    assert module.DEFAULT_KEY_PATH == "/durable/keys/test_key.p8"
+
+
+def test_default_key_path_falls_back_to_home_directory(monkeypatch):
+    monkeypatch.delenv("SNOWCAP_TEST_KEY_PATH", raising=False)
+    module = _load_module_copy()
+    assert module.DEFAULT_KEY_PATH == str(pathlib.Path.home() / ".snowcap" / "snowcap_test_account_rsa_key.p8")
+
+
 # =============================================================================
 # create_account_sql
 # =============================================================================
@@ -186,6 +208,18 @@ def test_generate_rsa_keypair_writes_pkcs8_pem_with_restrictive_mode(tmp_path):
     assert isinstance(private_key, rsa.RSAPrivateKey)
     public_key = serialization.load_der_public_key(manage_test_account.base64.b64decode(public_der_b64))
     assert public_key.public_numbers() == private_key.public_key().public_numbers()
+
+
+def test_generate_rsa_keypair_creates_owner_only_key_dir(tmp_path):
+    # The key dir is created for the caller (e.g. ~/.snowcap); no group/other bits
+    # so the 0o600 key file's name isn't listable by other local users.
+    key_dir = tmp_path / ".snowcap"
+    key_path = key_dir / "key.p8"
+
+    manage_test_account.generate_rsa_keypair(key_path)
+
+    assert key_dir.is_dir()
+    assert key_dir.stat().st_mode & 0o077 == 0
 
 
 def test_generate_rsa_keypair_without_path_writes_no_file(tmp_path):
