@@ -53,10 +53,11 @@ def _as_list(config: dict, singular: str, plural: str) -> list:
     values = []
     # Null counts as absent (see above); so does an empty string, which is what a bad template
     # render leaves behind -- appending it would build a grant to an empty target name. Both
-    # callers pass role-name keys, where "" is never a legitimate value.
+    # callers pass role-name keys, where "" is never a legitimate value. The same applies to a
+    # plural-list element (a bad render of one item in the list).
     if config.get(singular) not in (None, ""):
         values.append(config[singular])
-    values.extend(config.get(plural) or [])
+    values.extend(v for v in (config.get(plural) or []) if v not in (None, ""))
     return values
 
 

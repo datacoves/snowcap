@@ -123,7 +123,9 @@ def evaluate_for_each_where(condition: str, each_value: Any) -> bool:
     # to a literal "{{ var.x }}" string via the stubs, so the whole expression is silently
     # falsy for every item and the block declares nothing -- which, in sync mode, turns the
     # grants it should own into DROPs. Reject it loudly rather than dropping access quietly.
-    if re.search(r"\b(?:var|parent)\.", condition):
+    # Strip string literals first so a var. inside a quoted value isn't mistaken for one.
+    without_literals = re.sub(r"'[^']*'|\"[^\"]*\"", "", condition)
+    if re.search(r"\b(?:var|parent)\.", without_literals):
         raise MissingVarException(
             f"for_each `where` expression '{condition}' may only reference `each.value`, not var/parent."
         )

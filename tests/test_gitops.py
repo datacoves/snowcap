@@ -143,6 +143,14 @@ def test_for_each_where_rejects_var_reference():
         evaluate_for_each_where("each.value == var.target_region", "SRC.ONE")
 
 
+def test_for_each_where_allows_var_inside_a_string_literal():
+    """A var. inside a quoted value is not a reference and must not trip the guard."""
+    from snowcap.var import evaluate_for_each_where
+
+    assert evaluate_for_each_where("each.value == 'see var.docs'", "see var.docs") is True
+    assert evaluate_for_each_where("each.value == 'see var.docs'", "other") is False
+
+
 def test_for_each_where_var_reference_does_not_silently_empty_the_block():
     """End to end: a var.* reference in `where` surfaces an error rather than declaring zero
     resources (which would drop the grants the block owns)."""
@@ -176,6 +184,12 @@ class TestDatabaseRoleGrantsFromYaml:
         assert self._build([{"database_role": "db.child", "roles": ["analyst", "loader"]}]) == [
             "GRANT DATABASE ROLE DB.CHILD TO ROLE ANALYST",
             "GRANT DATABASE ROLE DB.CHILD TO ROLE LOADER",
+        ]
+
+    def test_empty_string_list_element_is_ignored(self):
+        """A bad template render of one list item must not build a grant to an empty target."""
+        assert self._build([{"database_role": "db.child", "roles": ["", "analyst"]}]) == [
+            "GRANT DATABASE ROLE DB.CHILD TO ROLE ANALYST"
         ]
 
     def test_grant_to_another_database_role(self):

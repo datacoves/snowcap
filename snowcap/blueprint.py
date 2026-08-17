@@ -2399,7 +2399,9 @@ def _shared_database_for_grant(change: ResourceChange, shared_databases: Optiona
             rt = None
         if rt is not None and rt != ResourceType.DATABASE and isinstance(RESOURCE_SCOPES.get(rt), AccountScope):
             return None
-    database = str(on).split(".")[0].strip('"').upper()
+    # Quote-aware split (like _container_covers): a database quoted with a literal dot would
+    # otherwise mis-split and miss the shared-databases set.
+    database = smart_split(str(on), ".")[0].strip('"').upper()
     return database if database in shared_databases else None
 
 

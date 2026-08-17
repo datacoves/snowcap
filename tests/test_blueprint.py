@@ -2412,6 +2412,18 @@ class TestDroppingGrantsOnSharedDatabases:
         assert "REVOKE USAGE ON WAREHOUSE WORLDWIDE_ADDRESS_DATA FROM ROLE ANALYST" in sql
         assert "IMPORTED PRIVILEGES" not in sql
 
+    def test_shared_database_match_is_quote_aware(self):
+        """A database quoted with a literal dot must still match the shared-databases set; a
+        naive split would produce the wrong name and miss it."""
+        from snowcap.blueprint import _shared_database_for_grant
+
+        change = DropResource(
+            urn=parse_URN("urn::ABCD123:grant/GRANT?grant_type=OBJECT&priv=USAGE&on=database/X&to=role/R"),
+            before={"on": '"prod.mirror".ADDRESS', "on_type": "SCHEMA", "priv": "USAGE", "to": "R"},
+        )
+
+        assert _shared_database_for_grant(change, {"PROD.MIRROR"}) == "PROD.MIRROR"
+
     def test_no_shared_databases_known_leaves_behaviour_unchanged(self, session_ctx):
         commands, _ = compile_plan_to_sql(session_ctx, [self._drop("USAGE", "WORLDWIDE_ADDRESS_DATA", "DATABASE")])
 
