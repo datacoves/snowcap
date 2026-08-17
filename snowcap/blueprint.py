@@ -315,8 +315,8 @@ def _future_grant_scopes(entries) -> tuple[set[str], list[dict], set[tuple[str, 
     return managed_access_schemas, database_future_grants, schema_future_grants
 
 
-def _format_schema_list(schemas: Sequence[str], limit: int = 3) -> str:
-    shown = list(schemas[:limit])
+def _format_schema_list(schemas: Sequence[str]) -> str:
+    shown = list(schemas[:3])
     remainder = len(schemas) - len(shown)
     if remainder > 0:
         return f"{', '.join(shown)} (and {remainder} more)"

@@ -3,7 +3,6 @@ import inspect
 import json
 import logging
 import sys
-from functools import cache
 from typing import Any, Optional, TypedDict, Union
 
 import pytz
@@ -1009,7 +1008,6 @@ def fetch_region(session: SnowflakeConnection):
     return region
 
 
-@cache
 def fetch_inherited_grants_enabled(session: SnowflakeConnection) -> Optional[bool]:
     """
     Is FEATURE_RBAC_INHERITED_GRANTS enabled for this account?

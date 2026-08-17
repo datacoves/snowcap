@@ -1008,6 +1008,15 @@ class TestInheritedGrants:
             assert grant.grant_type == GrantType.INHERITED, sql
             assert grant.create_sql() == sql.upper(), sql
 
+    def test_string_form_accepts_a_three_word_collection_type(self):
+        """A 3-word object type in the plural (CORTEX SEARCH SERVICES) must parse in the string
+        form, not split into tokens and trip the item-count guard."""
+        grant = res.Grant(priv="USAGE", on="INHERITED CORTEX SEARCH SERVICES IN SCHEMA db.s", to="r")
+
+        assert grant.items_type == ResourceType.CORTEX_SEARCH_SERVICE
+        assert grant.on_type == ResourceType.SCHEMA
+        assert "ON ALL CORTEX SEARCH SERVICES IN SCHEMA DB.S" in grant.create_sql()
+
     def test_from_sql_leaves_grants_on_all_alone(self):
         grant = res.Grant.from_sql("GRANT SELECT ON ALL TABLES IN SCHEMA somedb.someschema TO ROLE somerole")
 

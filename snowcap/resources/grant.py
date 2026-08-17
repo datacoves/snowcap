@@ -399,7 +399,10 @@ class Grant(Resource):
                             mw_words = mw.split()
                             if i + len(mw_words) <= len(parts):
                                 candidate = " ".join(parts[i : i + len(mw_words)]).upper()
-                                if candidate == mw:
+                                # Collection grants name the type in the plural ("CORTEX SEARCH
+                                # SERVICES"); singularize the last word so a 3+-word type matches
+                                # here as one item instead of splitting and tripping the count guard.
+                                if candidate == mw or singularize(candidate) == mw:
                                     matched_multi = mw
                                     break
                         if matched_multi is not None:
