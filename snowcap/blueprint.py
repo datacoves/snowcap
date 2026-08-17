@@ -1589,18 +1589,22 @@ class Blueprint:
 
         if self._config.sync_resources:
             urns = [item for item in manifest.urns if item.resource_type not in self._config.sync_resources]
-            # Pre-compute whether manifest has future grants (for GRANT sync optimization)
-            has_future_grants = manifest_has_future_grants(manifest)
-            future_grant_roles = manifest_future_grant_roles(manifest) if has_future_grants else set()
-            future_grant_database_roles = manifest_future_grant_database_roles(manifest) if has_future_grants else set()
             for resource_type in self._config.sync_resources:
-                # Pass include_future_grants=False for grants if manifest has no future grants
-                # Also pass future_grant_roles to only query roles that have future grants
+                # Future grants are read in full whenever grants are synced, and neither
+                # the query nor the set of roles queried is narrowed to what the manifest
+                # declares. Narrowing would be sound for a plan that only creates, but
+                # syncing a resource type means removing what is not declared, and a future
+                # grant absent from config is precisely what has to be found.
+                #
+                # Skipping the query when the manifest declared no future grants kept the
+                # ones already in Snowflake out of remote state, so sync could not propose
+                # dropping them -- unseen rather than deliberately kept, with nothing in
+                # the plan to say so. Migrating a config from ALL plus FUTURE pairs to
+                # inherited grants removes the last future grant and hit exactly that: 26
+                # orphaned future grants, zero drops, no warning.
                 list_kwargs: dict[str, Any] = {}
                 if resource_type == ResourceType.GRANT:
-                    list_kwargs["include_future_grants"] = has_future_grants
-                    list_kwargs["future_grant_roles"] = future_grant_roles
-                    list_kwargs["future_grant_database_roles"] = future_grant_database_roles
+                    list_kwargs["include_future_grants"] = True
                 for fqn in data_provider.list_resource(session, resource_label_for_type(resource_type), **list_kwargs):
                     if self._config.scope == BlueprintScope.DATABASE and fqn.database != self._config.database:
                         continue

@@ -2603,3 +2603,58 @@ class TestSurvivingDropsAreReported:
         print_surviving_drops([])
 
         assert capsys.readouterr().out == ""
+
+
+class TestSyncReadsFutureGrantsRegardless:
+    """Syncing a resource type means removing what config does not declare, so a future
+    grant absent from config is exactly what has to be found. Skipping the SHOW FUTURE
+    GRANTS query when the manifest declared none kept the ones already in Snowflake out of
+    remote state, so sync could not propose dropping them -- unseen rather than kept, with
+    nothing in the plan to say so.
+
+    Migrating from ALL plus FUTURE pairs to inherited grants removes the last future grant
+    from config, which is precisely when this bites."""
+
+    def _grant_list_kwargs(self, resources):
+        """How fetch_remote_state asks for grants, for a config with no future grants.
+
+        Only the listing call matters here, and it happens before the rest of
+        fetch_remote_state; the later failure is mock plumbing for reference resolution,
+        not the behaviour under test.
+        """
+        from snowcap.blueprint_config import BlueprintConfig
+
+        bp = Blueprint(resources=resources)
+        bp._config = BlueprintConfig(sync_resources={ResourceType.GRANT})
+
+        with patch("snowcap.blueprint.data_provider.fetch_session") as mock_session, patch(
+            "snowcap.blueprint.data_provider.use_secondary_roles"
+        ), patch("snowcap.blueprint.data_provider.list_resource") as mock_list:
+            mock_session.return_value = self.SESSION_CTX
+            mock_list.return_value = []
+            manifest = bp.generate_manifest(self.SESSION_CTX)
+            try:
+                bp.fetch_remote_state(MagicMock(), manifest)
+            except Exception:
+                pass
+            grant_calls = [c for c in mock_list.call_args_list if c.args[1] == "grant"]
+
+        assert grant_calls, "grants must be listed when grant is a sync_resource"
+        return grant_calls[0].kwargs
+
+    @pytest.fixture(autouse=True)
+    def _ctx(self, session_ctx):
+        type(self).SESSION_CTX = session_ctx
+
+    def test_future_grants_are_listed_when_config_declares_none(self):
+        kwargs = self._grant_list_kwargs([res.Role(name="SOME_ROLE")])
+
+        assert kwargs["include_future_grants"] is True
+
+    def test_the_query_is_not_narrowed_to_roles_named_in_config(self):
+        """A role holding a future grant only in Snowflake was never queried, so its grant
+        could not be dropped either."""
+        kwargs = self._grant_list_kwargs([res.Role(name="SOME_ROLE")])
+
+        assert "future_grant_roles" not in kwargs
+        assert "future_grant_database_roles" not in kwargs

@@ -263,6 +263,30 @@ def _is_intrinsic_database_role_usage(row: dict[str, Any], grantee: str) -> bool
     return str(row["name"]).upper() == grantee.split(".")[0].upper()
 
 
+def _imported_privileges_priv(row: dict[str, Any], shared_databases: set[str]) -> Optional[str]:
+    """
+    The privilege a grant on a share-backed database should be identified by.
+
+    GRANT IMPORTED PRIVILEGES ON DATABASE <db> is how access to a shared database is given,
+    and Snowflake reports the resulting grant on the database as plain USAGE. Identifying
+    it as USAGE means the declared grant never matches the one read back, so every plan
+    proposes creating it again -- forever, and invisibly, since re-granting changes nothing.
+
+    fetch_grant already resolves this, but syncing a resource type builds remote state from
+    list_* alone and discards the manifest URNs, so that path never runs for a synced grant.
+
+    Returns None for anything else, including USAGE on an ordinary database, where USAGE
+    means USAGE.
+    """
+    if row["privilege"] != "USAGE":
+        return None
+    if row["granted_on"].replace("_", " ").upper() != "DATABASE":
+        return None
+    if str(row["name"]).upper() not in shared_databases:
+        return None
+    return "IMPORTED PRIVILEGES"
+
+
 def _granted_on_label(granted_on: str) -> str:
     """
     The object-type half of a grant URN's `on`, normalized the way the manifest builds it.
@@ -365,11 +389,16 @@ def _fetch_grant_to_role(
             grants = _show_future_grants_to_role(session, role, cacheable=True)
     else:
         grants = _show_grants_to_role(session, role, role_type=role_type, cacheable=True)
+    # Compare object types the way list_grants does. Snowflake sometimes reports a grant
+    # against a different name than the one its DDL uses -- CORTEX_AGENT_SERVER for what
+    # GRANT calls an MCP SERVER -- so a raw string comparison never matches the declared
+    # grant, and the plan proposes creating it on every run.
+    wanted_type = _granted_on_label(granted_on)
     for grant in grants:
         name = "ACCOUNT" if grant["granted_on"] == "ACCOUNT" else grant["name"]
         # Use ResourceName for comparison to handle quoted identifiers correctly
         name_matches = ResourceName(name) == ResourceName(on_name) if name != "ACCOUNT" else name == on_name
-        if grant["granted_on"] == granted_on and grant["privilege"] == privilege and name_matches:
+        if _granted_on_label(grant["granted_on"]) == wanted_type and grant["privilege"] == privilege and name_matches:
             return grant
     return None
 
@@ -2373,8 +2402,12 @@ def fetch_grant(session: SnowflakeConnection, fqn: FQN):
             # Gate on the database actually being shared: without this, a mistakenly-declared
             # IMPORTED PRIVILEGES grant on a regular database would false-match its (very common)
             # plain USAGE grant and mask the config error.
+            # Any kind but STANDARD is share-backed: IMPORTED DATABASE for a marketplace or
+            # direct share, APPLICATION for the SNOWFLAKE database, which behaves the same
+            # way and was missed by testing for IMPORTED DATABASE alone. A STANDARD database
+            # is the only case where a plain USAGE grant could be mistaken for this one.
             db_rows = _show_resources(session, "DATABASES", FQN(name=ResourceName(on)))
-            if db_rows and db_rows[0]["kind"] == "IMPORTED DATABASE":
+            if db_rows and db_rows[0]["kind"] != "STANDARD":
                 data = _fetch_grant_to_role(
                     session,
                     grant_type=grant_type,
@@ -3886,14 +3919,20 @@ def list_database_owners(session: SnowflakeConnection) -> dict[str, str]:
 
 def list_shared_database_names(session: SnowflakeConnection) -> set[str]:
     """
-    Names of databases mounted from a share, upper-cased.
+    Names of databases whose privileges come from a share rather than from grants on the
+    database itself, upper-cased.
 
-    Grants on these cannot be revoked one privilege at a time; see
+    Every kind but STANDARD qualifies. IMPORTED DATABASE is the marketplace or direct
+    share; APPLICATION covers the SNOWFLAKE database, which behaves the same way and would
+    be missed by testing for IMPORTED DATABASE alone.
+
+    Two things depend on this. Privileges on them are granted with IMPORTED PRIVILEGES and
+    reported back as USAGE, and they cannot be revoked one at a time; see
     lifecycle.drop_shared_database_grant. Reads the same cached SHOW DATABASES response
     _list_databases uses, so this costs no extra query.
     """
     show_result = execute(session, "SHOW DATABASES", cacheable=True)
-    return {row["name"].upper() for row in show_result if row["kind"] == "IMPORTED DATABASE"}
+    return {row["name"].upper() for row in show_result if row["kind"] != "STANDARD"}
 
 
 def list_database_roles(session: SnowflakeConnection, database=None) -> list[FQN]:
@@ -4086,6 +4125,10 @@ def list_grants(
 ) -> list[FQN]:
     grants: list[FQN] = []
 
+    # Databases whose privileges come from a share. Grants on them are declared as
+    # IMPORTED PRIVILEGES and reported back as USAGE; see _imported_privileges_priv.
+    shared_databases = list_shared_database_names(session)
+
     # Get all non-system role names for processing
     # Use "SHOW ROLES IN ACCOUNT" to match _show_resources for cache consistency
     roles_result = execute(session, "SHOW ROLES IN ACCOUNT", cacheable=True)
@@ -4175,13 +4218,14 @@ def list_grants(
                 if data["granted_on"] == "ACCOUNT":
                     name = "ACCOUNT"
                 on = f"{_granted_on_label(data['granted_on'])}/{name}"
+                priv = _imported_privileges_priv(data, shared_databases) or data["privilege"]
                 to = f"{to_prefix}/{grantee}"
                 grants.append(
                     FQN(
                         name=ResourceName("GRANT"),
                         params={
                             "grant_type": "OBJECT",
-                            "priv": data["privilege"],
+                            "priv": priv,
                             "on": on,
                             "to": to,
                         },
@@ -4214,13 +4258,14 @@ def list_grants(
                 if data["granted_on"] == "ACCOUNT":
                     name = "ACCOUNT"
                 on = f"{_granted_on_label(data['granted_on'])}/{name}"
+                priv = _imported_privileges_priv(data, shared_databases) or data["privilege"]
                 to = f"role/{role_name}"
                 grants.append(
                     FQN(
                         name=ResourceName("GRANT"),
                         params={
                             "grant_type": "OBJECT",
-                            "priv": data["privilege"],
+                            "priv": priv,
                             "on": on,
                             "to": to,
                         },
@@ -4267,13 +4312,14 @@ def list_grants(
                 if data["granted_on"] == "ACCOUNT":
                     name = "ACCOUNT"
                 on = f"{_granted_on_label(data['granted_on'])}/{name}"
+                priv = _imported_privileges_priv(data, shared_databases) or data["privilege"]
                 to = f"database_role/{fq_db_role_name}"
                 grants.append(
                     FQN(
                         name=ResourceName("GRANT"),
                         params={
                             "grant_type": "OBJECT",
-                            "priv": data["privilege"],
+                            "priv": priv,
                             "on": on,
                             "to": to,
                         },
