@@ -301,7 +301,11 @@ def generate_rsa_keypair(key_path: pathlib.Path | None = None) -> str:
             format=serialization.PrivateFormat.PKCS8,
             encryption_algorithm=serialization.NoEncryption(),
         )
-        key_path.parent.mkdir(parents=True, exist_ok=True)
+        # Restrict the key directory to the owner so the 0o600 key file's name
+        # isn't even listable by other local users. ponytail: only tightens the
+        # dir we create; a pre-existing dir keeps its perms (mode is ignored when
+        # exist_ok and the dir already exists).
+        key_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "wb") as f:
             f.write(pem)

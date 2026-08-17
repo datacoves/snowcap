@@ -210,6 +210,18 @@ def test_generate_rsa_keypair_writes_pkcs8_pem_with_restrictive_mode(tmp_path):
     assert public_key.public_numbers() == private_key.public_key().public_numbers()
 
 
+def test_generate_rsa_keypair_creates_owner_only_key_dir(tmp_path):
+    # The key dir is created for the caller (e.g. ~/.snowcap); no group/other bits
+    # so the 0o600 key file's name isn't listable by other local users.
+    key_dir = tmp_path / ".snowcap"
+    key_path = key_dir / "key.p8"
+
+    manage_test_account.generate_rsa_keypair(key_path)
+
+    assert key_dir.is_dir()
+    assert key_dir.stat().st_mode & 0o077 == 0
+
+
 def test_generate_rsa_keypair_without_path_writes_no_file(tmp_path):
     result = manage_test_account.generate_rsa_keypair(None)
 
