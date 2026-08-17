@@ -240,14 +240,14 @@ def plan(
         cli_config["vars"] = merge_vars(cli_config.get("vars", {}), env_vars)
 
     try:
-        plan_obj = blueprint_plan(yaml_config, cli_config)
+        plan_obj, plan_levels = blueprint_plan(yaml_config, cli_config)
         if output_file:
             with open(output_file, "w") as f:
-                f.write(dump_plan(plan_obj, format="json"))
+                f.write(dump_plan(plan_obj, format="json", levels=plan_levels))
         else:
             output = None
             if json_output:
-                output = dump_plan(plan_obj, format="json")
+                output = dump_plan(plan_obj, format="json", levels=plan_levels)
             else:
                 output = dump_plan(plan_obj, format="text")
             print(output)

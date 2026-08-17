@@ -54,7 +54,7 @@ from .exceptions import (
     NotADAGException,
     OrphanResourceException,
 )
-from .identifiers import URN, parse_identifier, parse_URN, resource_label_for_type
+from .identifiers import URN, parse_identifier, parse_URN, resource_label_for_type, smart_split
 from .privs import AccountPriv, CREATE_PRIV_FOR_RESOURCE_TYPE, system_role_for_priv
 from .resource_name import ResourceName
 from .resource_tags import ResourceTags
@@ -420,7 +420,9 @@ def _container_covers(container_type: str, container: str, object_name: str) -> 
     """Does a container hold the named object, by identifier alone?"""
     if container_type == ResourceType.ACCOUNT.value:
         return True
-    parts = object_name.split(".")
+    # Quote-aware split: a quoted identifier can contain a literal dot (e.g. "a.b"), which a
+    # plain str.split would miscount and mis-classify.
+    parts = smart_split(object_name, ".")
     if container_type == ResourceType.SCHEMA.value:
         return len(parts) == 3 and ResourceName(".".join(parts[:2])) == ResourceName(container)
     if container_type == ResourceType.DATABASE.value:
@@ -442,7 +444,13 @@ def _covered_by_collection_grant(collection_grants: list["ManifestResource"], re
         return False
     for grant in collection_grants:
         data = grant.data
-        if data["priv"] != remote_res["priv"] or data["to"] != remote_res["to"]:
+        if data["to"] != remote_res["to"]:
+            continue
+        # A declared `GRANT ALL` fans out into a concrete-privilege row per object (SELECT,
+        # INSERT, ...); matching the privilege exactly would miss those and drop them on every
+        # sync. ALL covers whatever privilege the row carries. Other collection grants still
+        # match their single privilege.
+        if data["priv"] != "ALL" and data["priv"] != remote_res["priv"]:
             continue
         if data["items_type"] != remote_res["on_type"]:
             continue
@@ -702,9 +710,12 @@ State = dict[URN, dict]
 Plan = list[ResourceChange]
 
 
-def plan_from_dict(plan_dict: dict) -> Plan:
+def plan_from_dict(plan_dict) -> Plan:
+    # A plan file is either a bare list of changes (older format) or {"changes": [...],
+    # "levels": {...}} once dependency levels are persisted alongside it.
+    changes_data = plan_dict.get("changes", []) if isinstance(plan_dict, dict) else plan_dict
     changes: list[ResourceChange] = []
-    for change in plan_dict:
+    for change in changes_data:
         action = change["action"]
         if action == "CREATE":
             container_descriptor: Optional[ContainerDescriptor] = None
@@ -831,13 +842,32 @@ class Manifest:
         return list(self._resources.values())
 
 
-def dump_plan(plan: Plan, format: str = "json"):
+def dump_plan(plan: Plan, format: str = "json", levels: Optional[dict[URN, int]] = None):
     if format == "json":
-        return json.dumps([change.to_dict() for change in plan], indent=2)
+        changes = [change.to_dict() for change in plan]
+        if levels is None:
+            return json.dumps(changes, indent=2)
+        # Persist each change's dependency level so `apply --plan` preserves ordering (ownership
+        # transfers before creates inside them, the inherited-grants feature flag before the
+        # grants that need it). Without it the apply-plan path has no levels and runs everything
+        # at level 0. Older plan files (a bare change list) fall back to that flat behaviour.
+        payload = {
+            "changes": changes,
+            "levels": {str(change.urn): levels.get(change.urn, 0) for change in plan},
+        }
+        return json.dumps(payload, indent=2)
     elif format == "text":
         return _dump_plan_text(plan)
     else:
         raise Exception(f"Unsupported format {format}")
+
+
+def levels_from_plan_dict(plan_dict) -> dict[URN, int]:
+    """Dependency levels persisted alongside a plan by dump_plan. Empty for older plan files
+    (a bare change list), so apply falls back to running everything at level 0."""
+    if not isinstance(plan_dict, dict):
+        return {}
+    return {parse_URN(urn): level for urn, level in plan_dict.get("levels", {}).items()}
 
 
 def _render_value(value):

@@ -673,6 +673,28 @@ def test_blueprint_dump_plan_drop(session_ctx):
 """
 
 
+def test_dump_plan_round_trips_dependency_levels(session_ctx, remote_state):
+    """apply --plan must preserve ordering, so dump_plan persists each change's level and the
+    loaders read it back. A bare-list plan (older format) restores to no levels."""
+    from snowcap.blueprint import plan_from_dict, levels_from_plan_dict
+
+    blueprint = Blueprint(resources=[res.Role("role1")])
+    manifest = blueprint.generate_manifest(session_ctx)
+    plan = diff(remote_state, manifest)
+    urn = plan[0].urn
+
+    dumped = json.loads(dump_plan(plan, format="json", levels={urn: 3}))
+    assert dumped["levels"] == {str(urn): 3}
+    assert [c.urn for c in plan_from_dict(dumped)] == [urn]
+    assert levels_from_plan_dict(dumped) == {urn: 3}
+
+    # Backward compatibility: a bare-list plan still parses, with no levels restored.
+    bare = json.loads(dump_plan(plan, format="json"))
+    assert isinstance(bare, list)
+    assert [c.urn for c in plan_from_dict(bare)] == [urn]
+    assert levels_from_plan_dict(bare) == {}
+
+
 def test_blueprint_vars(session_ctx):
     blueprint = Blueprint(
         resources=[res.Role(name="role", comment=var.role_comment)],
@@ -1914,6 +1936,35 @@ class TestInheritedGrantPlanning:
         plan = diff(remote_state, manifest)
 
         assert not [change for change in plan if isinstance(change, DropResource) and change.urn == urn]
+
+    def test_grant_all_collection_covers_expanded_privilege_rows(self, session_ctx, remote_state):
+        """`GRANT ALL ON ALL TABLES` fans out into concrete-privilege rows (SELECT, INSERT, ...).
+        A declared ALL collection grant must cover them, or sync drops each one every run."""
+        remote_state = remote_state.copy()
+        urn, data = self._object_grant_state(priv="SELECT")
+        remote_state[urn] = data
+        manifest = self._manifest(
+            session_ctx,
+            [
+                res.Database(name="DB"),
+                res.Role(name="SOMEROLE"),
+                res.Grant(priv="ALL", on="ALL TABLES IN DATABASE DB", to="SOMEROLE"),
+            ],
+        )
+
+        plan = diff(remote_state, manifest)
+
+        assert not [change for change in plan if isinstance(change, DropResource) and change.urn == urn]
+
+    def test_container_covers_handles_quoted_identifiers_with_dots(self):
+        """A quoted identifier can contain a literal dot; a plain split miscounts the parts and
+        mis-classifies containment."""
+        from snowcap.blueprint import _container_covers
+        from snowcap.enums import ResourceType
+
+        assert _container_covers(ResourceType.SCHEMA.value, 'DB."a.b"', 'DB."a.b".TBL')
+        assert not _container_covers(ResourceType.SCHEMA.value, 'DB."a.b"', "DB.OTHER.TBL")
+        assert _container_covers(ResourceType.DATABASE.value, "DB", 'DB."a.b".TBL')
 
     def test_a_collection_grant_in_another_database_does_not_protect_the_grant(self, session_ctx, remote_state):
         remote_state = remote_state.copy()
