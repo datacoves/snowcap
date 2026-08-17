@@ -1997,6 +1997,10 @@ class Blueprint:
         self._create_ownership_refs(session_ctx)
         self._create_grandparent_refs()
         self._create_stage_privilege_refs()
+        # Must run after _build_resource_graph populates self._root and before
+        # _finalize_resources locks resources, like the other ref-creators above —
+        # otherwise it walks an empty graph and the grant->flag edge is never added.
+        self._link_inherited_grants_to_feature_flag()
         self._finalize_resources()
 
     def _link_inherited_grants_to_feature_flag(self) -> None:
@@ -2038,7 +2042,6 @@ class Blueprint:
 
     def generate_manifest(self, session_ctx: SessionContext) -> Manifest:
         manifest = Manifest(account_locator=session_ctx["account_locator"])
-        self._link_inherited_grants_to_feature_flag()
         self._finalize(session_ctx)
         for resource in _walk(self._root):
             if isinstance(resource, Resource):
@@ -2380,8 +2383,12 @@ def surviving_drops(session, changes: list[ResourceChange]) -> list[ResourceChan
     if not dropped:
         return []
 
-    # The apply just changed the very state these checks read.
+    # The apply just changed the very state these checks read. reset_cache() alone
+    # leaves the ACCOUNT_USAGE grant snapshot in place, and _show_grants_to_role serves
+    # it for account-role grants — so a revoked grant would re-appear as a false survivor
+    # on use_account_usage runs. Clear both.
     reset_cache()
+    data_provider.reset_account_usage_caches()
 
     survivors = []
     for change in dropped:

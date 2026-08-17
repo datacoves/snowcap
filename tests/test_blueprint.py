@@ -554,9 +554,7 @@ def test_blueprint_dump_plan_create(session_ctx, remote_state):
         }
     ]
     plan_str = strip_ansi(dump_plan(plan, format="text"))
-    assert (
-        plan_str
-        == """
+    assert plan_str == """
 » snowcap
 » Plan: 1 to create, 0 to update, 0 to transfer, 0 to drop.
 
@@ -564,7 +562,6 @@ def test_blueprint_dump_plan_create(session_ctx, remote_state):
 + CREATE: ROLE1 (owner: USERADMIN)
 
 """
-    )
 
 
 def test_blueprint_dump_plan_update(session_ctx):
@@ -591,9 +588,7 @@ def test_blueprint_dump_plan_update(session_ctx):
         }
     ]
     plan_str = strip_ansi(dump_plan(plan, format="text"))
-    assert (
-        plan_str
-        == """
+    assert plan_str == """
 » snowcap
 » Plan: 0 to create, 1 to update, 0 to transfer, 0 to drop.
 
@@ -606,7 +601,6 @@ def test_blueprint_dump_plan_update(session_ctx):
   └──────────┴────────┴───────┘
 
 """
-    )
 
 
 def test_blueprint_dump_plan_transfer(session_ctx):
@@ -632,9 +626,7 @@ def test_blueprint_dump_plan_transfer(session_ctx):
         }
     ]
     plan_str = strip_ansi(dump_plan(plan, format="text"))
-    assert (
-        plan_str
-        == """
+    assert plan_str == """
 » snowcap
 » Plan: 0 to create, 0 to update, 1 to transfer, 0 to drop.
 
@@ -647,7 +639,6 @@ def test_blueprint_dump_plan_transfer(session_ctx):
   └──────────┴──────────────┴───────────┘
 
 """
-    )
 
 
 def test_blueprint_dump_plan_drop(session_ctx):
@@ -672,9 +663,7 @@ def test_blueprint_dump_plan_drop(session_ctx):
     }
 
     plan_str = strip_ansi(dump_plan(plan, format="text"))
-    assert (
-        plan_str
-        == """
+    assert plan_str == """
 » snowcap
 » Plan: 0 to create, 0 to update, 0 to transfer, 1 to drop.
 
@@ -682,7 +671,6 @@ def test_blueprint_dump_plan_drop(session_ctx):
 - DROP:   ROLE1
 
 """
-    )
 
 
 def test_blueprint_vars(session_ctx):
@@ -2069,16 +2057,20 @@ class TestInheritedGrantPlanning:
         grant = res.Grant(priv="SELECT", on="INHERITED TABLES IN DATABASE MY_DB", to="READER")
         manifest = self._manifest(session_ctx, [flag, res.Database(name="MY_DB"), res.Role(name="READER"), grant])
 
+        locator = session_ctx["account_locator"]
+        flag_urn = URN.from_resource(account_locator=locator, resource=flag)
+        grant_urn = URN.from_resource(account_locator=locator, resource=grant)
+
+        # The ordering must come from a real dependency edge, not incidental level
+        # assignment: assert the grant->flag edge is present in the manifest.
+        assert (grant_urn, flag_urn) in set(manifest.refs)
+
         resource_set = set(manifest.urns)
         for parent, ref in manifest.refs:
             resource_set.add(parent)
             resource_set.add(ref)
         levels = compute_levels(resource_set, set(manifest.refs))
-
-        locator = session_ctx["account_locator"]
-        flag_level = levels[URN.from_resource(account_locator=locator, resource=flag)]
-        grant_level = levels[URN.from_resource(account_locator=locator, resource=grant)]
-        assert grant_level > flag_level
+        assert levels[grant_urn] > levels[flag_urn]
 
     def test_grants_on_all_are_not_linked_to_the_feature_flag(self, session_ctx):
         """Only inherited grants need the preview; an ON ALL grant must not be held back."""
@@ -2583,16 +2575,20 @@ class TestSurvivingDropsAreReported:
 
         assert surviving_drops(MagicMock(), [self._drop()]) == []
 
+    @patch("snowcap.blueprint.data_provider.reset_account_usage_caches")
     @patch("snowcap.blueprint.reset_cache")
     @patch("snowcap.blueprint.data_provider.fetch_resource")
-    def test_state_is_re_read_rather_than_served_from_the_apply_s_cache(self, mock_fetch, mock_reset):
-        """The apply just changed the state these checks read."""
+    def test_state_is_re_read_rather_than_served_from_the_apply_s_cache(self, mock_fetch, mock_reset, mock_au_reset):
+        """The apply just changed the state these checks read. Both the general cache and the
+        ACCOUNT_USAGE grant snapshot must be cleared, or revoked account-role grants re-appear
+        as false survivors on use_account_usage runs."""
         from snowcap.blueprint import surviving_drops
 
         mock_fetch.return_value = None
         surviving_drops(MagicMock(), [self._drop()])
 
         mock_reset.assert_called_once()
+        mock_au_reset.assert_called_once()
 
     @patch("snowcap.blueprint.reset_cache")
     @patch("snowcap.blueprint.data_provider.fetch_resource")

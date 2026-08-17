@@ -427,7 +427,15 @@ class Grant(Resource):
                     if _is_account_container(on_items):
                         # "INHERITED TABLES IN ACCOUNT" -- the account is the container and
                         # has no name of its own. Only inherited grants can be scoped to
-                        # the whole account; ALL and FUTURE grants cannot.
+                        # the whole account; ALL and FUTURE grants cannot. Reject those here
+                        # so it fails at plan time rather than rendering doubled-ACCOUNT SQL
+                        # that only errors mid-apply. `inherited=True` upgrades an ALL grant to
+                        # inherited later (also the from_sql round-trip path), so allow it.
+                        if on_items[0].upper() != GrantType.INHERITED.value and not inherited:
+                            raise ValueError(
+                                f"{on_items[0]} grants cannot target the whole account; only inherited "
+                                f"grants can be scoped to ACCOUNT. See {INHERITED_GRANT_DOCS}"
+                            )
                         items_type = resource_type_for_label(singularize(" ".join(on_items[1:-1])))
                         on_type = ResourceType.ACCOUNT
                         on = "ACCOUNT"

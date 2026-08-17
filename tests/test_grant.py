@@ -906,6 +906,13 @@ class TestInheritedGrants:
         assert grant.create_sql() == "GRANT INHERITED SELECT ON ALL TABLES IN ACCOUNT TO ROLE TRUST_CENTER"
         assert grant.drop_sql() == "REVOKE INHERITED SELECT ON ALL TABLES IN ACCOUNT FROM ROLE TRUST_CENTER"
 
+    def test_all_and_future_cannot_target_the_whole_account(self):
+        """Only inherited grants may be scoped to ACCOUNT. ALL/FUTURE + ACCOUNT must fail at
+        construction, not render doubled-ACCOUNT SQL that only errors mid-apply."""
+        for keyword in ("ALL", "FUTURE"):
+            with pytest.raises(ValueError, match="cannot target the whole account"):
+                res.Grant(priv="SELECT", on=f"{keyword} TABLES IN ACCOUNT", to="somerole")
+
     def test_a_database_named_account_is_not_the_account_container(self):
         grant = res.Grant(priv="SELECT", on="INHERITED TABLES IN DATABASE account", to="somerole")
 

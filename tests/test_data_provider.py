@@ -2342,9 +2342,9 @@ class TestDatabaseRoleGrantsAreNotListedAsGrants:
 
         grants = list_grants(MagicMock(), include_future_grants=False)
 
-        ons = [fqn.params["on"] for fqn in grants]
-        assert ons == ["table/MY_DB.MY_SCHEMA.MY_TABLE"]
-        assert not [on for on in ons if "database_role" in on]
+        on_values = [fqn.params["on"] for fqn in grants]
+        assert on_values == ["table/MY_DB.MY_SCHEMA.MY_TABLE"]
+        assert not [on for on in on_values if "database_role" in on]
 
 
 class TestGrantsReportedUnderASynonym:

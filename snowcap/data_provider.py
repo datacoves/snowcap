@@ -3755,9 +3755,7 @@ def fetch_warehouse(session: SnowflakeConnection, fqn: FQN, include_params: bool
     if generation is not None:
         generation = str(generation)
     resource_constraint = _normalize_snowflake_optional(data.get("resource_constraint"), upper=True)
-    max_query_performance_level = _normalize_snowflake_optional(
-        data.get("max_query_performance_level"), upper=True
-    )
+    max_query_performance_level = _normalize_snowflake_optional(data.get("max_query_performance_level"), upper=True)
     query_throughput_multiplier = _normalize_snowflake_optional(data.get("query_throughput_multiplier"))
 
     if warehouse_type == "STANDARD":
