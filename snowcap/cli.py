@@ -24,7 +24,7 @@ from snowcap.operations.blueprint import (
     blueprint_plan,
 )
 from snowcap.operations.connector import connect, get_env_vars
-from snowcap.operations.export import export_resources
+from snowcap.operations.export import DEFAULT_EXPORT_THREADS, export_resources
 
 click.rich_click.ERRORS_SUGGESTION = "Try using the '--debug' flag for more information.\n"
 
@@ -358,7 +358,19 @@ def apply(
 )
 @click.option("--out", type=str, help="Write exported config to a file", metavar="<filename>")
 @click.option("--format", type=click.Choice(["json", "yml"]), default="yml", help="Output format")
-def export(resources, export_all, exclude_resources, out, format) -> None:
+@click.option(
+    "--threads",
+    type=int,
+    default=DEFAULT_EXPORT_THREADS,
+    help="Parallel fetches. Raise on large accounts; each resource costs a round trip",
+    metavar="<n>",
+)
+@click.option(
+    "--use-account-usage/--no-use-account-usage",
+    default=True,
+    help="Bulk-fetch grants from ACCOUNT_USAGE instead of per-role SHOW (much faster; lags live state)",
+)
+def export(resources, export_all, exclude_resources, out, format, threads, use_account_usage) -> None:
     """
     Generate a resource config for existing Snowflake resources
 
@@ -388,9 +400,13 @@ def export(resources, export_all, exclude_resources, out, format) -> None:
 
     resource_config: dict[str, Any] = {}
     if resources:
-        resource_config = export_resources(include=resources)
+        resource_config = export_resources(
+            include=resources, threads=threads, use_account_usage=use_account_usage
+        )
     elif export_all:
-        resource_config = export_resources(exclude=exclude_resources)
+        resource_config = export_resources(
+            exclude=exclude_resources, threads=threads, use_account_usage=use_account_usage
+        )
     else:
         raise
 
