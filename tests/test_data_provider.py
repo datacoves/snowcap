@@ -2290,9 +2290,7 @@ class TestDatabaseRoleGrantsAreNotListedAsGrants:
     @patch("snowcap.data_provider.list_database_roles")
     @patch("snowcap.data_provider._should_use_account_usage")
     @patch("snowcap.data_provider.execute")
-    def test_list_grants_omits_database_role_grants(
-        self, mock_execute, mock_should_use, mock_list_database_roles
-    ):
+    def test_list_grants_omits_database_role_grants(self, mock_execute, mock_should_use, mock_list_database_roles):
         from snowcap.data_provider import list_grants
 
         mock_should_use.return_value = False
@@ -2455,9 +2453,7 @@ class TestIntrinsicDatabaseRoleUsage:
     @patch("snowcap.data_provider.list_database_roles")
     @patch("snowcap.data_provider._should_use_account_usage")
     @patch("snowcap.data_provider.execute")
-    def test_list_grants_omits_it_but_keeps_real_grants(
-        self, mock_execute, mock_should_use, mock_list_database_roles
-    ):
+    def test_list_grants_omits_it_but_keeps_real_grants(self, mock_execute, mock_should_use, mock_list_database_roles):
         from snowcap.data_provider import list_grants
         from snowcap.identifiers import FQN
         from snowcap.resource_name import ResourceName

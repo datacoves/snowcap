@@ -169,9 +169,7 @@ class TestDatabaseRoleGrantsFromYaml:
         ]
 
     def test_both_kinds_of_target_in_one_entry(self):
-        assert self._build(
-            [{"database_role": "db.child", "roles": ["analyst"], "database_roles": ["db.parent"]}]
-        ) == [
+        assert self._build([{"database_role": "db.child", "roles": ["analyst"], "database_roles": ["db.parent"]}]) == [
             "GRANT DATABASE ROLE DB.CHILD TO ROLE ANALYST",
             "GRANT DATABASE ROLE DB.CHILD TO DATABASE ROLE DB.PARENT",
         ]

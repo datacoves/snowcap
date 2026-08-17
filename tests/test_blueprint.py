@@ -554,7 +554,9 @@ def test_blueprint_dump_plan_create(session_ctx, remote_state):
         }
     ]
     plan_str = strip_ansi(dump_plan(plan, format="text"))
-    assert plan_str == """
+    assert (
+        plan_str
+        == """
 » snowcap
 » Plan: 1 to create, 0 to update, 0 to transfer, 0 to drop.
 
@@ -562,6 +564,7 @@ def test_blueprint_dump_plan_create(session_ctx, remote_state):
 + CREATE: ROLE1 (owner: USERADMIN)
 
 """
+    )
 
 
 def test_blueprint_dump_plan_update(session_ctx):
@@ -588,7 +591,9 @@ def test_blueprint_dump_plan_update(session_ctx):
         }
     ]
     plan_str = strip_ansi(dump_plan(plan, format="text"))
-    assert plan_str == """
+    assert (
+        plan_str
+        == """
 » snowcap
 » Plan: 0 to create, 1 to update, 0 to transfer, 0 to drop.
 
@@ -601,6 +606,7 @@ def test_blueprint_dump_plan_update(session_ctx):
   └──────────┴────────┴───────┘
 
 """
+    )
 
 
 def test_blueprint_dump_plan_transfer(session_ctx):
@@ -626,7 +632,9 @@ def test_blueprint_dump_plan_transfer(session_ctx):
         }
     ]
     plan_str = strip_ansi(dump_plan(plan, format="text"))
-    assert plan_str == """
+    assert (
+        plan_str
+        == """
 » snowcap
 » Plan: 0 to create, 0 to update, 1 to transfer, 0 to drop.
 
@@ -639,6 +647,7 @@ def test_blueprint_dump_plan_transfer(session_ctx):
   └──────────┴──────────────┴───────────┘
 
 """
+    )
 
 
 def test_blueprint_dump_plan_drop(session_ctx):
@@ -663,7 +672,9 @@ def test_blueprint_dump_plan_drop(session_ctx):
     }
 
     plan_str = strip_ansi(dump_plan(plan, format="text"))
-    assert plan_str == """
+    assert (
+        plan_str
+        == """
 » snowcap
 » Plan: 0 to create, 0 to update, 0 to transfer, 1 to drop.
 
@@ -671,6 +682,7 @@ def test_blueprint_dump_plan_drop(session_ctx):
 - DROP:   ROLE1
 
 """
+    )
 
 
 def test_blueprint_vars(session_ctx):
@@ -1908,8 +1920,7 @@ class TestInheritedGrantPlanning:
         )
         change = CreateResource(
             urn=parse_URN(
-                "urn::ABCD123:grant/GRANT?grant_type=INHERITED&priv=SELECT"
-                "&on=database/SALES_DB.<TABLE>&to=role/ANALYST"
+                "urn::ABCD123:grant/GRANT?grant_type=INHERITED&priv=SELECT&on=database/SALES_DB.<TABLE>&to=role/ANALYST"
             ),
             resource_cls=res.Grant,
             container=None,
@@ -1926,8 +1937,7 @@ class TestInheritedGrantPlanning:
         grant = res.Grant(priv="SELECT", on="INHERITED TABLES IN DATABASE SALES_DB", to="ANALYST")
         change = CreateResource(
             urn=parse_URN(
-                "urn::ABCD123:grant/GRANT?grant_type=INHERITED&priv=SELECT"
-                "&on=database/SALES_DB.<TABLE>&to=role/ANALYST"
+                "urn::ABCD123:grant/GRANT?grant_type=INHERITED&priv=SELECT&on=database/SALES_DB.<TABLE>&to=role/ANALYST"
             ),
             resource_cls=res.Grant,
             container=None,
@@ -2297,9 +2307,7 @@ class TestDroppingGrantsOnSharedDatabases:
     def test_every_row_of_the_fan_out_revokes_the_share(self, session_ctx, priv, on, on_type):
         """Database, schema and object rows all map to the same statement -- the share is
         the only thing that can be given back."""
-        commands, _ = compile_plan_to_sql(
-            session_ctx, [self._drop(priv, on, on_type)], {"WORLDWIDE_ADDRESS_DATA"}
-        )
+        commands, _ = compile_plan_to_sql(session_ctx, [self._drop(priv, on, on_type)], {"WORLDWIDE_ADDRESS_DATA"})
 
         sql = " ".join(commands[0]["commands"])
         assert "REVOKE IMPORTED PRIVILEGES ON DATABASE WORLDWIDE_ADDRESS_DATA FROM ROLE ANALYST" in sql
@@ -2376,9 +2384,7 @@ class TestRevokingAccountLevelPrivileges:
 
         assert system_role_for_priv("CREATE OPENFLOW DATA PLANE INTEGRATION") == "ACCOUNTADMIN"
 
-        change = self._account_grant_change(
-            DropResource, priv="CREATE OPENFLOW DATA PLANE INTEGRATION", to="LOADER"
-        )
+        change = self._account_grant_change(DropResource, priv="CREATE OPENFLOW DATA PLANE INTEGRATION", to="LOADER")
         role, _ = execution_strategy_for_change(change, self.ROLES, ResourceName("SECURITYADMIN"))
 
         assert role == ResourceName("ACCOUNTADMIN")
@@ -2386,9 +2392,7 @@ class TestRevokingAccountLevelPrivileges:
     def test_revoke_falls_back_to_securityadmin_without_the_system_role(self):
         change = self._account_grant_change(DropResource)
 
-        role, _ = execution_strategy_for_change(
-            change, [ResourceName("SECURITYADMIN")], ResourceName("SECURITYADMIN")
-        )
+        role, _ = execution_strategy_for_change(change, [ResourceName("SECURITYADMIN")], ResourceName("SECURITYADMIN"))
 
         assert role == ResourceName("SECURITYADMIN")
 
@@ -2408,9 +2412,7 @@ class TestRevokingAccountLevelPrivileges:
             "_privs": ["USAGE"],
         }
         change = DropResource(
-            urn=parse_URN(
-                "urn::ABCD123:grant/GRANT?grant_type=OBJECT&priv=USAGE&on=database/BALBOA&to=role/ANALYST"
-            ),
+            urn=parse_URN("urn::ABCD123:grant/GRANT?grant_type=OBJECT&priv=USAGE&on=database/BALBOA&to=role/ANALYST"),
             before=data,
         )
 
@@ -2499,9 +2501,7 @@ class TestGrantsHeldByDatabaseRoles:
         assert role == ResourceName("SECURITYADMIN")
 
     def test_no_owner_map_leaves_behaviour_unchanged(self):
-        role, _ = execution_strategy_for_change(
-            self._change(DropResource), self.ROLES, ResourceName("SECURITYADMIN")
-        )
+        role, _ = execution_strategy_for_change(self._change(DropResource), self.ROLES, ResourceName("SECURITYADMIN"))
 
         assert role == ResourceName("SECURITYADMIN")
 
@@ -2514,9 +2514,7 @@ class TestSurvivingDropsAreReported:
 
     def _drop(self, to="ANALYST"):
         return DropResource(
-            urn=parse_URN(
-                f"urn::ABCD123:grant/GRANT?grant_type=OBJECT&priv=USAGE&on=database/GREAT_BAY&to=role/{to}"
-            ),
+            urn=parse_URN(f"urn::ABCD123:grant/GRANT?grant_type=OBJECT&priv=USAGE&on=database/GREAT_BAY&to=role/{to}"),
             before={
                 "priv": "USAGE",
                 "on": "GREAT_BAY",
@@ -2627,9 +2625,11 @@ class TestSyncReadsFutureGrantsRegardless:
         bp = Blueprint(resources=resources)
         bp._config = BlueprintConfig(sync_resources={ResourceType.GRANT})
 
-        with patch("snowcap.blueprint.data_provider.fetch_session") as mock_session, patch(
-            "snowcap.blueprint.data_provider.use_secondary_roles"
-        ), patch("snowcap.blueprint.data_provider.list_resource") as mock_list:
+        with (
+            patch("snowcap.blueprint.data_provider.fetch_session") as mock_session,
+            patch("snowcap.blueprint.data_provider.use_secondary_roles"),
+            patch("snowcap.blueprint.data_provider.list_resource") as mock_list,
+        ):
             mock_session.return_value = self.SESSION_CTX
             mock_list.return_value = []
             manifest = bp.generate_manifest(self.SESSION_CTX)
