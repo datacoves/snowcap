@@ -2350,6 +2350,17 @@ class TestDroppingGrantsOnSharedDatabases:
         assert "REVOKE USAGE ON DATABASE BALBOA FROM ROLE ANALYST" in sql
         assert "IMPORTED PRIVILEGES" not in sql
 
+    def test_account_level_object_named_like_a_shared_db_is_not_the_share(self, session_ctx):
+        """A warehouse (or other account-level object) whose name collides with an imported
+        database must revoke its own privilege, not IMPORTED PRIVILEGES on the share."""
+        commands, _ = compile_plan_to_sql(
+            session_ctx, [self._drop("USAGE", "WORLDWIDE_ADDRESS_DATA", "WAREHOUSE")], {"WORLDWIDE_ADDRESS_DATA"}
+        )
+
+        sql = " ".join(commands[0]["commands"])
+        assert "REVOKE USAGE ON WAREHOUSE WORLDWIDE_ADDRESS_DATA FROM ROLE ANALYST" in sql
+        assert "IMPORTED PRIVILEGES" not in sql
+
     def test_no_shared_databases_known_leaves_behaviour_unchanged(self, session_ctx):
         commands, _ = compile_plan_to_sql(session_ctx, [self._drop("USAGE", "WORLDWIDE_ADDRESS_DATA", "DATABASE")])
 

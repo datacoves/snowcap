@@ -2118,6 +2118,21 @@ class TestInheritedGrants:
         assert fqn.params["on"] == expected_on
         assert fqn.params["to"] == "role/MY_ROLE"
 
+    def test_inherited_grant_fqn_normalizes_synonym_object_types(self):
+        """SHOW GRANTS reports CORTEX_AGENT_SERVER for what GRANT/CREATE call an MCP SERVER.
+        The fetched URN must use the canonical MCP_SERVER type so it matches the declared
+        grant instead of forcing a non-converging DROP+CREATE that revokes inherited access."""
+        from snowcap.data_provider import inherited_grant_fqn
+
+        fqn = inherited_grant_fqn(
+            self._inherited_row(granted_on="CORTEX_AGENT_SERVER", inherited_from="SCHEMA", inherited_from_schema="SCH"),
+            "role",
+            "MY_ROLE",
+        )
+
+        assert fqn is not None
+        assert fqn.params["on"] == "schema/MY_DB.SCH.<MCP_SERVER>"
+
     def test_inherited_grant_fqn_skips_unrecognized_containers(self):
         """An unknown container would produce a grant Snowcap could not revoke, so it is
         left alone rather than guessed at."""

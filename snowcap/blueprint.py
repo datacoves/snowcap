@@ -2357,6 +2357,17 @@ def _shared_database_for_grant(change: ResourceChange, shared_databases: Optiona
     on = change.before.get("on")
     if not on:
         return None
+    # A share fan-out only touches the database itself or objects that live inside one. An
+    # account-level object (warehouse, integration, role, ...) that merely shares a name with
+    # an imported database must revoke its own privilege, not the share.
+    on_type = change.before.get("on_type")
+    if on_type is not None:
+        try:
+            rt: Optional[ResourceType] = ResourceType(str(on_type))
+        except ValueError:
+            rt = None
+        if rt is not None and rt != ResourceType.DATABASE and isinstance(RESOURCE_SCOPES.get(rt), AccountScope):
+            return None
     database = str(on).split(".")[0].strip('"').upper()
     return database if database in shared_databases else None
 

@@ -334,7 +334,15 @@ def inherited_grant_fqn(grant: dict[str, Any], to_label: str, grantee: str) -> O
         logger.debug(f"Skipping inherited grant with unrecognized container {container_type!r}")
         return None
 
-    collection = format_collection_string(container, grant["granted_on"].replace("_", " "))
+    # Normalize the object type the way the manifest does — grant_fqn passes a ResourceType
+    # to format_collection_string — so synonym types (SHOW GRANTS reports CORTEX_AGENT_SERVER
+    # for what GRANT/CREATE call an MCP SERVER) match the declared type instead of producing a
+    # non-converging DROP+CREATE that revokes the inherited grant in sync mode.
+    try:
+        items_type: Any = ResourceType(grant["granted_on"].replace("_", " "))
+    except ValueError:
+        items_type = grant["granted_on"].replace("_", " ")
+    collection = format_collection_string(container, items_type)
     return FQN(
         name=ResourceName("GRANT"),
         params={

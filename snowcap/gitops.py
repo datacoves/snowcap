@@ -51,7 +51,10 @@ def _as_list(config: dict, singular: str, plural: str) -> list:
     grant to nothing.
     """
     values = []
-    if config.get(singular) is not None:
+    # Null counts as absent (see above); so does an empty string, which is what a bad template
+    # render leaves behind -- appending it would build a grant to an empty target name. Both
+    # callers pass role-name keys, where "" is never a legitimate value.
+    if config.get(singular) not in (None, ""):
         values.append(config[singular])
     values.extend(config.get(plural) or [])
     return values
@@ -244,9 +247,14 @@ def _resources_for_config(config: dict, vars: dict):
                             raise ValueError(f"for_each must be a var reference. Got: `{for_each}`")
 
                         for each_value in for_each_input:
-                            if for_each_where is not None and not evaluate_for_each_where(for_each_where, each_value):
-                                continue
                             try:
+                                # Inside the try so a bad `where` (typo, unsupported var
+                                # reference) is collected as this item's validation error
+                                # instead of aborting the entire for_each block.
+                                if for_each_where is not None and not evaluate_for_each_where(
+                                    for_each_where, each_value
+                                ):
+                                    continue
                                 for key, value in resource_data.items():
                                     if key in ("for_each", "where"):
                                         continue

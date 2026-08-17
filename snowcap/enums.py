@@ -453,11 +453,6 @@ class GrantType(ParseableEnum):
     INHERITED = "INHERITED"
 
 
-# Grant types whose target is a collection of objects inside a container rather than a
-# single named object.
-COLLECTION_GRANT_TYPES = frozenset({GrantType.FUTURE, GrantType.ALL, GrantType.INHERITED})
-
-
 # The account parameter that opts an account into the inherited grants preview.
 INHERITED_GRANTS_FEATURE_FLAG = "FEATURE_RBAC_INHERITED_GRANTS"
 

@@ -1,4 +1,5 @@
 import difflib
+import re
 from typing import Any
 
 import jinja2.exceptions
@@ -118,6 +119,14 @@ def evaluate_for_each_where(condition: str, each_value: Any) -> bool:
     Items whose expression is falsy are skipped, which lets one var drive
     several blocks that each cover a subset of it.
     """
+    # `where` only sees the current item as each.value. A var.* / parent.* reference resolves
+    # to a literal "{{ var.x }}" string via the stubs, so the whole expression is silently
+    # falsy for every item and the block declares nothing -- which, in sync mode, turns the
+    # grants it should own into DROPs. Reject it loudly rather than dropping access quietly.
+    if re.search(r"\b(?:var|parent)\.", condition):
+        raise MissingVarException(
+            f"for_each `where` expression '{condition}' may only reference `each.value`, not var/parent."
+        )
     try:
         expression = GLOBAL_JINJA_ENV.compile_expression(condition)
     except jinja2.exceptions.TemplateSyntaxError as e:

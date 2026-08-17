@@ -133,6 +133,27 @@ def test_for_each_without_where_is_unfiltered():
     assert [resource.urn.fqn.name for resource in blueprint_config.resources] == ["role_ONE", "role_TWO"]
 
 
+def test_for_each_where_rejects_var_reference():
+    """var.* inside `where` used to resolve to a literal string and silently filter out every
+    item (an empty block, which becomes DROPs in sync mode). It must raise instead."""
+    from snowcap.var import evaluate_for_each_where
+    from snowcap.exceptions import MissingVarException
+
+    with pytest.raises(MissingVarException, match="each.value"):
+        evaluate_for_each_where("each.value == var.target_region", "SRC.ONE")
+
+
+def test_for_each_where_var_reference_does_not_silently_empty_the_block():
+    """End to end: a var.* reference in `where` surfaces an error rather than declaring zero
+    resources (which would drop the grants the block owns)."""
+    config = {
+        "vars": [{"name": "schemas", "default": ["SRC.ONE"], "type": "list"}],
+        "roles": [{"for_each": "var.schemas", "where": "each.value == var.target", "name": "r_{{ each.value }}"}],
+    }
+    with pytest.raises(Exception):
+        collect_blueprint_config(config)
+
+
 class TestDatabaseRoleGrantsFromYaml:
     """A database role can be granted to an account role or to another database role.
     DatabaseRoleGrant and the SQL either side of it have always handled both; only this
