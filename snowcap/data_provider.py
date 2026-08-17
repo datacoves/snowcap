@@ -3321,9 +3321,11 @@ def fetch_warehouse(session: SnowflakeConnection, fqn: FQN, include_params: bool
     if include_params:
         show_params_result = execute(session, f"SHOW PARAMETERS FOR WAREHOUSE {fqn}")
         params = params_result_to_dict(show_params_result)
-        max_concurrency_level = params["max_concurrency_level"]
-        statement_queued_timeout = params["statement_queued_timeout_in_seconds"]
-        statement_timeout = params["statement_timeout_in_seconds"]
+        # ADAPTIVE warehouses omit max_concurrency_level from SHOW PARAMETERS entirely
+        # (verified live), so read every parameter defensively.
+        max_concurrency_level = params.get("max_concurrency_level")
+        statement_queued_timeout = params.get("statement_queued_timeout_in_seconds")
+        statement_timeout = params.get("statement_timeout_in_seconds")
     else:
         max_concurrency_level = None
         statement_queued_timeout = None
@@ -3338,6 +3340,7 @@ def fetch_warehouse(session: SnowflakeConnection, fqn: FQN, include_params: bool
     max_query_performance_level = _normalize_snowflake_optional(
         data.get("max_query_performance_level"), upper=True
     )
+    query_throughput_multiplier = _normalize_snowflake_optional(data.get("query_throughput_multiplier"))
 
     if warehouse_type == "STANDARD":
         if resource_constraint is None and generation in {"1", "2"}:
@@ -3366,6 +3369,7 @@ def fetch_warehouse(session: SnowflakeConnection, fqn: FQN, include_params: bool
         "generation": generation,
         "resource_constraint": resource_constraint,
         "max_query_performance_level": max_query_performance_level,
+        "query_throughput_multiplier": query_throughput_multiplier,
         "auto_suspend": data["auto_suspend"],
         "auto_resume": data["auto_resume"] == "true",
         "comment": data["comment"] or None,
