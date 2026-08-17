@@ -275,15 +275,6 @@ FUTURE_GRANT_PRECEDENCE_DOCS = (
 )
 
 
-def _grant_grantee_label(data: dict) -> str:
-    """Render the grantee of a grant for display. `to` is either a bare role name or a
-    labelled FQN like `database_role/DB.ROLE`, depending on how the grant was built."""
-    to = str(data.get("to") or "")
-    if "/" in to:
-        to = to.split("/", 1)[1]
-    return to
-
-
 def _future_grant_scopes(entries) -> tuple[set[str], list[dict], set[tuple[str, str]]]:
     """
     Bucket resources into the three things the managed-access check needs:
@@ -314,7 +305,8 @@ def _future_grant_scopes(entries) -> tuple[set[str], list[dict], set[tuple[str, 
                         "database": on,
                         "items_type": items_type,
                         "priv": str(data.get("priv") or ""),
-                        "to": _grant_grantee_label(data),
+                        # `to` is a bare role name or a labelled FQN (database_role/DB.ROLE).
+                        "to": str(data.get("to") or "").split("/", 1)[-1],
                     }
                 )
             elif on_type == ResourceType.SCHEMA.value:
@@ -1246,6 +1238,15 @@ def print_surviving_drops(survivors: list["ResourceChange"]):
         "  They will appear in the next plan as well. Check what granted the privilege\n"
         "  (SHOW GRANTS ... , granted_by) and whether that role is available to this session.\n"
     )
+    # Database-role grantees are the common cause: no held role could resolve one without
+    # USAGE on its database, so the revoke ran as SECURITYADMIN and silently did nothing.
+    # Name the role that would work.
+    db_role_databases = sorted({d for d in (_database_of_database_role_grantee(c) for c in survivors) if d})
+    if db_role_databases:
+        print(
+            "  Some are held by database roles, revocable only by a role that owns their\n"
+            "  database. Grant your user the owner of: " + ", ".join(db_role_databases) + "\n"
+        )
 
 
 def print_diffs(diffs):

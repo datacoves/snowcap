@@ -2688,6 +2688,36 @@ class TestSurvivingDropsAreReported:
         assert "1 drop(s) reported success" in out
         assert "USAGE on DATABASE.GREAT_BAY \u2192 ROLE.ANALYST" in out
 
+    def test_report_guides_on_database_role_grantees(self, capsys):
+        """A survivor held by a database role gets the specific remedy: grant the role that
+        owns its database, since SECURITYADMIN cannot resolve the grantee."""
+        from snowcap.blueprint import print_surviving_drops
+
+        survivor = DropResource(
+            urn=parse_URN(
+                "urn::ABCD123:grant/GRANT?grant_type=OBJECT&priv=USAGE"
+                "&on=database/GREAT_BAY&to=database_role/GREAT_BAY.DR"
+            ),
+            before={
+                "priv": "USAGE",
+                "on": "GREAT_BAY",
+                "on_type": "DATABASE",
+                "to": "GREAT_BAY.DR",
+                "to_type": "DATABASE ROLE",
+                "items_type": None,
+                "grant_option": False,
+                "grant_type": "OBJECT",
+                "owner": "SECURITYADMIN",
+                "_privs": ["USAGE"],
+            },
+        )
+
+        print_surviving_drops([survivor])
+        out = capsys.readouterr().out
+
+        assert "database roles" in out
+        assert "GREAT_BAY" in out
+
     def test_report_is_silent_when_every_drop_took_effect(self, capsys):
         from snowcap.blueprint import print_surviving_drops
 

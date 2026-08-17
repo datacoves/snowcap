@@ -457,12 +457,8 @@ class GrantType(ParseableEnum):
 INHERITED_GRANTS_FEATURE_FLAG = "FEATURE_RBAC_INHERITED_GRANTS"
 
 
-# Privileges that cannot be granted as inherited grants. OWNERSHIP is excluded because
-# inherited grants never transfer ownership; USAGE on ROLE and USAGE on USER are excluded
-# by Snowflake. Privileges whose only target is the account are rejected separately, since
-# they have no enclosing container to inherit from.
+# USAGE on a ROLE or USER cannot be the target of an inherited grant; Snowflake rejects it.
 # https://docs.snowflake.com/en/user-guide/inherited-grants-intro
-NON_INHERITABLE_PRIVS = frozenset({"OWNERSHIP"})
 NON_INHERITABLE_USAGE_TARGETS = frozenset({ResourceType.ROLE, ResourceType.USER})
 
 # Object types that cannot be the target of an inherited grant.

@@ -5,7 +5,6 @@ from typing import Any, Union
 from inflection import pluralize, singularize
 
 from ..enums import (
-    NON_INHERITABLE_PRIVS,
     NON_INHERITABLE_RESOURCE_TYPES,
     NON_INHERITABLE_USAGE_TARGETS,
     GrantType,
@@ -79,7 +78,8 @@ def _validate_inherited_grant(grant: "_Grant") -> None:
             "Inherited grants require explicit privileges; priv='ALL' is not supported. "
             "List the privileges you want, e.g. priv=['SELECT', 'INSERT']."
         )
-    if grant.priv in NON_INHERITABLE_PRIVS:
+    # Inherited grants never transfer ownership, so OWNERSHIP is not a valid inherited priv.
+    if grant.priv == "OWNERSHIP":
         raise ValueError(f"{grant.priv} cannot be granted as an inherited grant. See {INHERITED_GRANT_DOCS}")
     if grant.items_type in NON_INHERITABLE_RESOURCE_TYPES:
         raise ValueError(
