@@ -2390,7 +2390,7 @@ def surviving_drops(session, changes: list[ResourceChange]) -> list[ResourceChan
     reset_cache()
     data_provider.reset_account_usage_caches()
 
-    survivors = []
+    survivors: list[ResourceChange] = []
     for change in dropped:
         try:
             if data_provider.fetch_resource(session, change.urn, existence_only=True) is not None:
