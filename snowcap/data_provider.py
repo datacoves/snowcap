@@ -312,6 +312,21 @@ def _granted_on_label(granted_on: str) -> str:
         return granted_on.lower()
 
 
+def _normalize_future_grant_name(name: str) -> str:
+    """Normalize the <OBJECT_TYPE> a SHOW FUTURE GRANTS name embeds (e.g. `DB.SCH.<TABLE>`)
+    through ResourceType, so a synonym type -- SHOW reports CORTEX_AGENT_SERVER for what the
+    manifest calls MCP_SERVER -- matches the declared grant instead of forcing a non-converging
+    DROP+CREATE that revokes the future grant. No-op for non-synonym and unknown types."""
+    prefix, sep, bracketed = name.rpartition(".")
+    if not sep or not (bracketed.startswith("<") and bracketed.endswith(">")):
+        return name
+    try:
+        canonical = str(ResourceType(bracketed[1:-1].replace("_", " "))).replace(" ", "_")
+    except ValueError:
+        return name
+    return f"{prefix}.<{canonical}>"
+
+
 def inherited_grant_fqn(grant: dict[str, Any], to_label: str, grantee: str) -> Optional[FQN]:
     """
     Build the URN-level identity of an inherited grant from a SHOW GRANTS row.
@@ -875,6 +890,7 @@ def _show_future_grants_to_role(
         empty_response_codes=[DOES_NOT_EXIST_ERR],
     )
     for grant in grants:
+        grant["name"] = _normalize_future_grant_name(grant["name"])
         grant["granted_on"] = "DATABASE" if len(grant["name"].split(".")) == 2 else "SCHEMA"
     return grants
 
@@ -904,6 +920,7 @@ def _show_future_grants_to_database_role(
         # Infer granted_on from the name pattern
         # Database-level: "DB_NAME.<SCHEMA>" (2 parts)
         # Schema-level: "DB_NAME.SCHEMA_NAME.<TABLE>" (3 parts)
+        grant["name"] = _normalize_future_grant_name(grant["name"])
         grant["granted_on"] = "DATABASE" if len(grant["name"].split(".")) == 2 else "SCHEMA"
     return grants
 

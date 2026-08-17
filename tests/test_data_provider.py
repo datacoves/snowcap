@@ -2133,6 +2133,17 @@ class TestInheritedGrants:
         assert fqn is not None
         assert fqn.params["on"] == "schema/MY_DB.SCH.<MCP_SERVER>"
 
+    def test_normalize_future_grant_name_maps_synonym_object_types(self):
+        """A SHOW FUTURE GRANTS name embeds <OBJECT_TYPE>; a synonym (CORTEX_AGENT_SERVER)
+        must map to the manifest's canonical MCP_SERVER so the future grant converges instead
+        of being dropped and re-created each sync. Non-synonym and unknown types are untouched."""
+        from snowcap.data_provider import _normalize_future_grant_name
+
+        assert _normalize_future_grant_name("RAW.<SCHEMA>") == "RAW.<SCHEMA>"
+        assert _normalize_future_grant_name("DB.SCH.<TABLE>") == "DB.SCH.<TABLE>"
+        assert _normalize_future_grant_name("DB.SCH.<CORTEX_AGENT_SERVER>") == "DB.SCH.<MCP_SERVER>"
+        assert _normalize_future_grant_name("DB.SCH.<SOMETHING_NEW>") == "DB.SCH.<SOMETHING_NEW>"
+
     def test_inherited_grant_fqn_skips_unrecognized_containers(self):
         """An unknown container would produce a grant Snowcap could not revoke, so it is
         left alone rather than guessed at."""
