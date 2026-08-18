@@ -2227,7 +2227,15 @@ class Blueprint:
                     try:
                         future.result()
                     except Exception as e:
-                        logger.error(f"Failed to execute change {change}: {e}")
+                        verb = {
+                            CreateResource: "create",
+                            UpdateResource: "update",
+                            DropResource: "drop",
+                            TransferOwnership: "transfer ownership of",
+                        }.get(type(change), "apply")
+                        # Name the resource and the error, not the full change repr (which
+                        # dumps the entire rendered SQL and buries what actually went wrong).
+                        logger.error(f"Failed to {verb} {change.urn.resource_label} {change.urn.fqn}: {e}")
                         raise
 
         def process_commands(commands, roles, available_roles):
