@@ -1,0 +1,11 @@
+{
+    "name": "SOME_DYNAMIC_TABLE_STREAM",
+    "on_dynamic_table": "STATIC_DATABASE.PUBLIC.STATIC_DYNAMIC_TABLE",
+    "owner": "SYSADMIN",
+    "copy_grants": null,
+    "at": null,
+    "before": null,
+    "append_only": false,
+    "show_initial_rows": null,
+    "comment": null
+}

@@ -3336,6 +3336,14 @@ def fetch_stream(session: SnowflakeConnection, fqn: FQN):
             "on_view": data["table_name"],
             "owner": _get_owner_identifier(data),
         }
+    elif data["source_type"] == "Dynamic Table":
+        return {
+            "name": _quote_snowflake_identifier(data["name"]),
+            "comment": data["comment"] or None,
+            "append_only": data["mode"] == "APPEND_ONLY",
+            "on_dynamic_table": data["table_name"],
+            "owner": _get_owner_identifier(data),
+        }
     elif data["source_type"] == "Stage":
         # Snowflake only returns the stage name without the fully qualified path.
         # We need to construct it from the stream's database/schema.

@@ -1184,6 +1184,17 @@ class TestStream:
         )
         assert stream.name == "test_stream"
 
+    def test_dynamic_table_stream_renders_on_dynamic_table(self):
+        """#57 (related): a stream over a dynamic table renders ON DYNAMIC TABLE."""
+        stream = res.DynamicTableStream(
+            name="test_stream",
+            database="test_db",
+            schema="test_schema",
+            on_dynamic_table="source_dt",
+        )
+        assert stream.name == "test_stream"
+        assert "ON DYNAMIC TABLE SOURCE_DT" in stream.create_sql()
+
 
 class TestFileFormat:
     """Tests for FileFormat resources."""
