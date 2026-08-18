@@ -525,36 +525,47 @@ def update_table(urn: URN, data: dict, props: Props) -> str:
 # This is a problem because we don't have a concept of "current value" for lifecycle updates
 # and so we can't know what value to set.
 def update_task(urn: URN, data: dict, props: Props) -> str:
-    attr, new_value = data.popitem()
-    attr = attr.lower()
+    # as_ (MODIFY AS), when (MODIFY/REMOVE WHEN), and state (RESUME/SUSPEND) each need
+    # bespoke ALTER syntax that can't be combined with a SET, so they must arrive on their
+    # own. Everything else flows through update__default, which renders multi-field deltas
+    # in one ALTER without dropping any (an arbitrary popitem() here would silently lose the
+    # rest of the delta).
+    special = [attr for attr in ("as_", "when", "state") if attr in data]
+    if not special:
+        return update__default(urn, data, props)
+    if len(data) > 1:
+        raise NotImplementedError(
+            f"update_task cannot combine {special!r} with other fields in one ALTER for {urn}; "
+            f"got delta keys {sorted(data.keys())!r}"
+        )
+    attr = special[0]
+    new_value = data[attr]
     if attr == "as_":
         return tidy_sql("ALTER TASK", urn.fqn, "MODIFY", "AS", new_value)
-    # elif attr == "after":
-    #     if new_value is None:
-    #         return tidy_sql("ALTER TASK", urn.fqn, "MODIFY", "AFTER", "NONE")
-    #     else:
-    #         return tidy_sql("ALTER TASK", urn.fqn, "MODIFY", "AFTER", ",".join([f"'{name}'" for name in new_value]))
-    elif attr == "when":
+    if attr == "when":
         if new_value is None:
             return tidy_sql("ALTER TASK", urn.fqn, "REMOVE", "WHEN")
-        else:
-            return tidy_sql("ALTER TASK", urn.fqn, "MODIFY", "WHEN", new_value)
-    elif attr == "state":
-        change_verb = "RESUME" if new_value == "STARTED" else "SUSPEND"
-        return tidy_sql("ALTER TASK", urn.fqn, change_verb)
-    else:
-        return update__default(urn, {attr: new_value}, props)
+        return tidy_sql("ALTER TASK", urn.fqn, "MODIFY", "WHEN", new_value)
+    # attr == "state"
+    change_verb = "RESUME" if new_value == "STARTED" else "SUSPEND"
+    return tidy_sql("ALTER TASK", urn.fqn, change_verb)
 
 
 def update_alert(urn: URN, data: dict, props: Props) -> str:
-    attr, new_value = data.popitem()
-    attr = attr.lower()
-    # Alerts, like tasks, reach STARTED via ALTER ALERT ... RESUME rather than a CREATE clause.
-    if attr == "state":
-        change_verb = "RESUME" if new_value == "STARTED" else "SUSPEND"
-        return tidy_sql("ALTER ALERT", urn.fqn, change_verb)
-    else:
-        return update__default(urn, {attr: new_value}, props)
+    # Alerts, like tasks, reach STARTED via ALTER ALERT ... RESUME rather than a CREATE
+    # clause, and RESUME/SUSPEND can't be combined with a SET in one statement. Handle state
+    # on its own; delegate every other field to update__default, which renders multi-field
+    # deltas without dropping any (an arbitrary popitem() here would silently lose the rest).
+    if "state" not in data:
+        return update__default(urn, data, props)
+    new_value = data.pop("state")
+    if data:
+        raise NotImplementedError(
+            f"update_alert cannot combine 'state' (RESUME/SUSPEND) with other fields in one "
+            f"ALTER for {urn}; got remaining keys {sorted(data.keys())!r}"
+        )
+    change_verb = "RESUME" if new_value == "STARTED" else "SUSPEND"
+    return tidy_sql("ALTER ALERT", urn.fqn, change_verb)
 
 
 def update_iceberg_table(urn: URN, data: dict, props: Props) -> str:

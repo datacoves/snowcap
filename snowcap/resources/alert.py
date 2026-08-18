@@ -50,10 +50,11 @@ class Alert(NamedResource, TaggableResource, Resource):
         ```python
         alert = Alert(
             name="some_alert",
-            warehouse="some_warehouse",
+            warehouse="some_warehouse",  # omit for a serverless alert
             schedule="USING CRON * * * * *",
             condition="SELECT COUNT(*) FROM some_table",
             then="CALL SYSTEM$SEND_EMAIL('example@example.com', 'Alert Triggered', 'The alert condition was met.')",
+            state="STARTED",
         )
         ```
 
@@ -62,8 +63,9 @@ class Alert(NamedResource, TaggableResource, Resource):
         ```yaml
         alerts:
           - name: some_alert
-            warehouse: some_warehouse
+            warehouse: some_warehouse  # omit for a serverless alert
             schedule: USING CRON * * * * *
+            state: STARTED
             condition: SELECT COUNT(*) FROM some_table
             then: CALL SYSTEM$SEND_EMAIL('example@example.com', 'Alert Triggered', 'The alert condition was met.')
         ```
