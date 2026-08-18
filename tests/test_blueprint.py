@@ -2817,3 +2817,38 @@ class TestSummarizePlanValue:
         summary = _summarize_plan_value("x" * 90)
         assert summary == "<1 line, 90 chars>"
         assert len(summary) < 90
+
+
+def test_alert_body_under_ignore_changes_leaves_only_state(session_ctx):
+    """An alert's IF/THEN body can't be reconciled by ALTER, so it is declared under
+    lifecycle.ignore_changes: a body difference must drop out of the delta, leaving a
+    clean state-only update (ALTER ALERT ... SUSPEND) rather than a combined change."""
+    db = res.Database("DB")
+    schema = res.Schema("SCHEMA", database=db)
+    alert = res.Alert(
+        name="A1",
+        schema=schema,
+        condition="select 1",
+        then="BEGIN new END",
+        state="SUSPENDED",
+        lifecycle={"ignore_changes": ["condition", "then"]},
+    )
+    manifest = Blueprint(name="bp", resources=[db, schema, alert]).generate_manifest(session_ctx)
+    remote_state = {
+        parse_URN("urn::ABCD123:account/ACCOUNT"): {},
+        parse_URN("urn::ABCD123:database/DB"): {"owner": "SYSADMIN"},
+        parse_URN("urn::ABCD123:schema/DB.SCHEMA"): {"owner": "SYSADMIN"},
+        parse_URN("urn::ABCD123:alert/DB.SCHEMA.A1"): {
+            "name": "A1",
+            "warehouse": None,
+            "schedule": None,
+            "comment": None,
+            "condition": "select 1",
+            "then": "BEGIN old-and-different END",
+            "state": "STARTED",
+            "owner": "SYSADMIN",
+        },
+    }
+    updates = [c for c in diff(remote_state, manifest) if isinstance(c, UpdateResource)]
+    assert len(updates) == 1
+    assert updates[0].delta == {"state": "SUSPENDED"}
