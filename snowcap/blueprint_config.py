@@ -103,7 +103,7 @@ def set_vars_defaults(vars_spec: list[dict], vars: dict) -> dict:
             if "default" in spec:
                 new_vars[spec["name"]] = spec["default"]
             else:
-                var_type = spec.get('type', 'unknown')
+                var_type = spec.get("type", "unknown")
                 raise MissingVarException(
                     f"Required var '{spec['name']}' ({var_type}) is missing and has no default value.\n"
                     f"  Provide it with: --vars '{{\"{ spec['name'] }\": ...}}'"

@@ -147,7 +147,9 @@ def test_list_resource(cursor, list_resources_database, resource, marked_for_cle
         list_kwargs = {}
         if resource.resource_type in GRANT_TYPES_DISABLE_ACCOUNT_USAGE:
             list_kwargs["use_account_usage"] = False
-        list_resources = data_provider.list_resource(cursor, resource_label_for_type(resource.resource_type), **list_kwargs)
+        list_resources = data_provider.list_resource(
+            cursor, resource_label_for_type(resource.resource_type), **list_kwargs
+        )
     except snowflake.connector.errors.ProgrammingError as err:
         if err.errno == 2003:
             # Object does not exist - likely race condition with parallel tests

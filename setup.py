@@ -3,7 +3,7 @@ from setuptools import find_packages, setup
 setup(
     name="snowcap",
     # Package version is managed by the string inside version.md. By default,
-    # setuptools doesnt copy this file into the build package. So we direct
+    # setuptools doesn't copy this file into the build package. So we direct
     # setuptools to include it using the `include_package_data=True` option
     # as well as the MANIFEST.in file which has the `include version.md` directive.
     version=open("version.md", encoding="utf-8").read().split(" ")[2],
@@ -46,7 +46,9 @@ setup(
     ],
     extras_require={
         "dev": [
-            "black",
+            # Pinned: black's formatting changes between releases, and an unpinned
+            # version means `make style` reformats files no one touched.
+            "black==26.5.1",
             "build",
             "codespell==2.2.6",
             "cryptography",

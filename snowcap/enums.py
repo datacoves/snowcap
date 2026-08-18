@@ -114,6 +114,14 @@ class ResourceType(ParseableEnum):
     VIEW = "VIEW"
     WAREHOUSE = "WAREHOUSE"
 
+    @classmethod
+    def synonyms(cls):
+        # Snowflake reports grants on an MCP server with granted_on
+        # 'CORTEX_AGENT_SERVER', but the DDL grammar only accepts MCP SERVER --
+        # GRANT ... ON CORTEX AGENT SERVER is a syntax error. Same object, two
+        # names, so map the grant-side spelling onto the DDL one.
+        return {"CORTEX AGENT SERVER": "MCP_SERVER"}
+
 
 class Scope(ParseableEnum):
     ORGANIZATION = "ORGANIZATION"
@@ -388,6 +396,42 @@ def resource_type_is_grant(resource_type: ResourceType) -> bool:
     )
 
 
+# Object types whose body or schedule runs with the privileges of their owner rather than
+# the caller. Snowflake requires stricter authorization to transfer ownership of these:
+# the receiving role must be in the caller's active role hierarchy, or the caller must hold
+# account-level MANAGE GRANTS.
+# https://docs.snowflake.com/en/user-guide/inherited-grants-intro
+OWNER_EXECUTED_RESOURCE_TYPES = frozenset(
+    {
+        # Queryable objects
+        ResourceType.VIEW,
+        ResourceType.MATERIALIZED_VIEW,
+        ResourceType.DYNAMIC_TABLE,
+        ResourceType.SEMANTIC_VIEW,
+        ResourceType.EXTERNAL_TABLE,
+        ResourceType.DIRECTORY_TABLE,
+        ResourceType.EVENT_TABLE,
+        # Procedures and functions
+        ResourceType.PROCEDURE,
+        ResourceType.FUNCTION,
+        # Schedulers and triggers
+        ResourceType.TASK,
+        ResourceType.ALERT,
+        # Ingest
+        ResourceType.PIPE,
+        # Function-based policies
+        ResourceType.MASKING_POLICY,
+        ResourceType.ROW_ACCESS_POLICY,
+        ResourceType.AGGREGATION_POLICY,
+        # File-based code
+        ResourceType.STREAMLIT,
+        # Container services and composites
+        ResourceType.SERVICE,
+        ResourceType.CORTEX_SEARCH_SERVICE,
+    }
+)
+
+
 class EncryptionType(ParseableEnum):
     SNOWFLAKE_FULL = "SNOWFLAKE_FULL"
     SNOWFLAKE_SSE = "SNOWFLAKE_SSE"
@@ -403,6 +447,33 @@ class GrantType(ParseableEnum):
     OBJECT = "OBJECT"
     FUTURE = "FUTURE"
     ALL = "ALL"
+    # A single container-level grant covering every current and future object of a type in
+    # an ACCOUNT, DATABASE, or SCHEMA. Replaces an ALL + FUTURE pair with one grant record.
+    # https://docs.snowflake.com/en/user-guide/inherited-grants-intro
+    INHERITED = "INHERITED"
+
+
+# The account parameter that opts an account into the inherited grants preview.
+INHERITED_GRANTS_FEATURE_FLAG = "FEATURE_RBAC_INHERITED_GRANTS"
+
+
+# USAGE on a ROLE or USER cannot be the target of an inherited grant; Snowflake rejects it.
+# https://docs.snowflake.com/en/user-guide/inherited-grants-intro
+NON_INHERITABLE_USAGE_TARGETS = frozenset({ResourceType.ROLE, ResourceType.USER})
+
+# Object types that cannot be the target of an inherited grant.
+NON_INHERITABLE_RESOURCE_TYPES = frozenset(
+    {
+        ResourceType.SHARE,
+        ResourceType.INTEGRATION,
+        ResourceType.API_INTEGRATION,
+        ResourceType.CATALOG_INTEGRATION,
+        ResourceType.EXTERNAL_ACCESS_INTEGRATION,
+        ResourceType.NOTIFICATION_INTEGRATION,
+        ResourceType.SECURITY_INTEGRATION,
+        ResourceType.STORAGE_INTEGRATION,
+    }
+)
 
 
 class TagPropagation(ParseableEnum):

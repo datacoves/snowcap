@@ -215,17 +215,28 @@ def _parse_priv_grant(sql: str):
         results = grant.parse_string(sql, parse_all=True)
         results = results.as_dict()
 
-        privs = [priv.strip(" ") for priv in results["privs"].split(",")]
+        privs_text = results["privs"].strip()
+        # GRANT INHERITED <priv> ON ALL <type> IN <container>: the keyword sits between
+        # GRANT and the privilege, so it is stripped here and passed along as a flag.
+        inherited = False
+        if privs_text.upper().startswith("INHERITED "):
+            inherited = True
+            privs_text = privs_text[len("INHERITED ") :].strip()
+
+        privs = [priv.strip(" ") for priv in privs_text.split(",")]
         if len(privs) > 1:
             raise NotImplementedError("Multi-priv grants are not supported")
 
         on_stmt = results.pop("on_stmt").strip()
 
-        return {
+        parsed = {
             "priv": privs[0].upper(),
             "on": on_stmt,
             "to": results["to"],
         }
+        if inherited:
+            parsed["inherited"] = True
+        return parsed
     except pp.ParseException as err:
         raise pp.ParseException("Failed to parse grant") from err
 

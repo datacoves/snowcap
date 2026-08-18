@@ -3,7 +3,6 @@ import inspect
 import json
 import logging
 import sys
-from functools import cache
 from typing import Any, Optional, TypedDict, Union
 
 import pytz
@@ -21,17 +20,25 @@ from .builtins import (
 from .client import (
     ACCESS_CONTROL_ERR,
     DOES_NOT_EXIST_ERR,
+    INVALID_COLUMN_ERR,
     INVALID_IDENTIFIER,
     OBJECT_DOES_NOT_EXIST_ERR,
     UNSUPPORTED_FEATURE,
     execute,
     execute_in_parallel,
 )
-from .enums import AccountEdition, GrantType, ResourceType, WarehouseSize
-from .identifiers import FQN, URN, parse_FQN, resource_type_for_label
+from .enums import (
+    INHERITED_GRANTS_FEATURE_FLAG,
+    AccountEdition,
+    GrantType,
+    ResourceType,
+    WarehouseSize,
+)
+from .identifiers import FQN, URN, parse_FQN, resource_label_for_type, resource_type_for_label
 from .parse import (
     _parse_column,
     _parse_dynamic_table_text,
+    format_collection_string,
     parse_collection_string,
     parse_region,
     parse_view_ddl,
@@ -182,6 +189,212 @@ def _fail_if_not_granted(result, *args):
         raise Exception(result[0]["status"], *args)
 
 
+def _is_inherited_grant(row: dict[str, Any]) -> bool:
+    """
+    True when a grant row was produced by an inherited grant (GRANT INHERITED ...).
+
+    An inherited grant is a container-level grant that applies to every current and future
+    object of a type in an ACCOUNT, DATABASE, or SCHEMA. Snowflake reports these rows in
+    SHOW GRANTS and in ACCOUNT_USAGE.GRANTS_TO_ROLES with IS_INHERITED set, and with an
+    empty NAME, because the grant is defined on the container rather than on individual
+    securables.
+
+    Accounts that have not enabled FEATURE_RBAC_INHERITED_GRANTS never produce these rows,
+    and older Snowflake versions do not return the column at all, so a missing column reads
+    as "not inherited".
+    """
+    for key in ("is_inherited", "IS_INHERITED"):
+        if key in row:
+            value = row[key]
+            if isinstance(value, str):
+                return value.strip().lower() in ("true", "t", "yes", "y")
+            return bool(value)
+    return False
+
+
+def _is_role_hierarchy_grant(row: dict[str, Any]) -> bool:
+    """
+    True when a grant row describes one role being granted to another.
+
+    Snowflake reports granting a role as a grant held by the grantee, so SHOW GRANTS and
+    ACCOUNT_USAGE return these alongside object grants. Snowcap models them separately, as
+    RoleGrant and DatabaseRoleGrant, listed by list_role_grants() and
+    list_database_role_grants(). Listing them as Grants as well would describe the same
+    Snowflake fact under two resource types, so the declared grant never matches the one
+    read back and sync proposes dropping it on every run.
+
+    That drop is also unrunnable for a database role: a Grant revokes with
+    REVOKE <priv> ON <on_type> ..., which for a database role reads REVOKE USAGE ON
+    DATABASE ROLE, and Snowflake rejects it as an unsupported feature. The revoke database
+    roles actually take is REVOKE DATABASE ROLE <name> FROM ROLE <grantee>, which
+    DatabaseRoleGrant already builds.
+
+    ACCOUNT_USAGE spells the type DATABASE_ROLE and SHOW GRANTS spells it DATABASE ROLE,
+    so both are matched.
+    """
+    return row["granted_on"].replace("_", " ").upper() in ("ROLE", "DATABASE ROLE")
+
+
+def _is_intrinsic_database_role_usage(row: dict[str, Any], grantee: str) -> bool:
+    """
+    True when a row is the USAGE on its own database that a database role is born with.
+
+    Creating a database role gives it USAGE on the database it belongs to. Snowflake
+    reports that in SHOW GRANTS like any other grant, but with an empty granted_by and a
+    timestamp matching the CREATE, because no role granted it -- it is part of the role
+    existing, the way OWNERSHIP is.
+
+    Nothing can revoke it. REVOKE reports success and leaves it in place, even run as the
+    database owner, so listing it as a grant puts a row in remote state that no config can
+    declare away and no apply can remove: sync proposes the same drop on every run, forever.
+
+    An explicitly granted USAGE on the same database is a second, separate row with
+    granted_by populated. The two are indistinguishable once reduced to a grant URN, so
+    this skips both and a declared USAGE on a database role's own database simply re-grants
+    each apply -- harmless, since the role already has it.
+    """
+    if row["privilege"] != "USAGE":
+        return False
+    if row["granted_on"].replace("_", " ").upper() != "DATABASE":
+        return False
+    if "." not in grantee:
+        return False
+    return str(row["name"]).upper() == grantee.split(".")[0].upper()
+
+
+def _imported_privileges_priv(row: dict[str, Any], shared_databases: set[str]) -> Optional[str]:
+    """
+    The privilege a grant on a share-backed database should be identified by.
+
+    GRANT IMPORTED PRIVILEGES ON DATABASE <db> is how access to a shared database is given,
+    and Snowflake reports the resulting grant on the database as plain USAGE. Identifying
+    it as USAGE means the declared grant never matches the one read back, so every plan
+    proposes creating it again -- forever, and invisibly, since re-granting changes nothing.
+
+    fetch_grant already resolves this, but syncing a resource type builds remote state from
+    list_* alone and discards the manifest URNs, so that path never runs for a synced grant.
+
+    Returns None for anything else, including USAGE on an ordinary database, where USAGE
+    means USAGE.
+    """
+    if row["privilege"] != "USAGE":
+        return None
+    if row["granted_on"].replace("_", " ").upper() != "DATABASE":
+        return None
+    if str(row["name"]).upper() not in shared_databases:
+        return None
+    return "IMPORTED PRIVILEGES"
+
+
+def _granted_on_label(granted_on: str) -> str:
+    """
+    The object-type half of a grant URN's `on`, normalized the way the manifest builds it.
+
+    Snowflake sometimes reports a grant against a different name than the one its DDL uses:
+    SHOW GRANTS says CORTEX_AGENT_SERVER for the object GRANT and CREATE call an MCP SERVER.
+    ResourceType maps those synonyms, and grant_fqn runs the manifest side through
+    resource_label_for_type, so going through the same function here is what makes the two
+    sides comparable.
+
+    Taking the raw string instead leaves remote state identifying the grant as
+    cortex_agent_server/... while the manifest calls it mcp_server/..., so the declared grant
+    never matches the one read back. Every plan then both creates and drops it, and since
+    drops run after creates, applying takes the access away.
+
+    ResourceType spells its members with spaces and Snowflake uses underscores, hence the
+    substitution. For every type that is not a synonym this returns exactly what
+    granted_on.lower() did, and anything ResourceType does not know falls back to it.
+    """
+    try:
+        return resource_label_for_type(ResourceType(granted_on.replace("_", " ")))
+    except ValueError:
+        return granted_on.lower()
+
+
+def _normalize_future_grant_name(name: str) -> str:
+    """Normalize the <OBJECT_TYPE> a SHOW FUTURE GRANTS name embeds (e.g. `DB.SCH.<TABLE>`)
+    through ResourceType, so a synonym type -- SHOW reports CORTEX_AGENT_SERVER for what the
+    manifest calls MCP_SERVER -- matches the declared grant instead of forcing a non-converging
+    DROP+CREATE that revokes the future grant. No-op for non-synonym and unknown types."""
+    prefix, sep, bracketed = name.rpartition(".")
+    if not sep or not (bracketed.startswith("<") and bracketed.endswith(">")):
+        return name
+    try:
+        canonical = str(ResourceType(bracketed[1:-1].replace("_", " "))).replace(" ", "_")
+    except ValueError:
+        return name
+    return f"{prefix}.<{canonical}>"
+
+
+def inherited_grant_fqn(grant: dict[str, Any], to_label: str, grantee: str) -> Optional[FQN]:
+    """
+    Build the URN-level identity of an inherited grant from a SHOW GRANTS row.
+
+    Returns None when the row does not name a container Snowcap understands, so an
+    unrecognized INHERITED_FROM value is skipped rather than turned into a grant that
+    cannot be revoked.
+    """
+    container_type = str(grant.get("inherited_from") or "").upper()
+    database = str(grant.get("inherited_from_database") or "")
+    schema = str(grant.get("inherited_from_schema") or "")
+
+    if container_type == "ACCOUNT":
+        container = "ACCOUNT"
+    elif container_type == "DATABASE":
+        container = database
+    elif container_type == "SCHEMA":
+        container = f"{database}.{schema}"
+    else:
+        logger.debug(f"Skipping inherited grant with unrecognized container {container_type!r}")
+        return None
+
+    # Normalize the object type the way the manifest does — grant_fqn passes a ResourceType
+    # to format_collection_string — so synonym types (SHOW GRANTS reports CORTEX_AGENT_SERVER
+    # for what GRANT/CREATE call an MCP SERVER) match the declared type instead of producing a
+    # non-converging DROP+CREATE that revokes the inherited grant in sync mode.
+    try:
+        items_type: Any = ResourceType(grant["granted_on"].replace("_", " "))
+    except ValueError:
+        items_type = grant["granted_on"].replace("_", " ")
+    collection = format_collection_string(container, items_type)
+    return FQN(
+        name=ResourceName("GRANT"),
+        params={
+            "grant_type": GrantType.INHERITED.value,
+            "priv": grant["privilege"],
+            "on": f"{container_type.lower()}/{collection}",
+            "to": f"{to_label}/{grantee}",
+        },
+    )
+
+
+def _drop_inherited_grants(rows: list[dict[str, Any]], context: str) -> list[dict[str, Any]]:
+    """
+    Remove inherited grant rows from a grant listing.
+
+    Snowcap has no representation for an inherited grant, and the rows cannot be treated as
+    object grants: they carry no object name, and revoking one requires
+    REVOKE INHERITED <priv> ON ALL <type> IN <container> FROM <grantee> rather than a
+    per-object REVOKE. Left in remote state they would make grant sync mode emit invalid
+    REVOKEs and `snowcap export` write grants that cannot be applied.
+
+    Filtering them out means Snowcap neither manages nor disturbs inherited grants. It also
+    means privileges a role holds only through inheritance are invisible to Snowcap's
+    preflight privilege checks, which can make those checks over-strict; failing loudly is
+    the safer direction until inherited grants are modeled.
+    """
+    if not rows:
+        return rows
+    kept = [row for row in rows if not _is_inherited_grant(row)]
+    dropped = len(rows) - len(kept)
+    if dropped:
+        logger.debug(
+            f"Ignoring {dropped} inherited grant(s) in {context}. Snowcap does not manage grants created with "
+            "GRANT INHERITED."
+        )
+    return kept
+
+
 def _fetch_grant_to_role(
     session: SnowflakeConnection,
     grant_type: GrantType,
@@ -198,11 +411,16 @@ def _fetch_grant_to_role(
             grants = _show_future_grants_to_role(session, role, cacheable=True)
     else:
         grants = _show_grants_to_role(session, role, role_type=role_type, cacheable=True)
+    # Compare object types the way list_grants does. Snowflake sometimes reports a grant
+    # against a different name than the one its DDL uses -- CORTEX_AGENT_SERVER for what
+    # GRANT calls an MCP SERVER -- so a raw string comparison never matches the declared
+    # grant, and the plan proposes creating it on every run.
+    wanted_type = _granted_on_label(granted_on)
     for grant in grants:
         name = "ACCOUNT" if grant["granted_on"] == "ACCOUNT" else grant["name"]
         # Use ResourceName for comparison to handle quoted identifiers correctly
         name_matches = ResourceName(name) == ResourceName(on_name) if name != "ACCOUNT" else name == on_name
-        if grant["granted_on"] == granted_on and grant["privilege"] == privilege and name_matches:
+        if _granted_on_label(grant["granted_on"]) == wanted_type and grant["privilege"] == privilege and name_matches:
             return grant
     return None
 
@@ -552,7 +770,7 @@ def _show_users(session) -> list[dict]:
 
 def _get_account_privilege_roles(session: SnowflakeConnection) -> dict[str, list[ResourceName]]:
     grant_map: dict[str, list[ResourceName]] = {}
-    grants = execute(session, "SHOW GRANTS ON ACCOUNT")
+    grants = _drop_inherited_grants(execute(session, "SHOW GRANTS ON ACCOUNT"), "SHOW GRANTS ON ACCOUNT")
     for grant in grants:
         # Skip system grants
         if grant["granted_by"] == "":
@@ -593,6 +811,23 @@ def _show_grants_to_role(
         'granted_by': 'ACCOUNTADMIN'
     }
     """
+    grants = _show_all_grants_to_role(session, role, role_type=role_type, cacheable=cacheable)
+    return _drop_inherited_grants(grants, f"grants to {role_type} {role}")
+
+
+def _show_all_grants_to_role(
+    session: SnowflakeConnection,
+    role: ResourceName,
+    role_type: ResourceType = ResourceType.ROLE,
+    cacheable: bool = False,
+) -> list[dict[str, Any]]:
+    """
+    Every grant to a role, object grants and inherited grants alike.
+
+    Callers almost always want _show_grants_to_role() (object grants only) or
+    _show_inherited_grants_to_role(); this is the shared source both read from, so a role's
+    grants are fetched once regardless of which kinds the caller cares about.
+    """
     # Automatically use ACCOUNT_USAGE cache for regular roles if it's been populated
     if role_type == ResourceType.ROLE:
         session_id = id(session)
@@ -608,13 +843,29 @@ def _show_grants_to_role(
             return filtered_grants
 
     # Fall back to SHOW GRANTS
-    grants = execute(
+    return execute(
         session,
         f"SHOW GRANTS TO {role_type} {role}",
         cacheable=cacheable,
         empty_response_codes=[DOES_NOT_EXIST_ERR],
     )
-    return grants
+
+
+def _show_inherited_grants_to_role(
+    session: SnowflakeConnection,
+    role: ResourceName,
+    role_type: ResourceType = ResourceType.ROLE,
+    cacheable: bool = True,
+) -> list[dict[str, Any]]:
+    """
+    The inherited grants held by a role.
+
+    Snowflake does not enumerate the individual securables an inherited grant covers, so
+    each row describes the container-level grant itself: NAME is empty, GRANTED_ON is the
+    object type the grant applies to, and INHERITED_FROM* identify the container.
+    """
+    grants = _show_all_grants_to_role(session, role, role_type=role_type, cacheable=cacheable)
+    return [grant for grant in grants if _is_inherited_grant(grant)]
 
 
 def _show_future_grants_to_role(
@@ -638,6 +889,7 @@ def _show_future_grants_to_role(
         empty_response_codes=[DOES_NOT_EXIST_ERR],
     )
     for grant in grants:
+        grant["name"] = _normalize_future_grant_name(grant["name"])
         grant["granted_on"] = "DATABASE" if len(grant["name"].split(".")) == 2 else "SCHEMA"
     return grants
 
@@ -667,6 +919,7 @@ def _show_future_grants_to_database_role(
         # Infer granted_on from the name pattern
         # Database-level: "DB_NAME.<SCHEMA>" (2 parts)
         # Schema-level: "DB_NAME.SCHEMA_NAME.<TABLE>" (3 parts)
+        grant["name"] = _normalize_future_grant_name(grant["name"])
         grant["granted_on"] = "DATABASE" if len(grant["name"].split(".")) == 2 else "SCHEMA"
     return grants
 
@@ -755,7 +1008,66 @@ def fetch_region(session: SnowflakeConnection):
     return region
 
 
-@cache
+def fetch_inherited_grants_enabled(session: SnowflakeConnection) -> Optional[bool]:
+    """
+    Is FEATURE_RBAC_INHERITED_GRANTS enabled for this account?
+
+    Returns None when the answer cannot be determined -- the parameter does not exist on
+    Snowflake versions without the preview, and reading account parameters requires
+    privileges the session may not hold. Callers treat None as "assume enabled" so that an
+    unreadable parameter never blocks an apply that would otherwise succeed.
+    """
+    session_id = id(session)
+    if session_id in _INHERITED_GRANTS_ENABLED_CACHE:
+        return _INHERITED_GRANTS_ENABLED_CACHE[session_id]
+
+    enabled: Optional[bool] = None
+    try:
+        rows = execute(
+            session,
+            f"SHOW PARAMETERS LIKE '{INHERITED_GRANTS_FEATURE_FLAG}' IN ACCOUNT",
+            cacheable=True,
+        )
+        for row in rows:
+            if str(row.get("key", "")).upper() == INHERITED_GRANTS_FEATURE_FLAG:
+                enabled = str(row.get("value", "")).strip().upper() == "ENABLED"
+                break
+    except Exception as err:
+        logger.debug(f"Could not read FEATURE_RBAC_INHERITED_GRANTS: {err}")
+
+    _INHERITED_GRANTS_ENABLED_CACHE[session_id] = enabled
+    return enabled
+
+
+def fetch_preview_access_enabled(session: SnowflakeConnection) -> Optional[bool]:
+    """
+    Does this account have access to preview features at all?
+
+    Preview access is on by default for most accounts, and it gates every preview feature
+    at once. It is toggled with the SYSTEM$ENABLE_PREVIEW_ACCESS and
+    SYSTEM$DISABLE_PREVIEW_ACCESS functions rather than with an account parameter, so it is
+    not something Snowcap can manage as a resource -- but knowing the answer turns
+    "GRANT INHERITED failed" into an actionable message.
+
+    Returns None when the status cannot be read.
+    https://docs.snowflake.com/en/release-notes/preview-features
+    """
+    try:
+        rows = execute(session, "SELECT SYSTEM$GET_PREVIEW_ACCESS_STATUS() AS status", cacheable=True)
+    except Exception as err:
+        logger.debug(f"Could not read preview access status: {err}")
+        return None
+
+    if not rows:
+        return None
+    status = str(rows[0].get("STATUS") or rows[0].get("status") or "").upper()
+    if "ENABLED" in status:
+        return True
+    if "DISABLED" in status:
+        return False
+    return None
+
+
 def fetch_session(session: SnowflakeConnection) -> SessionContext:
     session_obj = execute(
         session,
@@ -843,7 +1155,7 @@ def fetch_role_privileges(
                         name=grant["name"],
                     )
                     role_privileges[role_match].append(granted_priv)
-                # If snowcap isnt aware of the privilege, ignore it
+                # If snowcap isn't aware of the privilege, ignore it
                 except ValueError:
                     continue
 
@@ -862,7 +1174,7 @@ def fetch_role_privileges(
                     name=grant["name"],
                 )
                 role_privileges[role].append(granted_priv)
-            # If snowcap isnt aware of the privilege, ignore it
+            # If snowcap isn't aware of the privilege, ignore it
             except ValueError:
                 continue
     return role_privileges
@@ -888,6 +1200,14 @@ _ACCOUNT_USAGE_GRANTS_CACHE: dict[int, list[dict[str, Any]]] = {}
 # Stores the normalized grant list from GRANTS_TO_USERS
 _ACCOUNT_USAGE_USER_GRANTS_CACHE: dict[int, list[dict[str, Any]]] = {}
 
+# Tracks sessions whose GRANTS_TO_ROLES view has no IS_INHERITED column (keyed by session
+# id). Absent means "assume the column exists"; the first query proves it either way.
+_ACCOUNT_USAGE_INHERITED_COLUMN: dict[int, bool] = {}
+
+# Whether FEATURE_RBAC_INHERITED_GRANTS is enabled (keyed by session id). None means the
+# parameter could not be read.
+_INHERITED_GRANTS_ENABLED_CACHE: dict[int, Optional[bool]] = {}
+
 
 def reset_account_usage_caches() -> None:
     """
@@ -898,11 +1218,14 @@ def reset_account_usage_caches() -> None:
     """
     global _ACCOUNT_USAGE_ACCESS_CACHE, _ACCOUNT_USAGE_FALLBACK_CACHE
     global _ACCOUNT_USAGE_GRANTS_CACHE, _ACCOUNT_USAGE_USER_GRANTS_CACHE
+    global _ACCOUNT_USAGE_INHERITED_COLUMN, _INHERITED_GRANTS_ENABLED_CACHE
 
     _ACCOUNT_USAGE_ACCESS_CACHE.clear()
     _ACCOUNT_USAGE_FALLBACK_CACHE.clear()
     _ACCOUNT_USAGE_GRANTS_CACHE.clear()
     _ACCOUNT_USAGE_USER_GRANTS_CACHE.clear()
+    _ACCOUNT_USAGE_INHERITED_COLUMN.clear()
+    _INHERITED_GRANTS_ENABLED_CACHE.clear()
 
 
 def _mark_account_usage_fallback(session: SnowflakeConnection) -> None:
@@ -1005,6 +1328,44 @@ def _has_account_usage_access(session: SnowflakeConnection) -> bool:
 # ------------------------------
 
 
+def _grants_to_roles_query(include_inherited: bool = True) -> str:
+    """
+    Build the GRANTS_TO_ROLES query.
+
+    The inherited-grant columns are selected so container-level grants can be told apart
+    from object grants, and so an inherited grant can be matched back to the container it
+    was created on. They are omitted for accounts whose view does not expose them, which
+    are accounts that cannot have inherited grants anyway.
+    """
+    columns = [
+        "CREATED_ON",
+        "PRIVILEGE",
+        "GRANTED_ON",
+        "NAME",
+        "TABLE_CATALOG",
+        "TABLE_SCHEMA",
+        "GRANTED_TO",
+        "GRANTEE_NAME",
+        "GRANT_OPTION",
+        "GRANTED_BY",
+    ]
+    if include_inherited:
+        columns.extend(
+            [
+                "IS_INHERITED",
+                "INHERITED_FROM",
+                "INHERITED_FROM_DATABASE",
+                "INHERITED_FROM_SCHEMA",
+            ]
+        )
+    return f"""
+        SELECT
+            {', '.join(columns)}
+        FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_ROLES
+        WHERE DELETED_ON IS NULL
+    """
+
+
 def _fetch_grants_from_account_usage(session: SnowflakeConnection) -> list[dict[str, Any]] | None:
     """
     Fetch all role grants from SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_ROLES in a single query.
@@ -1033,32 +1394,32 @@ def _fetch_grants_from_account_usage(session: SnowflakeConnection) -> list[dict[
     if session_id in _ACCOUNT_USAGE_GRANTS_CACHE:
         return _ACCOUNT_USAGE_GRANTS_CACHE[session_id]
 
-    query = """
-        SELECT
-            CREATED_ON,
-            PRIVILEGE,
-            GRANTED_ON,
-            NAME,
-            TABLE_CATALOG,
-            TABLE_SCHEMA,
-            GRANTED_TO,
-            GRANTEE_NAME,
-            GRANT_OPTION,
-            GRANTED_BY
-        FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_ROLES
-        WHERE DELETED_ON IS NULL
-    """
+    has_inherited_column = _ACCOUNT_USAGE_INHERITED_COLUMN.get(session_id, True)
     try:
-        results = execute(session, query, cacheable=True)
+        results = execute(session, _grants_to_roles_query(include_inherited=has_inherited_column), cacheable=True)
     except ProgrammingError as err:
-        if err.errno == ACCESS_CONTROL_ERR:
+        if has_inherited_column and err.errno in (INVALID_COLUMN_ERR, INVALID_IDENTIFIER):
+            # Not every Snowflake version exposes the inherited-grant columns, so an account
+            # whose GRANTS_TO_ROLES view lacks them is queried without them. Such an account
+            # cannot have inherited grants in the first place.
+            logger.debug("GRANTS_TO_ROLES has no IS_INHERITED column, querying without it")
+            _ACCOUNT_USAGE_INHERITED_COLUMN[session_id] = False
+            try:
+                results = execute(session, _grants_to_roles_query(include_inherited=False), cacheable=True)
+            except Exception as retry_err:
+                logger.warning(f"ACCOUNT_USAGE query failed unexpectedly: {retry_err} - falling back to SHOW queries")
+                _mark_account_usage_fallback(session)
+                return None
+        elif err.errno == ACCESS_CONTROL_ERR:
             logger.warning("ACCOUNT_USAGE query failed: access denied - falling back to SHOW queries")
+            _mark_account_usage_fallback(session)
+            return None
         else:
             logger.warning(
                 f"ACCOUNT_USAGE query failed with error {err.errno}: {err.msg} - falling back to SHOW queries"
             )
-        _mark_account_usage_fallback(session)
-        return None
+            _mark_account_usage_fallback(session)
+            return None
     except Exception as err:
         logger.warning(f"ACCOUNT_USAGE query failed unexpectedly: {err} - falling back to SHOW queries")
         _mark_account_usage_fallback(session)
@@ -1114,6 +1475,12 @@ def _fetch_grants_from_account_usage(session: SnowflakeConnection) -> list[dict[
                 "grantee_name": row["GRANTEE_NAME"],
                 "grant_option": grant_option,
                 "granted_by": row["GRANTED_BY"],
+                # Inherited grants describe a container, not a securable. NAME is empty for
+                # them, and the container comes from these columns instead.
+                "is_inherited": bool(row.get("IS_INHERITED")),
+                "inherited_from": row.get("INHERITED_FROM") or "",
+                "inherited_from_database": row.get("INHERITED_FROM_DATABASE") or "",
+                "inherited_from_schema": row.get("INHERITED_FROM_SCHEMA") or "",
             }
         )
 
@@ -1947,6 +2314,73 @@ def fetch_function(session: SnowflakeConnection, fqn: FQN):
         }
 
 
+def _parse_grant_collection(on_type: str, on: str) -> dict[str, str]:
+    """
+    Split a collection grant's encoded target into container and item type.
+
+    The account container has no name, so it is encoded as "ACCOUNT.<TABLE>" and cannot be
+    told apart from a database called ACCOUNT by looking at the string alone. The container
+    type travels alongside it in the URN, so it is passed in rather than inferred.
+    """
+    if on_type == ResourceType.ACCOUNT.value:
+        _, _, items_type = on.partition(".")
+        return {"on": "ACCOUNT", "on_type": "account", "items_type": items_type.strip("<>")}
+    return parse_collection_string(on)
+
+
+def _inherited_grant_matches(grant: dict[str, Any], items_type: str, container_type: str, container: str) -> bool:
+    """Does an inherited grant row describe a grant on this container and object type?"""
+    if grant["granted_on"].replace("_", " ").upper() != items_type.replace("_", " ").upper():
+        return False
+    inherited_from = str(grant.get("inherited_from") or "").upper()
+    if inherited_from != container_type.upper():
+        return False
+    if container_type == "ACCOUNT":
+        return True
+    database = str(grant.get("inherited_from_database") or "")
+    if container_type == "DATABASE":
+        return ResourceName(database) == ResourceName(container)
+    schema = str(grant.get("inherited_from_schema") or "")
+    return ResourceName(f"{database}.{schema}") == ResourceName(container)
+
+
+def fetch_inherited_grant(session: SnowflakeConnection, fqn: FQN):
+    """
+    Fetch a single inherited grant.
+
+    Unlike ON ALL grants, an inherited grant is one durable record that Snowflake reports
+    back, so it can be compared against config instead of being reapplied on every run.
+    """
+    priv = fqn.params["priv"]
+    on_type, on = fqn.params["on"].split("/", 1)
+    to_type, to = fqn.params["to"].split("/", 1)
+    to_type = resource_type_for_label(to_type)
+
+    collection = _parse_grant_collection(on_type.upper(), on)
+    container_type = collection["on_type"].upper()
+    container = collection["on"]
+    items_type = collection["items_type"]
+
+    for grant in _show_inherited_grants_to_role(session, to, role_type=to_type):
+        if grant["privilege"] != priv:
+            continue
+        if not _inherited_grant_matches(grant, items_type, container_type, container):
+            continue
+        return {
+            "priv": priv,
+            "on": container,
+            "on_type": container_type.replace("_", " "),
+            "to": to,
+            "to_type": resource_type_for_label(grant["granted_to"]),
+            "grant_option": False,
+            "owner": grant.get("granted_by") or "",
+            "_privs": [priv],
+            "items_type": items_type.replace("_", " "),
+            "grant_type": GrantType.INHERITED,
+        }
+    return None
+
+
 def fetch_grant(session: SnowflakeConnection, fqn: FQN):
     priv = fqn.params["priv"]
     on_type, on = fqn.params["on"].split("/", 1)
@@ -1955,6 +2389,9 @@ def fetch_grant(session: SnowflakeConnection, fqn: FQN):
     to_type = resource_type_for_label(to_type)
     # Default to OBJECT grant type if not specified
     grant_type = fqn.params.get("grant_type", GrantType.OBJECT)
+
+    if grant_type == GrantType.INHERITED:
+        return fetch_inherited_grant(session, fqn)
 
     if priv == "ALL":
         filters = {
@@ -1988,8 +2425,12 @@ def fetch_grant(session: SnowflakeConnection, fqn: FQN):
             # Gate on the database actually being shared: without this, a mistakenly-declared
             # IMPORTED PRIVILEGES grant on a regular database would false-match its (very common)
             # plain USAGE grant and mask the config error.
+            # Any kind but STANDARD is share-backed: IMPORTED DATABASE for a marketplace or
+            # direct share, APPLICATION for the SNOWFLAKE database, which behaves the same
+            # way and was missed by testing for IMPORTED DATABASE alone. A STANDARD database
+            # is the only case where a plain USAGE grant could be mistaken for this one.
             db_rows = _show_resources(session, "DATABASES", FQN(name=ResourceName(on)))
-            if db_rows and db_rows[0]["kind"] == "IMPORTED DATABASE":
+            if db_rows and db_rows[0]["kind"] != "STANDARD":
                 data = _fetch_grant_to_role(
                     session,
                     grant_type=grant_type,
@@ -2375,7 +2816,7 @@ def fetch_pipe(session: SnowflakeConnection, fqn: FQN):
 
 def fetch_procedure(session: SnowflakeConnection, fqn: FQN):
     # SHOW PROCEDURES IN SCHEMA {}.{}
-    # FIXME: This will fail if the database doesnt exist
+    # FIXME: This will fail if the database doesn't exist
     show_result = execute(session, f"SHOW PROCEDURES IN SCHEMA {fqn.database}.{fqn.schema}", cacheable=True)
     sprocs = _filter_result(show_result, name=fqn.name)
     if len(sprocs) == 0:
@@ -3337,9 +3778,7 @@ def fetch_warehouse(session: SnowflakeConnection, fqn: FQN, include_params: bool
     if generation is not None:
         generation = str(generation)
     resource_constraint = _normalize_snowflake_optional(data.get("resource_constraint"), upper=True)
-    max_query_performance_level = _normalize_snowflake_optional(
-        data.get("max_query_performance_level"), upper=True
-    )
+    max_query_performance_level = _normalize_snowflake_optional(data.get("max_query_performance_level"), upper=True)
     query_throughput_multiplier = _normalize_snowflake_optional(data.get("query_throughput_multiplier"))
 
     if warehouse_type == "STANDARD":
@@ -3491,6 +3930,36 @@ def _list_databases(session: SnowflakeConnection) -> list[ResourceName]:
 def list_databases(session: SnowflakeConnection) -> list[FQN]:
     databases = _list_databases(session)
     return [FQN(name=database) for database in databases]
+
+
+def list_database_owners(session: SnowflakeConnection) -> dict[str, str]:
+    """
+    Owner role of every database in the account, keyed by upper-cased name.
+
+    Used to manage grants held by database roles, which live inside a database and cannot
+    be reached with account-level authority alone. Reads the same cached SHOW DATABASES
+    response _list_databases uses, so this costs no extra query.
+    """
+    show_result = execute(session, "SHOW DATABASES", cacheable=True)
+    return {row["name"].upper(): row["owner"] for row in show_result if row.get("owner")}
+
+
+def list_shared_database_names(session: SnowflakeConnection) -> set[str]:
+    """
+    Names of databases whose privileges come from a share rather than from grants on the
+    database itself, upper-cased.
+
+    Every kind but STANDARD qualifies. IMPORTED DATABASE is the marketplace or direct
+    share; APPLICATION covers the SNOWFLAKE database, which behaves the same way and would
+    be missed by testing for IMPORTED DATABASE alone.
+
+    Two things depend on this. Privileges on them are granted with IMPORTED PRIVILEGES and
+    reported back as USAGE, and they cannot be revoked one at a time; see
+    lifecycle.drop_shared_database_grant. Reads the same cached SHOW DATABASES response
+    _list_databases uses, so this costs no extra query.
+    """
+    show_result = execute(session, "SHOW DATABASES", cacheable=True)
+    return {row["name"].upper() for row in show_result if row["kind"] != "STANDARD"}
 
 
 def list_database_roles(session: SnowflakeConnection, database=None) -> list[FQN]:
@@ -3683,6 +4152,10 @@ def list_grants(
 ) -> list[FQN]:
     grants: list[FQN] = []
 
+    # Databases whose privileges come from a share. Grants on them are declared as
+    # IMPORTED PRIVILEGES and reported back as USAGE; see _imported_privileges_priv.
+    shared_databases = list_shared_database_names(session)
+
     # Get all non-system role names for processing
     # Use "SHOW ROLES IN ACCOUNT" to match _show_resources for cache consistency
     roles_result = execute(session, "SHOW ROLES IN ACCOUNT", cacheable=True)
@@ -3744,29 +4217,42 @@ def list_grants(
                     # Skip other grantee types (e.g., USER)
                     continue
 
-                # Skip role grants (hierarchy handled by list_role_grants)
-                if data["granted_on"] == "ROLE":
+                # Skip role and database role grants (hierarchy is handled by
+                # list_role_grants and list_database_role_grants)
+                if _is_role_hierarchy_grant(data):
                     continue
 
                 # Snowcap Grants don't support OWNERSHIP privilege
                 if data["privilege"] == "OWNERSHIP":
                     continue
 
+                # A database role is born holding usage on its own database
+                if to_prefix == "database_role" and _is_intrinsic_database_role_usage(data, grantee):
+                    continue
+
                 # Skip undocumented privs
                 if data["privilege"] in ["CANCEL QUERY"]:
+                    continue
+
+                # Inherited grants are container-level and carry no object name
+                if _is_inherited_grant(data):
+                    inherited_fqn = inherited_grant_fqn(data, to_prefix, grantee)
+                    if inherited_fqn:
+                        grants.append(inherited_fqn)
                     continue
 
                 name = data["name"]
                 if data["granted_on"] == "ACCOUNT":
                     name = "ACCOUNT"
-                on = f"{data['granted_on'].lower()}/{name}"
+                on = f"{_granted_on_label(data['granted_on'])}/{name}"
+                priv = _imported_privileges_priv(data, shared_databases) or data["privilege"]
                 to = f"{to_prefix}/{grantee}"
                 grants.append(
                     FQN(
                         name=ResourceName("GRANT"),
                         params={
                             "grant_type": "OBJECT",
-                            "priv": data["privilege"],
+                            "priv": priv,
                             "on": on,
                             "to": to,
                         },
@@ -3782,7 +4268,9 @@ def list_grants(
                 session, role_name, role_type=ResourceType.ROLE, cacheable=True, use_account_usage=False
             )
             for data in grant_data:
-                if data["granted_on"] == "ROLE":
+                # Skip role and database role grants (hierarchy is handled by
+                # list_role_grants and list_database_role_grants)
+                if _is_role_hierarchy_grant(data):
                     continue
 
                 # Snowcap Grants don't support OWNERSHIP privilege
@@ -3796,19 +4284,28 @@ def list_grants(
                 name = data["name"]
                 if data["granted_on"] == "ACCOUNT":
                     name = "ACCOUNT"
-                on = f"{data['granted_on'].lower()}/{name}"
+                on = f"{_granted_on_label(data['granted_on'])}/{name}"
+                priv = _imported_privileges_priv(data, shared_databases) or data["privilege"]
                 to = f"role/{role_name}"
                 grants.append(
                     FQN(
                         name=ResourceName("GRANT"),
                         params={
                             "grant_type": "OBJECT",
-                            "priv": data["privilege"],
+                            "priv": priv,
                             "on": on,
                             "to": to,
                         },
                     )
                 )
+
+        # Inherited grants come from the same (cached) SHOW GRANTS response, so listing them
+        # costs no extra queries.
+        for role_name in role_names:
+            for data in _show_inherited_grants_to_role(session, role_name, role_type=ResourceType.ROLE):
+                inherited_fqn = inherited_grant_fqn(data, "role", str(role_name))
+                if inherited_fqn:
+                    grants.append(inherited_fqn)
 
         # Also fetch grants for database roles using SHOW GRANTS TO DATABASE ROLE
         for db_role_fqn in get_database_roles():
@@ -3821,12 +4318,17 @@ def list_grants(
                 use_account_usage=False,
             )
             for data in grant_data:
-                # Skip database role grants (hierarchy handled by list_database_role_grants)
-                if data["granted_on"] == "DATABASE ROLE":
+                # Skip role and database role grants (hierarchy is handled by
+                # list_role_grants and list_database_role_grants)
+                if _is_role_hierarchy_grant(data):
                     continue
 
                 # Snowcap Grants don't support OWNERSHIP privilege
                 if data["privilege"] == "OWNERSHIP":
+                    continue
+
+                # A database role is born holding usage on its own database
+                if _is_intrinsic_database_role_usage(data, fq_db_role_name):
                     continue
 
                 # Skip undocumented privs
@@ -3836,19 +4338,27 @@ def list_grants(
                 name = data["name"]
                 if data["granted_on"] == "ACCOUNT":
                     name = "ACCOUNT"
-                on = f"{data['granted_on'].lower()}/{name}"
+                on = f"{_granted_on_label(data['granted_on'])}/{name}"
+                priv = _imported_privileges_priv(data, shared_databases) or data["privilege"]
                 to = f"database_role/{fq_db_role_name}"
                 grants.append(
                     FQN(
                         name=ResourceName("GRANT"),
                         params={
                             "grant_type": "OBJECT",
-                            "priv": data["privilege"],
+                            "priv": priv,
                             "on": on,
                             "to": to,
                         },
                     )
                 )
+
+            for data in _show_inherited_grants_to_role(
+                session, ResourceName(fq_db_role_name), role_type=ResourceType.DATABASE_ROLE
+            ):
+                inherited_fqn = inherited_grant_fqn(data, "database_role", fq_db_role_name)
+                if inherited_fqn:
+                    grants.append(inherited_fqn)
 
     # Future grants always use SHOW commands (not available in ACCOUNT_USAGE)
     # Only fetch if include_future_grants is True (manifest has future grants)

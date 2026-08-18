@@ -1,4 +1,5 @@
 import difflib
+import re
 from typing import Any
 
 import jinja2.exceptions
@@ -19,7 +20,7 @@ def _format_missing_key_error(key: str, available_keys: list[str], context: str 
         msg = f'Key "{key}" not found.'
 
     if suggestions:
-        msg += f'\n  Did you mean: {suggestions[0]}?'
+        msg += f"\n  Did you mean: {suggestions[0]}?"
 
     if available_keys:
         msg += f'\n  Available keys: {", ".join(sorted(available_keys))}'
@@ -48,7 +49,9 @@ class VarString:
                     raise MissingVarException(
                         _format_missing_key_error(missing_key, available_keys, context="vars")
                         + f"\n  Template: {self.string}"
-                        + "\n  Provide vars with: --vars '{\"" + missing_key + "\": ...}'"
+                        + "\n  Provide vars with: --vars '{\""
+                        + missing_key
+                        + "\": ...}'"
                     ) from e
 
             raise MissingVarException(f"Missing var in template: {self.string}\n  Error: {e}")
@@ -104,3 +107,33 @@ def process_for_each(resource_value: str, each_value: Any) -> str:
                 ) from e
         # Fallback to original error if we can't parse it
         raise MissingVarException(f"Error in for_each template '{resource_value}': {e}") from e
+
+
+def evaluate_for_each_where(condition: str, each_value: Any) -> bool:
+    """Evaluate a for_each `where` expression against one item.
+
+    The expression is bare Jinja (no braces), e.g.
+
+        where: each.value.name.split('.')[0] == 'BALBOA'
+
+    Items whose expression is falsy are skipped, which lets one var drive
+    several blocks that each cover a subset of it.
+    """
+    # `where` only sees the current item as each.value. A var.* / parent.* reference resolves
+    # to a literal "{{ var.x }}" string via the stubs, so the whole expression is silently
+    # falsy for every item and the block declares nothing -- which, in sync mode, turns the
+    # grants it should own into DROPs. Reject it loudly rather than dropping access quietly.
+    # Strip string literals first so a var. inside a quoted value isn't mistaken for one.
+    without_literals = re.sub(r"'[^']*'|\"[^\"]*\"", "", condition)
+    if re.search(r"\b(?:var|parent)\.", without_literals):
+        raise MissingVarException(
+            f"for_each `where` expression '{condition}' may only reference `each.value`, not var/parent."
+        )
+    try:
+        expression = GLOBAL_JINJA_ENV.compile_expression(condition)
+    except jinja2.exceptions.TemplateSyntaxError as e:
+        raise MissingVarException(f"Invalid for_each where expression '{condition}': {e}") from e
+    try:
+        return bool(expression(var=VarStub(), parent=ParentStub(), each={"value": each_value}))
+    except jinja2.exceptions.UndefinedError as e:
+        raise MissingVarException(f"Error in for_each where expression '{condition}': {e}") from e

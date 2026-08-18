@@ -140,8 +140,8 @@ class TestQuoteValue:
         assert result == "''"
 
     def test_quote_value_with_quotes(self):
-        result = quote_value("it's a \"test\"")
-        assert result == "$$it's a \"test\"$$"
+        result = quote_value('it\'s a "test"')
+        assert result == '$$it\'s a "test"$$'
 
     def test_quote_value_multiline(self):
         result = quote_value("line1\nline2")
@@ -735,37 +735,29 @@ class TestSchemaPropExtended:
 
     def test_render_single_column(self):
         prop = SchemaProp()
-        result = prop.render([
-            {"name": "col1", "data_type": DataType.VARCHAR, "not_null": False, "default": None}
-        ])
+        result = prop.render([{"name": "col1", "data_type": DataType.VARCHAR, "not_null": False, "default": None}])
         assert result == "(col1 VARCHAR)"
 
     def test_render_column_with_not_null(self):
         prop = SchemaProp()
-        result = prop.render([
-            {"name": "col1", "data_type": DataType.NUMBER, "not_null": True, "default": None}
-        ])
+        result = prop.render([{"name": "col1", "data_type": DataType.NUMBER, "not_null": True, "default": None}])
         assert result == "(col1 NUMBER NOT NULL)"
 
     def test_render_column_with_string_default(self):
         prop = SchemaProp()
-        result = prop.render([
-            {"name": "col1", "data_type": DataType.VARCHAR, "not_null": False, "default": "hello"}
-        ])
+        result = prop.render([{"name": "col1", "data_type": DataType.VARCHAR, "not_null": False, "default": "hello"}])
         assert result == "(col1 VARCHAR DEFAULT 'hello')"
 
     def test_render_column_with_numeric_default(self):
         prop = SchemaProp()
-        result = prop.render([
-            {"name": "col1", "data_type": DataType.NUMBER, "not_null": False, "default": 42}
-        ])
+        result = prop.render([{"name": "col1", "data_type": DataType.NUMBER, "not_null": False, "default": 42}])
         assert result == "(col1 NUMBER DEFAULT 42)"
 
     def test_render_column_with_comment(self):
         prop = SchemaProp()
-        result = prop.render([
-            {"name": "col1", "data_type": DataType.VARCHAR, "not_null": False, "default": None, "comment": "test"}
-        ])
+        result = prop.render(
+            [{"name": "col1", "data_type": DataType.VARCHAR, "not_null": False, "default": None, "comment": "test"}]
+        )
         assert result == "(col1 VARCHAR COMMENT 'test')"
 
     def test_render_empty(self):

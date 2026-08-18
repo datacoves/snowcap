@@ -150,12 +150,35 @@ def create_hybrid_table(urn: URN, data: dict, props: Props, if_not_exists: bool 
     )
 
 
+def _grant_container_sql(data: dict) -> str:
+    """Render the `IN <container>` clause of a collection grant.
+
+    The account container has no name of its own, so it renders as a bare `IN ACCOUNT`.
+    """
+    if data["on_type"] == ResourceType.ACCOUNT:
+        return "IN ACCOUNT"
+    return f"IN {data['on_type']} {data['on']}"
+
+
 def create_grant(urn: URN, data: dict, props: Props, if_not_exists: bool):
     on_type = data["on_type"]
     if "INTEGRATION" in str(on_type):
         on_type = "INTEGRATION"
     elif on_type == "ACCOUNT":
         on_type = ""
+    if data["grant_type"] == GrantType.INHERITED:
+        # A single container-level grant covering current and future objects. Snowflake
+        # rejects WITH GRANT OPTION here, which the Grant resource validates up front.
+        return tidy_sql(
+            "GRANT INHERITED",
+            data["priv"],
+            "ON ALL",
+            pluralize(data["items_type"]).upper(),
+            _grant_container_sql(data),
+            "TO",
+            data["to_type"],
+            data["to"],
+        )
     if data["grant_type"] == GrantType.FUTURE:
         items_type = data["items_type"]
         if "INTEGRATION" in items_type:
@@ -581,6 +604,33 @@ def drop_database_role_grant(urn: URN, data: dict, **kwargs):
     )
 
 
+def drop_shared_database_grant(data: dict, database: str) -> str:
+    """
+    Revoke a grant that a share handed out, given any one row of its fan-out.
+
+    Privileges on a shared database are not independently revocable. Snowflake grants them
+    with one statement, GRANT IMPORTED PRIVILEGES ON DATABASE <db>, then reports them in
+    SHOW GRANTS as a row per object the share exposes -- USAGE on the database, USAGE on
+    each schema, SELECT on each view, and so on. Revoking any of those rows on its own is
+    rejected:
+
+        Revoking individual privileges on imported database is not allowed.
+        Use 'REVOKE IMPORTED PRIVILEGES'
+
+    The share is the only source of privileges on those objects, so revoking IMPORTED
+    PRIVILEGES removes the whole fan-out for that grantee in one statement. Every row of the
+    fan-out therefore maps to the same revoke, which is idempotent: the first one takes the
+    access away and any repeat finds nothing left to revoke.
+    """
+    return tidy_sql(
+        "REVOKE IMPORTED PRIVILEGES ON DATABASE",
+        ResourceName(database),
+        "FROM",
+        data["to_type"],
+        data["to"],
+    )
+
+
 def drop_function(urn: URN, data: dict, if_exists: bool) -> str:
     return tidy_sql(
         "DROP",
@@ -593,6 +643,17 @@ def drop_function(urn: URN, data: dict, if_exists: bool) -> str:
 def drop_grant(urn: URN, data: dict, **kwargs):
     if data["priv"] == "OWNERSHIP":
         raise NotImplementedError
+    if data["grant_type"] == GrantType.INHERITED:
+        return tidy_sql(
+            "REVOKE INHERITED",
+            data["priv"],
+            "ON ALL",
+            pluralize(data["items_type"]).upper(),
+            _grant_container_sql(data),
+            "FROM",
+            data["to_type"],
+            data["to"],
+        )
     if data["grant_type"] == GrantType.FUTURE:
         return tidy_sql(
             "REVOKE",

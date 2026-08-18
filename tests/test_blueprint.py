@@ -48,17 +48,26 @@ from snowcap import data_provider, var
 from snowcap.blueprint import (
     Blueprint,
     CreateResource,
+    DropResource,
+    TransferOwnership,
     UpdateResource,
+    compute_levels,
     _merge_pointers,
     compile_plan_to_sql,
     diff,
     dump_plan,
+    execution_strategy_for_change,
+    future_grant_precedence_warnings,
+    manifest_state_entries,
+    plan_entries,
+    raise_if_inherited_grants_unavailable,
 )
 from snowcap.blueprint_config import BlueprintConfig
 from snowcap.data_provider import fetch_warehouse
 from snowcap.enums import AccountEdition, BlueprintScope, ResourceType
 from snowcap.exceptions import (
     DuplicateResourceException,
+    MissingPrivilegeException,
     InvalidResourceException,
     MarkedForReplacementException,
     MissingVarException,
@@ -662,6 +671,28 @@ def test_blueprint_dump_plan_drop(session_ctx):
 - DROP:   ROLE1
 
 """
+
+
+def test_dump_plan_round_trips_dependency_levels(session_ctx, remote_state):
+    """apply --plan must preserve ordering, so dump_plan persists each change's level and the
+    loaders read it back. A bare-list plan (older format) restores to no levels."""
+    from snowcap.blueprint import plan_from_dict, levels_from_plan_dict
+
+    blueprint = Blueprint(resources=[res.Role("role1")])
+    manifest = blueprint.generate_manifest(session_ctx)
+    plan = diff(remote_state, manifest)
+    urn = plan[0].urn
+
+    dumped = json.loads(dump_plan(plan, format="json", levels={urn: 3}))
+    assert dumped["levels"] == {str(urn): 3}
+    assert [c.urn for c in plan_from_dict(dumped)] == [urn]
+    assert levels_from_plan_dict(dumped) == {urn: 3}
+
+    # Backward compatibility: a bare-list plan still parses, with no levels restored.
+    bare = json.loads(dump_plan(plan, format="json"))
+    assert isinstance(bare, list)
+    assert [c.urn for c in plan_from_dict(bare)] == [urn]
+    assert levels_from_plan_dict(bare) == {}
 
 
 def test_blueprint_vars(session_ctx):
@@ -1345,7 +1376,10 @@ class TestWarningForNonconformingPlanMCPServer:
         blueprint = Blueprint(resources=[])
 
         monkeypatch.setattr("snowcap.blueprint.data_provider.fetch_session", lambda session: session_ctx)
-        monkeypatch.setattr("snowcap.blueprint.compile_plan_to_sql", lambda session_ctx, plan: ([], []))
+        monkeypatch.setattr(
+            "snowcap.blueprint.compile_plan_to_sql",
+            lambda session_ctx, plan, shared_databases=None, database_owners=None: ([], []),
+        )
 
         with caplog.at_level(logging.WARNING, logger="snowcap"):
             blueprint.apply(session=None, plan=[change])
@@ -1424,6 +1458,8 @@ class TestMCPServerSpecChangeRegrantsManagedGrants:
         )
         grant_changes = [change for change in plan if change.urn == grant_urn]
         assert len(grant_changes) == 1
+
+
 def test_blueprint_shared_database_create_default_owner(session_ctx, remote_state):
     shared_db = res.SharedDatabase(name="GONG", from_share="provider_account.share_name")
     blueprint = Blueprint(name="blueprint", resources=[shared_db])
@@ -1618,3 +1654,1142 @@ def test_schema_under_shared_database_raises_clear_error(session_ctx):
 
     with pytest.raises(OrphanResourceException, match="Cannot add SCHEMA '.*' to SharedDatabase 'GONG'"):
         blueprint.generate_manifest(session_ctx)
+
+
+class TestFutureGrantPrecedenceWarnings:
+    """
+    Tests for the database-level future grant warning surfaced by
+    Blueprint._warning_for_nonconforming_plan.
+
+    Snowflake gives schema-level future grants precedence over database-level future
+    grants on the same object type, and silently ignores the database-level grant for
+    that schema. Managed access schemas make the conflict easy to introduce from a
+    separate config, so the check calls both situations out at plan time.
+    """
+
+    def _database_future_grants(self, database="MY_DB", to="READER", priv="SELECT"):
+        return [
+            res.Grant(priv=priv, on=f"future tables in database {database}", to=to),
+            res.Grant(priv=priv, on=f"future views in database {database}", to=to),
+        ]
+
+    def _warnings_for(self, session_ctx, resources):
+        blueprint = Blueprint(resources=resources)
+        manifest = blueprint.generate_manifest(session_ctx)
+        return future_grant_precedence_warnings(manifest_state_entries(manifest))
+
+    def test_managed_access_schema_with_database_future_grants_warns(self, session_ctx):
+        resources = [
+            res.Database(name="MY_DB"),
+            res.Schema(name="MY_SCHEMA", database="MY_DB", managed_access=True),
+            res.Role(name="READER"),
+            *self._database_future_grants(),
+        ]
+
+        warnings = self._warnings_for(session_ctx, resources)
+
+        assert len(warnings) == 1
+        assert "MY_DB.MY_SCHEMA" in warnings[0]
+        assert "managed access" in warnings[0]
+        assert "TABLES" in warnings[0] and "VIEWS" in warnings[0]
+
+    def test_schema_without_managed_access_produces_no_warning(self, session_ctx):
+        resources = [
+            res.Database(name="MY_DB"),
+            res.Schema(name="MY_SCHEMA", database="MY_DB"),
+            res.Role(name="READER"),
+            *self._database_future_grants(),
+        ]
+
+        assert self._warnings_for(session_ctx, resources) == []
+
+    def test_shadowing_schema_future_grant_warns_that_database_grant_is_ignored(self, session_ctx):
+        resources = [
+            res.Database(name="MY_DB"),
+            res.Schema(name="MY_SCHEMA", database="MY_DB", managed_access=True),
+            res.Role(name="READER"),
+            res.Role(name="WRITER"),
+            res.Grant(priv="SELECT", on="future tables in database MY_DB", to="READER"),
+            # A future grant on the same object type at the schema level, even to a
+            # different role, makes Snowflake ignore the database-level grant.
+            res.Grant(priv="INSERT", on="future tables in schema MY_DB.MY_SCHEMA", to="WRITER"),
+        ]
+
+        warnings = self._warnings_for(session_ctx, resources)
+
+        assert len(warnings) == 1
+        assert "is ignored for MY_DB.MY_SCHEMA" in warnings[0]
+        assert "SELECT ON FUTURE TABLES IN DATABASE MY_DB to READER" in warnings[0]
+        assert "managed access" in warnings[0]
+
+    def test_shadowing_is_scoped_to_the_same_object_type(self, session_ctx):
+        resources = [
+            res.Database(name="MY_DB"),
+            res.Schema(name="MY_SCHEMA", database="MY_DB"),
+            res.Role(name="READER"),
+            res.Grant(priv="SELECT", on="future tables in database MY_DB", to="READER"),
+            res.Grant(priv="SELECT", on="future views in schema MY_DB.MY_SCHEMA", to="READER"),
+        ]
+
+        assert self._warnings_for(session_ctx, resources) == []
+
+    def test_shadowing_is_scoped_to_the_same_database(self, session_ctx):
+        resources = [
+            res.Database(name="MY_DB"),
+            res.Database(name="OTHER_DB"),
+            res.Schema(name="MY_SCHEMA", database="OTHER_DB"),
+            res.Role(name="READER"),
+            res.Grant(priv="SELECT", on="future tables in database MY_DB", to="READER"),
+            res.Grant(priv="SELECT", on="future tables in schema OTHER_DB.MY_SCHEMA", to="READER"),
+        ]
+
+        assert self._warnings_for(session_ctx, resources) == []
+
+    def test_schema_level_future_grants_alone_produce_no_warning(self, session_ctx):
+        """The fix for the database-level trap: declare the grants at the schema level."""
+        resources = [
+            res.Database(name="MY_DB"),
+            res.Schema(name="MY_SCHEMA", database="MY_DB", managed_access=True),
+            res.Role(name="READER"),
+            res.Grant(priv="SELECT", on="future tables in schema MY_DB.MY_SCHEMA", to="READER"),
+            res.Grant(priv="SELECT", on="all tables in schema MY_DB.MY_SCHEMA", to="READER"),
+        ]
+
+        assert self._warnings_for(session_ctx, resources) == []
+
+    def test_managed_access_from_remote_state_is_detected(self, session_ctx):
+        """The schema is already managed access in Snowflake and unchanged in this run, so
+        only remote state knows about it."""
+        blueprint = Blueprint(
+            resources=[
+                res.Database(name="MY_DB"),
+                res.Role(name="READER"),
+                *self._database_future_grants(),
+            ]
+        )
+        manifest = blueprint.generate_manifest(session_ctx)
+        schema_urn = URN(
+            resource_type=ResourceType.SCHEMA,
+            fqn=FQN(ResourceName("REMOTE_SCHEMA"), database=ResourceName("MY_DB")),
+            account_locator=session_ctx["account_locator"],
+        )
+        remote_state = {schema_urn: {"name": "REMOTE_SCHEMA", "managed_access": True}}
+
+        warnings = future_grant_precedence_warnings(manifest_state_entries(manifest, remote_state))
+
+        assert len(warnings) == 1
+        assert "MY_DB.REMOTE_SCHEMA" in warnings[0]
+
+    def test_warning_is_surfaced_by_the_plan_warning_hook(self, session_ctx, caplog):
+        blueprint = Blueprint(
+            resources=[
+                res.Database(name="MY_DB"),
+                res.Schema(name="MY_SCHEMA", database="MY_DB", managed_access=True),
+                res.Role(name="READER"),
+                *self._database_future_grants(),
+            ]
+        )
+        manifest = blueprint.generate_manifest(session_ctx)
+
+        with caplog.at_level(logging.WARNING, logger="snowcap"):
+            blueprint._warning_for_nonconforming_plan(session_ctx, [], manifest)
+
+        assert "managed access" in caplog.text
+        assert "MY_DB.MY_SCHEMA" in caplog.text
+
+    def test_prebuilt_plan_falls_back_to_plan_contents(self, session_ctx):
+        """`snowcap apply --plan plan.json` never rebuilds the manifest, so the check runs
+        over the changes in the plan instead."""
+        blueprint = Blueprint(
+            resources=[
+                res.Database(name="MY_DB"),
+                res.Schema(name="MY_SCHEMA", database="MY_DB", managed_access=True),
+                res.Role(name="READER"),
+                *self._database_future_grants(),
+            ]
+        )
+        manifest = blueprint.generate_manifest(session_ctx)
+        plan = [
+            CreateResource(urn, item.resource_cls, None, item.data)
+            for urn, item in manifest.items()
+            if hasattr(item, "data")
+        ]
+
+        warnings = future_grant_precedence_warnings(plan_entries(plan))
+
+        assert len(warnings) == 1
+        assert "MY_DB.MY_SCHEMA" in warnings[0]
+
+
+class TestInheritedGrantPlanning:
+    """
+    Tests for planning inherited grants: the account-level feature gate, how a container
+    grant covers the per-object grants it produced, and which role issues it.
+    """
+
+    def _object_grant_state(self, priv="SELECT", to="SOMEROLE", on="DB.SCH.TBL"):
+        urn = parse_URN(f"urn::ABCD123:grant/GRANT?grant_type=OBJECT&priv={priv}&on=table/{on}&to=role/{to}")
+        return urn, {
+            "priv": priv,
+            "on": on,
+            "on_type": "TABLE",
+            "to": to,
+            "items_type": None,
+            "to_type": "ROLE",
+            "grant_option": False,
+            "grant_type": "OBJECT",
+            "owner": "SYSADMIN",
+            "_privs": [priv],
+        }
+
+    def _manifest(self, session_ctx, resources):
+        return Blueprint(resources=resources).generate_manifest(session_ctx)
+
+    def test_plan_fails_when_the_account_has_not_enabled_the_feature(self, session_ctx):
+        manifest = self._manifest(
+            session_ctx,
+            [
+                res.Database(name="MY_DB"),
+                res.Role(name="READER"),
+                res.Grant(priv="SELECT", on="INHERITED TABLES IN DATABASE MY_DB", to="READER"),
+            ],
+        )
+
+        with patch("snowcap.data_provider.fetch_inherited_grants_enabled", return_value=False):
+            with pytest.raises(MissingPrivilegeException, match="FEATURE_RBAC_INHERITED_GRANTS"):
+                raise_if_inherited_grants_unavailable(MagicMock(), manifest)
+
+    def test_plan_proceeds_when_the_feature_flag_cannot_be_read(self, session_ctx):
+        """Reading account parameters needs privileges the session may not hold; that must
+        not block an apply that would otherwise succeed."""
+        manifest = self._manifest(
+            session_ctx,
+            [
+                res.Database(name="MY_DB"),
+                res.Role(name="READER"),
+                res.Grant(priv="SELECT", on="INHERITED TABLES IN DATABASE MY_DB", to="READER"),
+            ],
+        )
+
+        with patch("snowcap.data_provider.fetch_inherited_grants_enabled", return_value=None):
+            raise_if_inherited_grants_unavailable(MagicMock(), manifest)
+
+    def test_the_feature_flag_is_not_probed_without_inherited_grants(self, session_ctx):
+        manifest = self._manifest(session_ctx, [res.Database(name="MY_DB")])
+
+        with patch("snowcap.data_provider.fetch_inherited_grants_enabled") as probe:
+            raise_if_inherited_grants_unavailable(MagicMock(), manifest)
+
+        probe.assert_not_called()
+
+    def test_inherited_grant_covers_remote_per_object_grants(self, session_ctx, remote_state):
+        """Migrating per-object grants to an inherited grant must not revoke the access the
+        inherited grant provides."""
+        remote_state = remote_state.copy()
+        urn, data = self._object_grant_state()
+        remote_state[urn] = data
+        manifest = self._manifest(
+            session_ctx,
+            [
+                res.Database(name="DB"),
+                res.Role(name="SOMEROLE"),
+                res.Grant(priv="SELECT", on="INHERITED TABLES IN DATABASE DB", to="SOMEROLE"),
+            ],
+        )
+
+        plan = diff(remote_state, manifest)
+
+        assert not [change for change in plan if isinstance(change, DropResource) and change.urn == urn]
+
+    def test_uncovered_object_grants_are_still_dropped(self, session_ctx, remote_state):
+        """Coverage is per privilege, grantee, object type, and container -- a collection
+        grant elsewhere in the config does not protect an unrelated grant."""
+        remote_state = remote_state.copy()
+        urn, data = self._object_grant_state(priv="INSERT")
+        remote_state[urn] = data
+        manifest = self._manifest(
+            session_ctx,
+            [
+                res.Database(name="DB"),
+                res.Role(name="SOMEROLE"),
+                res.Grant(priv="SELECT", on="INHERITED TABLES IN DATABASE DB", to="SOMEROLE"),
+            ],
+        )
+
+        plan = diff(remote_state, manifest)
+
+        assert [change for change in plan if isinstance(change, DropResource) and change.urn == urn]
+
+    def test_grant_on_all_covers_objects_in_its_database(self, session_ctx, remote_state):
+        remote_state = remote_state.copy()
+        urn, data = self._object_grant_state()
+        remote_state[urn] = data
+        manifest = self._manifest(
+            session_ctx,
+            [
+                res.Database(name="DB"),
+                res.Role(name="SOMEROLE"),
+                res.Grant(priv="SELECT", on="ALL TABLES IN DATABASE DB", to="SOMEROLE"),
+            ],
+        )
+
+        plan = diff(remote_state, manifest)
+
+        assert not [change for change in plan if isinstance(change, DropResource) and change.urn == urn]
+
+    def test_grant_all_collection_covers_expanded_privilege_rows(self, session_ctx, remote_state):
+        """`GRANT ALL ON ALL TABLES` fans out into concrete-privilege rows (SELECT, INSERT, ...).
+        A declared ALL collection grant must cover them, or sync drops each one every run."""
+        remote_state = remote_state.copy()
+        urn, data = self._object_grant_state(priv="SELECT")
+        remote_state[urn] = data
+        manifest = self._manifest(
+            session_ctx,
+            [
+                res.Database(name="DB"),
+                res.Role(name="SOMEROLE"),
+                res.Grant(priv="ALL", on="ALL TABLES IN DATABASE DB", to="SOMEROLE"),
+            ],
+        )
+
+        plan = diff(remote_state, manifest)
+
+        assert not [change for change in plan if isinstance(change, DropResource) and change.urn == urn]
+
+    def test_container_covers_handles_quoted_identifiers_with_dots(self):
+        """A quoted identifier can contain a literal dot; a plain split miscounts the parts and
+        mis-classifies containment."""
+        from snowcap.blueprint import _container_covers
+        from snowcap.enums import ResourceType
+
+        assert _container_covers(ResourceType.SCHEMA.value, 'DB."a.b"', 'DB."a.b".TBL')
+        assert not _container_covers(ResourceType.SCHEMA.value, 'DB."a.b"', "DB.OTHER.TBL")
+        assert _container_covers(ResourceType.DATABASE.value, "DB", 'DB."a.b".TBL')
+
+    def test_a_collection_grant_in_another_database_does_not_protect_the_grant(self, session_ctx, remote_state):
+        remote_state = remote_state.copy()
+        urn, data = self._object_grant_state()
+        remote_state[urn] = data
+        manifest = self._manifest(
+            session_ctx,
+            [
+                res.Database(name="OTHER_DB"),
+                res.Role(name="SOMEROLE"),
+                res.Grant(priv="SELECT", on="ALL TABLES IN DATABASE OTHER_DB", to="SOMEROLE"),
+            ],
+        )
+
+        plan = diff(remote_state, manifest)
+
+        assert [change for change in plan if isinstance(change, DropResource) and change.urn == urn]
+
+    def test_inherited_grant_runs_as_its_declared_container_admin(self, session_ctx):
+        """Container-level MANAGE GRANTS is how a database admin manages access without
+        account-wide authority, so a declared owner is used in preference to SECURITYADMIN."""
+        grant = res.Grant(
+            priv="SELECT",
+            on="INHERITED TABLES IN DATABASE SALES_DB",
+            to="ANALYST",
+            owner="SALES_DB_ADMIN",
+        )
+        change = CreateResource(
+            urn=parse_URN(
+                "urn::ABCD123:grant/GRANT?grant_type=INHERITED&priv=SELECT&on=database/SALES_DB.<TABLE>&to=role/ANALYST"
+            ),
+            resource_cls=res.Grant,
+            container=None,
+            after=grant.to_dict(),
+        )
+
+        role, _ = execution_strategy_for_change(
+            change, ["SYSADMIN", "SECURITYADMIN", "SALES_DB_ADMIN"], ResourceName("SYSADMIN")
+        )
+
+        assert role == ResourceName("SALES_DB_ADMIN")
+
+    def test_inherited_grant_falls_back_to_securityadmin(self, session_ctx):
+        grant = res.Grant(priv="SELECT", on="INHERITED TABLES IN DATABASE SALES_DB", to="ANALYST")
+        change = CreateResource(
+            urn=parse_URN(
+                "urn::ABCD123:grant/GRANT?grant_type=INHERITED&priv=SELECT&on=database/SALES_DB.<TABLE>&to=role/ANALYST"
+            ),
+            resource_cls=res.Grant,
+            container=None,
+            after=grant.to_dict(),
+        )
+
+        role, _ = execution_strategy_for_change(change, ["SYSADMIN", "SECURITYADMIN"], ResourceName("SYSADMIN"))
+
+        assert role == ResourceName("SECURITYADMIN")
+
+    def test_object_grants_are_unaffected_by_the_delegation_path(self, session_ctx):
+        """A declared owner on an ordinary grant keeps running as SECURITYADMIN, as before."""
+        grant = res.Grant(priv="SELECT", on_table="DB.SCH.TBL", to="ANALYST", owner="SOME_ROLE")
+        change = CreateResource(
+            urn=parse_URN("urn::ABCD123:grant/GRANT?grant_type=OBJECT&priv=SELECT&on=table/DB.SCH.TBL&to=role/ANALYST"),
+            resource_cls=res.Grant,
+            container=None,
+            after=grant.to_dict(),
+        )
+
+        role, _ = execution_strategy_for_change(
+            change, ["SYSADMIN", "SECURITYADMIN", "SOME_ROLE"], ResourceName("SYSADMIN")
+        )
+
+        assert role == ResourceName("SECURITYADMIN")
+
+    def test_an_existing_inherited_grant_produces_no_changes(self, session_ctx, remote_state):
+        """The point of inherited grants over ON ALL: Snowflake reports one durable record,
+        so the plan is empty on a second run instead of reapplying the grant every time."""
+        from snowcap import data_provider
+
+        grant = res.Grant(priv="SELECT", on="INHERITED TABLES IN DATABASE SALES_DB", to="ANALYST")
+        manifest = self._manifest(session_ctx, [res.Database(name="SALES_DB"), res.Role(name="ANALYST"), grant])
+        urn = URN.from_resource(account_locator=session_ctx["account_locator"], resource=grant)
+        row = {
+            "privilege": "SELECT",
+            "granted_on": "TABLE",
+            "name": "",
+            "granted_to": "ROLE",
+            "grantee_name": "ANALYST",
+            "grant_option": "false",
+            "granted_by": "SECURITYADMIN",
+            "is_inherited": True,
+            "inherited_from": "DATABASE",
+            "inherited_from_database": "SALES_DB",
+            "inherited_from_schema": "",
+        }
+
+        with patch("snowcap.data_provider.execute", return_value=[row]):
+            fetched = data_provider.fetch_inherited_grant(MagicMock(), urn.fqn)
+
+        remote_state = remote_state.copy()
+        remote_state[urn] = fetched
+
+        assert [change for change in diff(remote_state, manifest) if change.urn == urn] == []
+
+    def test_config_can_enable_the_feature_itself(self, session_ctx):
+        """Declaring the account parameter is the supported way to turn the preview on, so
+        the plan gate must not block the very config that enables it."""
+        manifest = self._manifest(
+            session_ctx,
+            [
+                res.AccountParameter(name="FEATURE_RBAC_INHERITED_GRANTS", value="ENABLED"),
+                res.Database(name="MY_DB"),
+                res.Role(name="READER"),
+                res.Grant(priv="SELECT", on="INHERITED TABLES IN DATABASE MY_DB", to="READER"),
+            ],
+        )
+
+        with patch("snowcap.data_provider.fetch_inherited_grants_enabled", return_value=False) as probe:
+            raise_if_inherited_grants_unavailable(MagicMock(), manifest)
+
+        assert not probe.called
+
+    def test_disabling_the_parameter_does_not_count_as_enabling_it(self, session_ctx):
+        manifest = self._manifest(
+            session_ctx,
+            [
+                res.AccountParameter(name="FEATURE_RBAC_INHERITED_GRANTS", value="DISABLED"),
+                res.Database(name="MY_DB"),
+                res.Role(name="READER"),
+                res.Grant(priv="SELECT", on="INHERITED TABLES IN DATABASE MY_DB", to="READER"),
+            ],
+        )
+
+        with patch("snowcap.data_provider.fetch_inherited_grants_enabled", return_value=False):
+            with pytest.raises(MissingPrivilegeException):
+                raise_if_inherited_grants_unavailable(MagicMock(), manifest)
+
+    def test_inherited_grants_are_applied_after_the_feature_flag(self, session_ctx):
+        """Both are account-scoped with nothing else linking them, so without an explicit
+        dependency they would land in the same level and run concurrently."""
+        flag = res.AccountParameter(name="FEATURE_RBAC_INHERITED_GRANTS", value="ENABLED")
+        grant = res.Grant(priv="SELECT", on="INHERITED TABLES IN DATABASE MY_DB", to="READER")
+        manifest = self._manifest(session_ctx, [flag, res.Database(name="MY_DB"), res.Role(name="READER"), grant])
+
+        locator = session_ctx["account_locator"]
+        flag_urn = URN.from_resource(account_locator=locator, resource=flag)
+        grant_urn = URN.from_resource(account_locator=locator, resource=grant)
+
+        # The ordering must come from a real dependency edge, not incidental level
+        # assignment: assert the grant->flag edge is present in the manifest.
+        assert (grant_urn, flag_urn) in set(manifest.refs)
+
+        resource_set = set(manifest.urns)
+        for parent, ref in manifest.refs:
+            resource_set.add(parent)
+            resource_set.add(ref)
+        levels = compute_levels(resource_set, set(manifest.refs))
+        assert levels[grant_urn] > levels[flag_urn]
+
+    def test_grants_on_all_are_not_linked_to_the_feature_flag(self, session_ctx):
+        """Only inherited grants need the preview; an ON ALL grant must not be held back."""
+        flag = res.AccountParameter(name="FEATURE_RBAC_INHERITED_GRANTS", value="ENABLED")
+        grant = res.Grant(priv="SELECT", on="ALL TABLES IN DATABASE MY_DB", to="READER")
+        manifest = self._manifest(session_ctx, [flag, res.Database(name="MY_DB"), res.Role(name="READER"), grant])
+
+        locator = session_ctx["account_locator"]
+        flag_urn = URN.from_resource(account_locator=locator, resource=flag)
+        grant_urn = URN.from_resource(account_locator=locator, resource=grant)
+        assert (grant_urn, flag_urn) not in manifest.refs
+
+    def test_error_points_at_preview_access_when_it_is_disabled(self, session_ctx):
+        """Setting the parameter will not help while preview features are off account-wide,
+        and Snowcap cannot turn them on -- it is a system function, not a resource."""
+        manifest = self._manifest(
+            session_ctx,
+            [
+                res.Database(name="MY_DB"),
+                res.Role(name="READER"),
+                res.Grant(priv="SELECT", on="INHERITED TABLES IN DATABASE MY_DB", to="READER"),
+            ],
+        )
+
+        with patch("snowcap.data_provider.fetch_inherited_grants_enabled", return_value=False):
+            with patch("snowcap.data_provider.fetch_preview_access_enabled", return_value=False):
+                with pytest.raises(MissingPrivilegeException, match=r"SYSTEM\$ENABLE_PREVIEW_ACCESS"):
+                    raise_if_inherited_grants_unavailable(MagicMock(), manifest)
+
+    def test_error_suggests_the_parameter_when_preview_access_is_fine(self, session_ctx):
+        manifest = self._manifest(
+            session_ctx,
+            [
+                res.Database(name="MY_DB"),
+                res.Role(name="READER"),
+                res.Grant(priv="SELECT", on="INHERITED TABLES IN DATABASE MY_DB", to="READER"),
+            ],
+        )
+
+        with patch("snowcap.data_provider.fetch_inherited_grants_enabled", return_value=False):
+            with patch("snowcap.data_provider.fetch_preview_access_enabled", return_value=True):
+                with pytest.raises(MissingPrivilegeException) as excinfo:
+                    raise_if_inherited_grants_unavailable(MagicMock(), manifest)
+
+        assert "account_parameters" in str(excinfo.value)
+        assert "SYSTEM$ENABLE_PREVIEW_ACCESS" not in str(excinfo.value)
+
+
+class TestImportedPrivilegesPlanning:
+    """
+    A single IMPORTED PRIVILEGES grant on a shared database fans out in SHOW GRANTS into a
+    row per object the share exposes. Those rows can never be in the manifest, so sync must
+    recognise them as covered rather than revoking the access the declared grant provides.
+    """
+
+    def _shared_object_grant_state(self, priv, on, on_type, to="Z_DB__SNOWFLAKE"):
+        urn = parse_URN(
+            f"urn::ABCD123:grant/GRANT?grant_type=OBJECT&priv={priv}&on={on_type.lower()}/{on}&to=role/{to}"
+        )
+        return urn, {
+            "priv": priv,
+            "on": on,
+            "on_type": on_type,
+            "to": to,
+            "items_type": None,
+            "to_type": "ROLE",
+            "grant_option": False,
+            "grant_type": "OBJECT",
+            "owner": "SYSADMIN",
+            "_privs": [priv],
+        }
+
+    def _manifest(self, session_ctx, resources):
+        return Blueprint(resources=resources).generate_manifest(session_ctx)
+
+    def _snowflake_share_manifest(self, session_ctx, to="Z_DB__SNOWFLAKE"):
+        return self._manifest(
+            session_ctx,
+            [
+                res.Role(name=to),
+                res.Grant(priv="IMPORTED PRIVILEGES", on="database SNOWFLAKE", to=to),
+            ],
+        )
+
+    @pytest.mark.parametrize(
+        "priv,on,on_type",
+        [
+            # The fan-out carries whatever privilege each object type takes, never
+            # "IMPORTED PRIVILEGES" itself.
+            ("SELECT", "SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY", "VIEW"),
+            ("USAGE", "SNOWFLAKE.CORE.DUPLICATE_COUNT(TABLE(DATE)", "FUNCTION"),
+            ("USAGE", "SNOWFLAKE.CORTEX.CREATE_AI_FUNCTION(VARCHAR)", "PROCEDURE"),
+            ("USAGE", "SNOWFLAKE.ACCOUNT_USAGE", "SCHEMA"),
+            ("USAGE", "SNOWFLAKE.CORTEX_USER", "DATABASE_ROLE"),
+            ("READ", "SNOWFLAKE.IMAGES.SNOWFLAKE_IMAGES", "IMAGE_REPOSITORY"),
+            ("APPLY", "SNOWFLAKE.CORE.CERTIFICATION_STATUS", "TAG"),
+            # Snowflake also reports the database itself
+            ("USAGE", "SNOWFLAKE", "DATABASE"),
+            ("REFERENCE_USAGE", "SNOWFLAKE", "DATABASE"),
+        ],
+    )
+    def test_fan_out_of_an_imported_privileges_grant_is_not_dropped(self, session_ctx, remote_state, priv, on, on_type):
+        remote_state = remote_state.copy()
+        urn, data = self._shared_object_grant_state(priv, on, on_type)
+        remote_state[urn] = data
+
+        plan = diff(remote_state, self._snowflake_share_manifest(session_ctx))
+
+        assert not [change for change in plan if isinstance(change, DropResource) and change.urn == urn]
+
+    def test_fan_out_to_a_different_grantee_is_still_dropped(self, session_ctx, remote_state):
+        """Coverage is scoped to the role named by the declared grant."""
+        remote_state = remote_state.copy()
+        urn, data = self._shared_object_grant_state(
+            "SELECT", "SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY", "VIEW", to="SOME_OTHER_ROLE"
+        )
+        remote_state[urn] = data
+
+        plan = diff(remote_state, self._snowflake_share_manifest(session_ctx))
+
+        assert [change for change in plan if isinstance(change, DropResource) and change.urn == urn]
+
+    def test_grants_outside_the_shared_database_are_still_dropped(self, session_ctx, remote_state):
+        """An IMPORTED PRIVILEGES grant protects only objects inside its own database."""
+        remote_state = remote_state.copy()
+        urn, data = self._shared_object_grant_state("SELECT", "OTHER_DB.SCH.TBL", "TABLE")
+        remote_state[urn] = data
+
+        plan = diff(remote_state, self._snowflake_share_manifest(session_ctx))
+
+        assert [change for change in plan if isinstance(change, DropResource) and change.urn == urn]
+
+    def test_a_database_named_like_the_share_is_not_covered(self, session_ctx, remote_state):
+        """Containment is by identifier; a different database is a different container."""
+        remote_state = remote_state.copy()
+        urn, data = self._shared_object_grant_state("USAGE", "SNOWFLAKE_OTHER", "DATABASE")
+        remote_state[urn] = data
+
+        plan = diff(remote_state, self._snowflake_share_manifest(session_ctx))
+
+        assert [change for change in plan if isinstance(change, DropResource) and change.urn == urn]
+
+    def test_object_grants_are_dropped_when_no_imported_privileges_are_declared(self, session_ctx, remote_state):
+        """Without a declared IMPORTED PRIVILEGES grant nothing changes: undeclared object
+        grants are still reaped by sync."""
+        remote_state = remote_state.copy()
+        urn, data = self._shared_object_grant_state("SELECT", "SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY", "VIEW")
+        remote_state[urn] = data
+        manifest = self._manifest(session_ctx, [res.Role(name="Z_DB__SNOWFLAKE")])
+
+        plan = diff(remote_state, manifest)
+
+        assert [change for change in plan if isinstance(change, DropResource) and change.urn == urn]
+
+
+class TestCreateInsideTransferredContainer:
+    """A plan that adopts an existing database both transfers it and creates resources
+    inside it. Containers sit at a lower dependency level than their contents, so the
+    transfer runs first, and a CREATE planned against the container's old owner arrives
+    to find that role no longer owns anything."""
+
+    def _database_role_change(self, container_owner):
+        database_role = res.DatabaseRole(name="DR_READER_ROLE", database="GREAT_BAY_DEV", owner="USERADMIN")
+        return CreateResource(
+            urn=parse_URN("urn::ABCD123:database_role/GREAT_BAY_DEV.DR_READER_ROLE"),
+            resource_cls=res.DatabaseRole,
+            container=(parse_URN("urn::ABCD123:database/GREAT_BAY_DEV"), ResourceName(container_owner)),
+            after=database_role.to_dict(),
+        )
+
+    def test_create_runs_as_the_owner_the_container_ends_up_with(self):
+        change = self._database_role_change("ANALYST")
+        transferred = {parse_URN("urn::ABCD123:database/GREAT_BAY_DEV"): ResourceName("TRANSFORMER_DBT")}
+
+        role, _ = execution_strategy_for_change(
+            change,
+            [ResourceName("ANALYST"), ResourceName("TRANSFORMER_DBT"), ResourceName("SECURITYADMIN")],
+            ResourceName("SECURITYADMIN"),
+            transferred,
+        )
+
+        assert role == ResourceName("TRANSFORMER_DBT")
+
+    def test_create_runs_as_the_current_owner_when_the_container_is_not_transferred(self):
+        change = self._database_role_change("ANALYST")
+
+        role, _ = execution_strategy_for_change(
+            change,
+            [ResourceName("ANALYST"), ResourceName("TRANSFORMER_DBT"), ResourceName("SECURITYADMIN")],
+            ResourceName("SECURITYADMIN"),
+            {},
+        )
+
+        assert role == ResourceName("ANALYST")
+
+    def test_a_transfer_of_a_different_container_is_ignored(self):
+        change = self._database_role_change("ANALYST")
+        transferred = {parse_URN("urn::ABCD123:database/BALBOA_DEV"): ResourceName("TRANSFORMER_DBT")}
+
+        role, _ = execution_strategy_for_change(
+            change,
+            [ResourceName("ANALYST"), ResourceName("TRANSFORMER_DBT"), ResourceName("SECURITYADMIN")],
+            ResourceName("SECURITYADMIN"),
+            transferred,
+        )
+
+        assert role == ResourceName("ANALYST")
+
+    def test_compile_plan_to_sql_picks_up_the_transfer_from_the_plan(self, session_ctx):
+        """The end-to-end path: compile_plan_to_sql derives the mapping from the plan
+        itself, so a caller does not have to know the transfer happened."""
+        plan = [
+            TransferOwnership(
+                urn=parse_URN("urn::ABCD123:database/GREAT_BAY_DEV"),
+                resource_cls=res.Database,
+                from_owner="ANALYST",
+                to_owner="TRANSFORMER_DBT",
+            ),
+            self._database_role_change("ANALYST"),
+        ]
+
+        commands, _ = compile_plan_to_sql(session_ctx, plan)
+
+        create = [c for c in commands if isinstance(c["change"], CreateResource)][0]
+        assert create["role"] == ResourceName("TRANSFORMER_DBT")
+
+
+class TestDroppingGrantsOnSharedDatabases:
+    """Privileges on a shared database arrive as the fan-out of one IMPORTED PRIVILEGES
+    grant and cannot be revoked one at a time. Snowflake rejects the individual revoke with
+    "Revoking individual privileges on imported database is not allowed", and because that
+    is a SQL compilation error rather than a permissions one it aborts the apply."""
+
+    def _drop(self, priv, on, on_type, to="ANALYST"):
+        return DropResource(
+            urn=parse_URN(
+                f"urn::ABCD123:grant/GRANT?grant_type=OBJECT&priv={priv}&on={on_type.lower()}/{on}&to=role/{to}"
+            ),
+            before={
+                "priv": priv,
+                "on": on,
+                "on_type": on_type,
+                "to": to,
+                "to_type": "ROLE",
+                "items_type": None,
+                "grant_option": False,
+                "grant_type": "OBJECT",
+                "owner": "SYSADMIN",
+                "_privs": [priv],
+            },
+        )
+
+    @pytest.mark.parametrize(
+        "priv,on,on_type",
+        [
+            ("USAGE", "WORLDWIDE_ADDRESS_DATA", "DATABASE"),
+            ("USAGE", "WORLDWIDE_ADDRESS_DATA.ADDRESS", "SCHEMA"),
+            ("SELECT", "WORLDWIDE_ADDRESS_DATA.ADDRESS.OPENADDRESS", "TABLE"),
+        ],
+    )
+    def test_every_row_of_the_fan_out_revokes_the_share(self, session_ctx, priv, on, on_type):
+        """Database, schema and object rows all map to the same statement -- the share is
+        the only thing that can be given back."""
+        commands, _ = compile_plan_to_sql(session_ctx, [self._drop(priv, on, on_type)], {"WORLDWIDE_ADDRESS_DATA"})
+
+        sql = " ".join(commands[0]["commands"])
+        assert "REVOKE IMPORTED PRIVILEGES ON DATABASE WORLDWIDE_ADDRESS_DATA FROM ROLE ANALYST" in sql
+        assert "REVOKE USAGE ON DATABASE WORLDWIDE_ADDRESS_DATA" not in sql
+
+    def test_ordinary_databases_still_revoke_the_individual_privilege(self, session_ctx):
+        """The share form must not leak onto normal databases, where it is invalid."""
+        commands, _ = compile_plan_to_sql(
+            session_ctx, [self._drop("USAGE", "BALBOA", "DATABASE")], {"WORLDWIDE_ADDRESS_DATA"}
+        )
+
+        sql = " ".join(commands[0]["commands"])
+        assert "REVOKE USAGE ON DATABASE BALBOA FROM ROLE ANALYST" in sql
+        assert "IMPORTED PRIVILEGES" not in sql
+
+    def test_account_level_object_named_like_a_shared_db_is_not_the_share(self, session_ctx):
+        """A warehouse (or other account-level object) whose name collides with an imported
+        database must revoke its own privilege, not IMPORTED PRIVILEGES on the share."""
+        commands, _ = compile_plan_to_sql(
+            session_ctx, [self._drop("USAGE", "WORLDWIDE_ADDRESS_DATA", "WAREHOUSE")], {"WORLDWIDE_ADDRESS_DATA"}
+        )
+
+        sql = " ".join(commands[0]["commands"])
+        assert "REVOKE USAGE ON WAREHOUSE WORLDWIDE_ADDRESS_DATA FROM ROLE ANALYST" in sql
+        assert "IMPORTED PRIVILEGES" not in sql
+
+    def test_shared_database_match_is_quote_aware(self):
+        """A database quoted with a literal dot must still match the shared-databases set; a
+        naive split would produce the wrong name and miss it."""
+        from snowcap.blueprint import _shared_database_for_grant
+
+        change = DropResource(
+            urn=parse_URN("urn::ABCD123:grant/GRANT?grant_type=OBJECT&priv=USAGE&on=database/X&to=role/R"),
+            before={"on": '"prod.mirror".ADDRESS', "on_type": "SCHEMA", "priv": "USAGE", "to": "R"},
+        )
+
+        assert _shared_database_for_grant(change, {"PROD.MIRROR"}) == "PROD.MIRROR"
+
+    def test_no_shared_databases_known_leaves_behaviour_unchanged(self, session_ctx):
+        commands, _ = compile_plan_to_sql(session_ctx, [self._drop("USAGE", "WORLDWIDE_ADDRESS_DATA", "DATABASE")])
+
+        sql = " ".join(commands[0]["commands"])
+        assert "REVOKE USAGE ON DATABASE WORLDWIDE_ADDRESS_DATA" in sql
+
+
+class TestRevokingAccountLevelPrivileges:
+    """An account-level privilege belongs to the system role that owns it. Snowflake will
+    not take one back from a role that does not own it -- and rather than failing, the
+    REVOKE reports success while leaving the privilege in place, so the same drop reappears
+    in every later plan and nothing in the output says why."""
+
+    def _account_grant_change(self, cls, priv="CREATE DATABASE", to="TRANSFORMER_DBT"):
+        data = {
+            "priv": priv,
+            "on": "ACCOUNT",
+            "on_type": "ACCOUNT",
+            "to": to,
+            "to_type": "ROLE",
+            "items_type": None,
+            "grant_option": False,
+            "grant_type": "OBJECT",
+            "owner": "SECURITYADMIN",
+            "_privs": [priv],
+        }
+        urn = parse_URN(
+            f"urn::ABCD123:grant/GRANT?grant_type=OBJECT&priv={priv.replace(' ', '%20')}"
+            f"&on=account/ACCOUNT&to=role/{to}"
+        )
+        if cls is DropResource:
+            return DropResource(urn=urn, before=data)
+        return CreateResource(urn=urn, resource_cls=res.Grant, container=None, after=data)
+
+    ROLES = [ResourceName("SYSADMIN"), ResourceName("SECURITYADMIN"), ResourceName("ACCOUNTADMIN")]
+
+    def test_revoke_runs_as_the_system_role_that_owns_the_privilege(self):
+        change = self._account_grant_change(DropResource)
+
+        role, _ = execution_strategy_for_change(change, self.ROLES, ResourceName("SECURITYADMIN"))
+
+        assert role == ResourceName("SYSADMIN")
+
+    def test_grant_and_revoke_agree_on_the_role(self):
+        """The asymmetry was the bug: grants already used the system role."""
+        grant_role, _ = execution_strategy_for_change(
+            self._account_grant_change(CreateResource), self.ROLES, ResourceName("SECURITYADMIN")
+        )
+        revoke_role, _ = execution_strategy_for_change(
+            self._account_grant_change(DropResource), self.ROLES, ResourceName("SECURITYADMIN")
+        )
+
+        assert grant_role == revoke_role == ResourceName("SYSADMIN")
+
+    def test_openflow_data_plane_integration_is_a_known_account_privilege(self):
+        """Snowcap did not know this privilege, so it fell through to SECURITYADMIN and the
+        revoke silently did nothing."""
+        from snowcap.privs import system_role_for_priv
+
+        assert system_role_for_priv("CREATE OPENFLOW DATA PLANE INTEGRATION") == "ACCOUNTADMIN"
+
+        change = self._account_grant_change(DropResource, priv="CREATE OPENFLOW DATA PLANE INTEGRATION", to="LOADER")
+        role, _ = execution_strategy_for_change(change, self.ROLES, ResourceName("SECURITYADMIN"))
+
+        assert role == ResourceName("ACCOUNTADMIN")
+
+    def test_revoke_falls_back_to_securityadmin_without_the_system_role(self):
+        change = self._account_grant_change(DropResource)
+
+        role, _ = execution_strategy_for_change(change, [ResourceName("SECURITYADMIN")], ResourceName("SECURITYADMIN"))
+
+        assert role == ResourceName("SECURITYADMIN")
+
+    def test_object_grant_revokes_still_use_securityadmin(self):
+        """Only account-level privileges have an owning system role; ordinary object grants
+        must keep going through SECURITYADMIN."""
+        data = {
+            "priv": "USAGE",
+            "on": "BALBOA",
+            "on_type": "DATABASE",
+            "to": "ANALYST",
+            "to_type": "ROLE",
+            "items_type": None,
+            "grant_option": False,
+            "grant_type": "OBJECT",
+            "owner": "SECURITYADMIN",
+            "_privs": ["USAGE"],
+        }
+        change = DropResource(
+            urn=parse_URN("urn::ABCD123:grant/GRANT?grant_type=OBJECT&priv=USAGE&on=database/BALBOA&to=role/ANALYST"),
+            before=data,
+        )
+
+        role, _ = execution_strategy_for_change(change, self.ROLES, ResourceName("SECURITYADMIN"))
+
+        assert role == ResourceName("SECURITYADMIN")
+
+
+class TestGrantsHeldByDatabaseRoles:
+    """A database role is named <database>.<role> and lives inside its database. Managing a
+    grant it holds needs a role that can see that database. SECURITYADMIN can hold
+    account-level MANAGE GRANTS and still lack USAGE on the database, and REVOKE reports
+    success rather than failing on a grantee it cannot resolve -- so the grant survives and
+    the same drop reappears in every later plan, with nothing in the output to say why."""
+
+    OWNERS = {"GREAT_BAY": "TRANSFORMER_DBT"}
+
+    def _change(self, cls, to="GREAT_BAY.DR_CREATE_ROLE", to_type="DATABASE ROLE"):
+        data = {
+            "priv": "USAGE",
+            "on": "GREAT_BAY",
+            "on_type": "DATABASE",
+            "to": to,
+            "to_type": to_type,
+            "items_type": None,
+            "grant_option": False,
+            "grant_type": "OBJECT",
+            "owner": "SECURITYADMIN",
+            "_privs": ["USAGE"],
+        }
+        urn = parse_URN(
+            "urn::ABCD123:grant/GRANT?grant_type=OBJECT&priv=USAGE&on=database/GREAT_BAY"
+            f"&to={to_type.lower().replace(' ', '_')}/{to}"
+        )
+        if cls is DropResource:
+            return DropResource(urn=urn, before=data)
+        return CreateResource(urn=urn, resource_cls=res.Grant, container=None, after=data)
+
+    ROLES = [ResourceName("SECURITYADMIN"), ResourceName("TRANSFORMER_DBT")]
+
+    def test_revoke_runs_as_the_database_owner(self):
+        role, _ = execution_strategy_for_change(
+            self._change(DropResource), self.ROLES, ResourceName("SECURITYADMIN"), None, self.OWNERS
+        )
+
+        assert role == ResourceName("TRANSFORMER_DBT")
+
+    def test_grant_and_revoke_agree_on_the_role(self):
+        grant_role, _ = execution_strategy_for_change(
+            self._change(CreateResource), self.ROLES, ResourceName("SECURITYADMIN"), None, self.OWNERS
+        )
+        revoke_role, _ = execution_strategy_for_change(
+            self._change(DropResource), self.ROLES, ResourceName("SECURITYADMIN"), None, self.OWNERS
+        )
+
+        assert grant_role == revoke_role == ResourceName("TRANSFORMER_DBT")
+
+    def test_grants_to_account_roles_still_use_securityadmin(self):
+        """Account-level authority does reach an account role, so nothing changes there."""
+        role, _ = execution_strategy_for_change(
+            self._change(DropResource, to="ANALYST", to_type="ROLE"),
+            self.ROLES,
+            ResourceName("SECURITYADMIN"),
+            None,
+            self.OWNERS,
+        )
+
+        assert role == ResourceName("SECURITYADMIN")
+
+    def test_falls_back_when_the_database_owner_is_not_available(self):
+        role, _ = execution_strategy_for_change(
+            self._change(DropResource),
+            [ResourceName("SECURITYADMIN")],
+            ResourceName("SECURITYADMIN"),
+            None,
+            self.OWNERS,
+        )
+
+        assert role == ResourceName("SECURITYADMIN")
+
+    def test_falls_back_when_the_database_is_unknown(self):
+        role, _ = execution_strategy_for_change(
+            self._change(DropResource), self.ROLES, ResourceName("SECURITYADMIN"), None, {"OTHER_DB": "SYSADMIN"}
+        )
+
+        assert role == ResourceName("SECURITYADMIN")
+
+    def test_no_owner_map_leaves_behaviour_unchanged(self):
+        role, _ = execution_strategy_for_change(self._change(DropResource), self.ROLES, ResourceName("SECURITYADMIN"))
+
+        assert role == ResourceName("SECURITYADMIN")
+
+
+class TestSurvivingDropsAreReported:
+    """Snowflake does not always fail a statement it could not carry out -- REVOKE reports
+    success when the executing role does not own the privilege or cannot resolve the
+    grantee. The apply sees no exception and counts the drop as applied, so the grant
+    survives and the same drop returns in every later plan with nothing explaining why."""
+
+    def _drop(self, to="ANALYST"):
+        return DropResource(
+            urn=parse_URN(f"urn::ABCD123:grant/GRANT?grant_type=OBJECT&priv=USAGE&on=database/GREAT_BAY&to=role/{to}"),
+            before={
+                "priv": "USAGE",
+                "on": "GREAT_BAY",
+                "on_type": "DATABASE",
+                "to": to,
+                "to_type": "ROLE",
+                "items_type": None,
+                "grant_option": False,
+                "grant_type": "OBJECT",
+                "owner": "SECURITYADMIN",
+                "_privs": ["USAGE"],
+            },
+        )
+
+    @patch("snowcap.blueprint.reset_cache")
+    @patch("snowcap.blueprint.data_provider.fetch_resource")
+    def test_a_drop_whose_resource_is_still_there_is_reported(self, mock_fetch, _mock_reset):
+        from snowcap.blueprint import surviving_drops
+
+        mock_fetch.return_value = {"priv": "USAGE"}  # still present after the revoke
+        change = self._drop()
+
+        assert surviving_drops(MagicMock(), [change]) == [change]
+
+    @patch("snowcap.blueprint.reset_cache")
+    @patch("snowcap.blueprint.data_provider.fetch_resource")
+    def test_a_drop_that_took_effect_is_not_reported(self, mock_fetch, _mock_reset):
+        from snowcap.blueprint import surviving_drops
+
+        mock_fetch.return_value = None
+
+        assert surviving_drops(MagicMock(), [self._drop()]) == []
+
+    @patch("snowcap.blueprint.data_provider.reset_account_usage_caches")
+    @patch("snowcap.blueprint.reset_cache")
+    @patch("snowcap.blueprint.data_provider.fetch_resource")
+    def test_state_is_re_read_rather_than_served_from_the_apply_s_cache(self, mock_fetch, mock_reset, mock_au_reset):
+        """The apply just changed the state these checks read. Both the general cache and the
+        ACCOUNT_USAGE grant snapshot must be cleared, or revoked account-role grants re-appear
+        as false survivors on use_account_usage runs."""
+        from snowcap.blueprint import surviving_drops
+
+        mock_fetch.return_value = None
+        surviving_drops(MagicMock(), [self._drop()])
+
+        mock_reset.assert_called_once()
+        mock_au_reset.assert_called_once()
+
+    @patch("snowcap.blueprint.reset_cache")
+    @patch("snowcap.blueprint.data_provider.fetch_resource")
+    def test_a_resource_that_cannot_be_read_back_is_not_reported_as_surviving(self, mock_fetch, _mock_reset):
+        """Not being able to confirm a drop is not evidence that it failed."""
+        from snowcap.blueprint import surviving_drops
+
+        mock_fetch.side_effect = Exception("no fetch function for this resource type")
+
+        assert surviving_drops(MagicMock(), [self._drop()]) == []
+
+    @patch("snowcap.blueprint.reset_cache")
+    @patch("snowcap.blueprint.data_provider.fetch_resource")
+    def test_nothing_is_read_back_when_the_plan_dropped_nothing(self, mock_fetch, mock_reset):
+        """Applies that only create must not pay for this."""
+        from snowcap.blueprint import surviving_drops
+
+        change = CreateResource(
+            urn=parse_URN("urn::ABCD123:role/SOME_ROLE"),
+            resource_cls=res.Role,
+            container=None,
+            after={"name": "SOME_ROLE", "owner": "USERADMIN"},
+        )
+
+        assert surviving_drops(MagicMock(), [change]) == []
+        mock_fetch.assert_not_called()
+        mock_reset.assert_not_called()
+
+    def test_report_names_each_survivor(self, capsys):
+        from snowcap.blueprint import print_surviving_drops
+
+        print_surviving_drops([self._drop()])
+        out = capsys.readouterr().out
+
+        assert "1 drop(s) reported success" in out
+        assert "USAGE on DATABASE.GREAT_BAY \u2192 ROLE.ANALYST" in out
+
+    def test_report_guides_on_database_role_grantees(self, capsys):
+        """A survivor held by a database role gets the specific remedy: grant the role that
+        owns its database, since SECURITYADMIN cannot resolve the grantee."""
+        from snowcap.blueprint import print_surviving_drops
+
+        survivor = DropResource(
+            urn=parse_URN(
+                "urn::ABCD123:grant/GRANT?grant_type=OBJECT&priv=USAGE"
+                "&on=database/GREAT_BAY&to=database_role/GREAT_BAY.DR"
+            ),
+            before={
+                "priv": "USAGE",
+                "on": "GREAT_BAY",
+                "on_type": "DATABASE",
+                "to": "GREAT_BAY.DR",
+                "to_type": "DATABASE ROLE",
+                "items_type": None,
+                "grant_option": False,
+                "grant_type": "OBJECT",
+                "owner": "SECURITYADMIN",
+                "_privs": ["USAGE"],
+            },
+        )
+
+        print_surviving_drops([survivor])
+        out = capsys.readouterr().out
+
+        assert "database roles" in out
+        assert "GREAT_BAY" in out
+
+    def test_report_is_silent_when_every_drop_took_effect(self, capsys):
+        from snowcap.blueprint import print_surviving_drops
+
+        print_surviving_drops([])
+
+        assert capsys.readouterr().out == ""
+
+
+class TestSyncReadsFutureGrantsRegardless:
+    """Syncing a resource type means removing what config does not declare, so a future
+    grant absent from config is exactly what has to be found. Skipping the SHOW FUTURE
+    GRANTS query when the manifest declared none kept the ones already in Snowflake out of
+    remote state, so sync could not propose dropping them -- unseen rather than kept, with
+    nothing in the plan to say so.
+
+    Migrating from ALL plus FUTURE pairs to inherited grants removes the last future grant
+    from config, which is precisely when this bites."""
+
+    def _grant_list_kwargs(self, resources):
+        """How fetch_remote_state asks for grants, for a config with no future grants.
+
+        Only the listing call matters here, and it happens before the rest of
+        fetch_remote_state; the later failure is mock plumbing for reference resolution,
+        not the behaviour under test.
+        """
+        from snowcap.blueprint_config import BlueprintConfig
+
+        bp = Blueprint(resources=resources)
+        bp._config = BlueprintConfig(sync_resources={ResourceType.GRANT})
+
+        with (
+            patch("snowcap.blueprint.data_provider.fetch_session") as mock_session,
+            patch("snowcap.blueprint.data_provider.use_secondary_roles"),
+            patch("snowcap.blueprint.data_provider.list_resource") as mock_list,
+        ):
+            mock_session.return_value = self.SESSION_CTX
+            mock_list.return_value = []
+            manifest = bp.generate_manifest(self.SESSION_CTX)
+            try:
+                bp.fetch_remote_state(MagicMock(), manifest)
+            except Exception:
+                pass
+            grant_calls = [c for c in mock_list.call_args_list if c.args[1] == "grant"]
+
+        assert grant_calls, "grants must be listed when grant is a sync_resource"
+        return grant_calls[0].kwargs
+
+    @pytest.fixture(autouse=True)
+    def _ctx(self, session_ctx):
+        type(self).SESSION_CTX = session_ctx
+
+    def test_future_grants_are_listed_when_config_declares_none(self):
+        kwargs = self._grant_list_kwargs([res.Role(name="SOME_ROLE")])
+
+        assert kwargs["include_future_grants"] is True
+
+    def test_the_query_is_not_narrowed_to_roles_named_in_config(self):
+        """A role holding a future grant only in Snowflake was never queried, so its grant
+        could not be dropped either."""
+        kwargs = self._grant_list_kwargs([res.Role(name="SOME_ROLE")])
+
+        assert "future_grant_roles" not in kwargs
+        assert "future_grant_database_roles" not in kwargs

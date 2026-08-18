@@ -1,4 +1,4 @@
-.PHONY: install install-dev test integration style check clean build docs coverage provision-test-account drop-test-account
+.PHONY: install install-dev test integration style lint check clean build docs coverage provision-test-account drop-test-account
 EDITION ?= standard or enterprise
 EMAIL ?=
 
@@ -34,6 +34,12 @@ drop-test-account:
 style:
 	python -m black .
 	codespell .
+
+# Same checks as `style`, but read-only. This is what CI runs.
+lint:
+	python -m black --check .
+	codespell .
+	ruff check snowcap/
 
 
 typecheck:

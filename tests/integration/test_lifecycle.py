@@ -125,8 +125,8 @@ def test_create_drop_from_json(resource, cursor, suffix, lifecycle_db):
             database.add(resource)
         elif isinstance(resource.scope, SchemaScope):
             # Update resource to use the unique schema
-            if hasattr(resource, 'schema') and schema_name:
-                resource._data['schema'] = schema_name
+            if hasattr(resource, "schema") and schema_name:
+                resource._data["schema"] = schema_name
             database.public_schema.add(resource)
         blueprint = Blueprint()
         blueprint.add(resource)

@@ -2,10 +2,15 @@
 line-length = 120
 target-version = ['py310']
 include = '\.pyi?$'
+# Black's defaults already cover .venv; the alternates below are common local venv and
+# build directory names that `make style` would otherwise walk into.
 extend-exclude = '''
-# A regex preceded with ^/ will apply only to files and directories
-# in the root of the project.
-^/foo.py  # exclude a file named foo.py in the root of the project (in addition to the defaults)
+/(
+    \.venv[^/]*
+  | build
+  | dist
+  | site
+)/
 '''
 
 [tool.pyright]
@@ -29,12 +34,8 @@ filterwarnings = [
 ]
 
 [tool.codespell]
-ignore-words-list = [
-    "priv",
-    "sproc",
-    "snowpark",
-    "pathspec",
-]
-skip = [
-    "./build/",
-]
+# codespell reads these as comma-separated strings; a TOML array is silently ignored.
+# "objec" and "selct" are deliberately malformed identifiers in parser and error-handling
+# tests, and "unparseable" is an accepted variant spelling.
+ignore-words-list = "priv,sproc,snowpark,pathspec,objec,selct,unparseable"
+skip = "./build/,./dist/,./site/,./.git/,./.venv/,./.venv-test/,./*.egg-info/"

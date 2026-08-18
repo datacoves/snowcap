@@ -31,7 +31,6 @@ from snowcap.operations.connector import (
     UNLIMITED,
 )
 
-
 # =============================================================================
 # Test Exception Classes
 # =============================================================================
@@ -462,9 +461,7 @@ class TestConnect:
         mock_conn = MagicMock()
         mock_connect.return_value = mock_conn
 
-        result = connect(
-            account="test", user="user", session_token="session123", master_token="master123"
-        )
+        result = connect(account="test", user="user", session_token="session123", master_token="master123")
 
         call_kwargs = mock_connect.call_args[1]
         assert call_kwargs["server_session_keep_alive"] is True

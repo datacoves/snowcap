@@ -14,7 +14,7 @@ from .exceptions import InvalidKeyException, MissingVarException, MultipleValida
 from .identifiers import resource_label_for_type, resource_type_for_label
 from .resources import DatabaseRoleGrant, Resource, RoleGrant
 from .resources.resource import ResourcePointer
-from .var import process_for_each, string_contains_var
+from .var import evaluate_for_each_where, process_for_each, string_contains_var
 
 logger = logging.getLogger("snowcap")
 
@@ -35,6 +35,30 @@ def construct_string_on_off(loader, node):
 yaml.add_constructor("tag:yaml.org,2002:bool", construct_string_on_off, yaml.SafeLoader)
 
 VALID_ROLE_GRANT_KEYS = {"role", "roles", "to_user", "to_users", "to_role", "to_roles"}
+
+# `roles` is the long-standing plural of `to_role` here, kept for compatibility;
+# `database_roles` is the matching plural of `to_database_role`.
+VALID_DATABASE_ROLE_GRANT_KEYS = {"database_role", "to_role", "roles", "to_database_role", "database_roles"}
+
+
+def _as_list(config: dict, singular: str, plural: str) -> list:
+    """
+    Values given under either the singular or plural spelling of a key.
+
+    A key present but null counts as absent. `to_role:` with nothing after it is how YAML
+    spells "not specified", and serialized configs round-trip unset fields as explicit
+    nulls, so testing for the key rather than the value would read those as a request to
+    grant to nothing.
+    """
+    values = []
+    # Null counts as absent (see above); so does an empty string, which is what a bad template
+    # render leaves behind -- appending it would build a grant to an empty target name. Both
+    # callers pass role-name keys, where "" is never a legitimate value. The same applies to a
+    # plural-list element (a bad render of one item in the list).
+    if config.get(singular) not in (None, ""):
+        values.append(config[singular])
+    values.extend(v for v in (config.get(plural) or []) if v not in (None, ""))
+    return values
 
 
 def _validate_role_grant_structure(role_grant: dict) -> None:
@@ -68,9 +92,7 @@ def _validate_role_grant_structure(role_grant: dict) -> None:
                 "        - finance_team"
             )
         if has_to_roles:
-            raise ValueError(
-                'Cannot use "to_roles" with "roles". Use "to_role" (singular) instead.'
-            )
+            raise ValueError('Cannot use "to_roles" with "roles". Use "to_role" (singular) instead.')
 
 
 def _resources_from_role_grants_config(role_grants_config: list) -> list:
@@ -145,25 +167,41 @@ def _resources_from_role_grants_config(role_grants_config: list) -> list:
 
 
 def _resources_from_database_role_grants_config(database_role_grants_config: list) -> list:
+    """
+    Build DatabaseRoleGrants from the `database_role_grants` block.
+
+    A database role can be granted to an account role or to another database role;
+    DatabaseRoleGrant and the SQL either side of it have always handled both. Only this
+    loader did not, so nesting one database role inside another was expressible in Python
+    and not in config -- and an entry that asked for it produced no resource at all rather
+    than an error, so the grant simply never appeared in the plan.
+    """
     if len(database_role_grants_config) == 0:
         return []
     resources = []
     for database_role_grant in database_role_grants_config:
-        if "to_role" in database_role_grant:
-            resources.append(
-                DatabaseRoleGrant(
-                    database_role=database_role_grant["database_role"],
-                    to_role=database_role_grant["to_role"],
-                )
+        invalid_keys = set(database_role_grant.keys()) - VALID_DATABASE_ROLE_GRANT_KEYS
+        if invalid_keys:
+            raise ValueError(format_invalid_role_grant_keys(invalid_keys, VALID_DATABASE_ROLE_GRANT_KEYS))
+
+        if "database_role" not in database_role_grant:
+            raise ValueError('database_role_grant must specify "database_role"')
+
+        granted = database_role_grant["database_role"]
+        targets = [(to_role, "to_role") for to_role in _as_list(database_role_grant, "to_role", "roles")]
+        targets += [
+            (to_database_role, "to_database_role")
+            for to_database_role in _as_list(database_role_grant, "to_database_role", "database_roles")
+        ]
+
+        if not targets:
+            raise ValueError(
+                f'database_role_grant for "{granted}" grants it to nothing. Specify one of '
+                f"{', '.join(sorted(VALID_DATABASE_ROLE_GRANT_KEYS - {'database_role'}))}."
             )
-        else:
-            for role in database_role_grant.get("roles", []):
-                resources.append(
-                    DatabaseRoleGrant(
-                        database_role=database_role_grant["database_role"],
-                        to_role=role,
-                    )
-                )
+
+        for target, keyword in targets:
+            resources.append(DatabaseRoleGrant(database_role=granted, **{keyword: target}))
     return resources
 
 
@@ -199,6 +237,7 @@ def _resources_for_config(config: dict, vars: dict):
                         resource_cls = Resource.resolve_resource_cls(resource_type, resource_data)
                         resource_instance = resource_data.copy()
                         for_each = resource_instance.pop("for_each")
+                        for_each_where = resource_instance.pop("where", None)
 
                         if isinstance(for_each, str) and for_each.startswith("var."):
                             var_name = for_each.split(".")[1]
@@ -210,7 +249,16 @@ def _resources_for_config(config: dict, vars: dict):
 
                         for each_value in for_each_input:
                             try:
+                                # Inside the try so a bad `where` (typo, unsupported var
+                                # reference) is collected as this item's validation error
+                                # instead of aborting the entire for_each block.
+                                if for_each_where is not None and not evaluate_for_each_where(
+                                    for_each_where, each_value
+                                ):
+                                    continue
                                 for key, value in resource_data.items():
+                                    if key in ("for_each", "where"):
+                                        continue
                                     if isinstance(value, str) and string_contains_var(value):
                                         key_type = getattr(resource_cls.spec, key, None)
                                         resource_instance[key] = process_for_each(value, each_value)

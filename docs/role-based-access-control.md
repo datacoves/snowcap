@@ -221,6 +221,58 @@ grants:
     to: z_tables_views__select
 ```
 
+!!! warning "Database-level future grants can be silently ignored"
+
+    When future grants exist on the **same object type** at both the database and the
+    schema level, Snowflake gives the schema-level grant precedence and
+    [ignores the database-level grant](https://docs.snowflake.com/en/sql-reference/sql/grant-privilege#future-grants-on-database-or-schema-objects)
+    for that schema. Objects created there never receive the privilege, and nothing
+    fails — access is simply missing.
+
+    This is easy to trip over with managed access schemas, where privilege management is
+    centralized on the schema owner: the schema-level future grant that shadows the
+    database-level one is often added later, by a different config or a different team.
+    Managed access does not by itself disable database-level future grants (the one
+    exception is future grants of `OWNERSHIP`, which Snowcap does not support), but it is
+    where the conflict tends to appear.
+
+    If your schemas use `managed_access: true`, declare the future grants at the schema
+    level, in the same template that creates the schemas:
+
+    ```yaml
+    grants:
+      - for_each: var.schemas
+        priv: SELECT
+        on:
+          - "all tables in schema {{ each.value.name }}"
+          - "all views in schema {{ each.value.name }}"
+          - "future tables in schema {{ each.value.name }}"
+          - "future views in schema {{ each.value.name }}"
+        to: z_tables_views__select
+    ```
+
+    `snowcap plan` warns when it finds database-level future grants in a database that
+    contains managed access schemas, and when a schema-level future grant already shadows
+    a database-level one.
+
+!!! tip "Inherited grants avoid this problem entirely"
+
+    Snowflake's [inherited grants](https://docs.snowflake.com/en/user-guide/inherited-grants-intro)
+    replace an `ALL` + `FUTURE` pair with a single container-level grant covering every
+    current and future object of a type. They are **not** subject to the precedence rule
+    above: a database-level and a schema-level inherited grant both apply, and managed
+    access schemas do not change that.
+
+    ```yaml
+    grants:
+      - priv: SELECT
+        on: INHERITED TABLES IN DATABASE sales_db
+        to: analyst
+    ```
+
+    See [Inherited grants](#inherited-grants) below for the full syntax, the account
+    requirements, and how to migrate an existing `ALL` + `FUTURE` pair.
+
 ### Functional Roles and Hierarchy (roles__functional.yml)
 
 Define functional roles and assemble the role hierarchy:
@@ -329,6 +381,127 @@ grants:
     on: "stage raw.dbt_artifacts.artifacts"
     to: z_stage__raw__dbt_artifacts__artifacts__write
 ```
+
+## Inherited Grants
+
+An [inherited grant](https://docs.snowflake.com/en/user-guide/inherited-grants-intro) is a
+single grant on a container — an account, database, or schema — that applies to every
+current **and future** object of a type inside it. One inherited grant replaces the
+`ALL` + `FUTURE` pair this pattern would otherwise need:
+
+```yaml
+grants:
+  # Instead of "all tables in ..." plus "future tables in ..."
+  - priv: SELECT
+    on: INHERITED TABLES IN DATABASE sales_db
+    to: z_tables_views__r
+
+  # Multiple privileges expand to one statement each
+  - priv: [SELECT, INSERT, UPDATE, DELETE]
+    on: INHERITED TABLES IN SCHEMA sales_db.us_west
+    to: z_tables__rw
+
+  # The account can only be the container of an inherited grant
+  - priv: SELECT
+    on: INHERITED TABLES IN ACCOUNT
+    to: z_scanner
+
+  # Or turn an existing grant on all objects into an inherited one
+  - priv: SELECT
+    on: "all tables in database sales_db"
+    inherited: true
+    to: z_tables_views__r
+```
+
+### Why it matters for this pattern
+
+| | `ALL` + `FUTURE` | `INHERITED` |
+|---|---|---|
+| Covers objects created later | Only via the `FUTURE` half | Yes |
+| Shadowed by a schema-level grant | Yes, silently | No |
+| Compared against Snowflake on each run | No — `ALL` grants are reapplied every time | Yes |
+| Grant records created | One per object, plus one future grant | One |
+
+Because Snowflake reports an inherited grant back as a single durable record, `snowcap
+plan` can compare it against your config. Grants on all objects cannot be compared, so
+they are reapplied on every run.
+
+### Requirements
+
+Inherited grants are a Snowflake preview feature, opted into with an account parameter.
+Snowcap manages that parameter like any other — declare it alongside the rest:
+
+```yaml
+# account.yml
+account_parameters:
+  - name: FEATURE_RBAC_INHERITED_GRANTS
+    value: ENABLED
+```
+
+Snowcap applies the parameter before any inherited grant that depends on it, so a single
+`snowcap apply` can enable the preview and create the grants in one run. `ALTER ACCOUNT`
+requires `ACCOUNTADMIN`, which is the role Snowcap already uses for account parameters.
+The equivalent SQL, if you would rather set it outside of Snowcap:
+
+```sql
+ALTER ACCOUNT SET FEATURE_RBAC_INHERITED_GRANTS = 'ENABLED';
+```
+
+Either way, `snowcap plan` fails with a clear message if your config declares inherited
+grants and neither the account nor the config has opted in.
+
+!!! note "If preview features are turned off account-wide"
+
+    Preview access gates every preview feature at once and is
+    [enabled by default for most accounts](https://docs.snowflake.com/en/release-notes/preview-features),
+    so usually there is nothing to do. If it has been disabled, the parameter above will
+    not take effect until an account admin re-enables it:
+
+    ```sql
+    SELECT SYSTEM$GET_PREVIEW_ACCESS_STATUS();  -- check
+    SELECT SYSTEM$ENABLE_PREVIEW_ACCESS();      -- enable
+    ```
+
+    These are system function calls rather than resources, so Snowcap cannot manage them
+    declaratively. It does detect the situation: if preview access is off, `snowcap plan`
+    says so and points at the function to call, rather than suggesting the parameter that
+    would not help.
+
+Creating one requires `MANAGE GRANTS` on the container, not just ownership of it. By
+default Snowcap issues grants as `SECURITYADMIN`. To delegate to a database or schema
+admin instead, name that role as the grant's owner:
+
+```yaml
+grants:
+  - priv: SELECT
+    on: INHERITED TABLES IN DATABASE sales_db
+    to: analyst
+    owner: sales_db_admin   # holds MANAGE GRANTS ON DATABASE sales_db
+```
+
+### Migrating from ALL + FUTURE
+
+Snowflake recommends adding the inherited grant first and revoking the originals only once
+you have confirmed access is intact. A grant pair is safe to collapse when the privilege
+and the grantee are the same on both halves, and no object in the container needs to be
+excluded. If some objects need different access, keep the granular grants, or use
+[masking policies](masking-policies.md) and [row access policies](row-access-policies.md)
+for the exceptions.
+
+Snowcap will not revoke per-object grants that a declared inherited grant covers, so you
+can add the inherited grant and remove the old declarations in either order without an
+access gap.
+
+### Limitations
+
+Snowflake does not allow inherited grants to be combined with `WITH GRANT OPTION`, to
+carry `OWNERSHIP`, to target shares or integrations, or to be granted on shared databases.
+Snowcap rejects these at plan time. `priv: ALL` is also rejected — list the privileges
+explicitly.
+
+Note that Snowflake's Information Schema does not currently account for inherited grants
+when deciding whether an object is visible to a role, so an object a role can only reach
+through one will not appear in `INFORMATION_SCHEMA` results.
 
 ## Running Snowcap
 
@@ -472,6 +645,49 @@ schemas:
 ```
 
 With `managed_access: true`, even if an analyst creates a view, they cannot grant SELECT on it—only the schema owner can. This ensures all access flows through your defined role hierarchy.
+
+### Cloned Databases (QA, blue-green, PR environments)
+
+Cloning a database does two different things to grants:
+
+| What | Happens to grants |
+|------|-------------------|
+| The database itself | **Not** copied — the clone starts with no grants on it |
+| Schemas, tables and other child objects | **Copied** — each keeps the grants its source had |
+
+So after `CREATE DATABASE BALBOA_QA CLONE BALBOA`, every `z_schema__<name>` role
+already holds USAGE on the clone's copy of its schema, without anyone writing
+that down. Only the database-level grant is missing, which is why a clone is
+normally followed by a re-grant of `USAGE ON DATABASE` to `z_db__<name>`.
+
+That is the behaviour you want — a role named for a schema keeps its meaning in
+every copy of that schema — but Snowcap does not know about it. With
+`--sync_resources grant`, those copied grants are remote state that no config
+declares, so a plan proposes dropping them. Applying that leaves roles with
+usage on the clone's database and no access to anything inside it.
+
+Declare them with a filtered loop over the schema list you already keep:
+
+```yaml
+grants:
+  - for_each: var.schemas
+    where: "each.value.name.split('.')[0] == 'BALBOA'"
+    priv: USAGE
+    on: "schema BALBOA_QA.{{ each.value.name.split('.')[1] }}"
+    to: "z_schema__{{ each.value.name.split('.')[1] }}"
+```
+
+The `where` keeps the block off schemas in databases that have no clone. Adding
+a schema to the source layer covers its clone automatically, so the two cannot
+drift apart. The clone's schemas themselves stay undeclared — the clone creates
+them, and Snowcap only needs to describe the access.
+
+**Do not reach for `all schemas in database` here.** It looks like less
+configuration, but it grants every role that holds it the entire clone. If
+roles are scoped by layer — an analyst role seeing L1 through L3 and a reporter
+role seeing only L3 — a database-wide grant silently flattens that distinction
+in the clone while leaving it intact in the source, which is the kind of gap
+that survives review precisely because the source still looks correct.
 
 ## See Also
 

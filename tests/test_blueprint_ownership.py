@@ -9,6 +9,7 @@ from snowcap.blueprint import (
     UpdateResource,
     compile_plan_to_sql,
     diff,
+    execution_strategy_for_change,
 )
 from snowcap.enums import AccountEdition
 from snowcap.identifiers import parse_URN
@@ -349,3 +350,45 @@ def test_database_with_custom_owner_modifies_public_schema_owner(session_ctx, re
     assert any(cmd.startswith("CREATE DATABASE SOME_DATABASE") for cmd in sql_commands)
     assert "GRANT OWNERSHIP ON DATABASE SOME_DATABASE TO ROLE CUSTOM_ROLE COPY CURRENT GRANTS" in sql_commands
     assert "GRANT OWNERSHIP ON SCHEMA SOME_DATABASE.PUBLIC TO ROLE CUSTOM_ROLE COPY CURRENT GRANTS" in sql_commands
+
+
+class TestOwnerExecutedOwnershipTransfer:
+    """
+    Tests for which role Snowcap uses to transfer ownership of owner-executed objects.
+
+    Owner-executed objects (views, tasks, procedures, Streamlit apps, and so on) run with
+    the privileges of their owner. Snowflake requires the caller to either hold
+    account-level MANAGE GRANTS or have the receiving role in their active role hierarchy
+    before it will transfer one. Snowcap's usual strategy -- run the transfer as the
+    outgoing owner -- satisfies neither condition in the common case.
+    """
+
+    def _transfer(self, urn_str, resource_cls):
+        return TransferOwnership(
+            urn=parse_URN(urn_str),
+            resource_cls=resource_cls,
+            from_owner="SYSADMIN",
+            to_owner="SOME_ROLE",
+        )
+
+    def test_owner_executed_transfer_uses_securityadmin(self, session_ctx):
+        change = self._transfer("urn::ABCD123:view/MY_DB.MY_SCHEMA.MY_VIEW", res.View)
+
+        role, transfer = execution_strategy_for_change(change, session_ctx["available_roles"], ResourceName("SYSADMIN"))
+
+        assert role == ResourceName("SECURITYADMIN")
+        assert transfer is False
+
+    def test_regular_object_transfer_still_runs_as_the_outgoing_owner(self, session_ctx):
+        change = self._transfer("urn::ABCD123:table/MY_DB.MY_SCHEMA.MY_TABLE", res.Table)
+
+        role, _ = execution_strategy_for_change(change, session_ctx["available_roles"], ResourceName("SYSADMIN"))
+
+        assert role == ResourceName("SYSADMIN")
+
+    def test_owner_executed_transfer_falls_back_when_securityadmin_is_unavailable(self, session_ctx):
+        change = self._transfer("urn::ABCD123:task/MY_DB.MY_SCHEMA.MY_TASK", res.Task)
+
+        role, _ = execution_strategy_for_change(change, ["SYSADMIN", "PUBLIC"], ResourceName("SYSADMIN"))
+
+        assert role == ResourceName("SYSADMIN")

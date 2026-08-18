@@ -5,6 +5,7 @@ from snowcap.enums import GrantType, ResourceType
 from snowcap.privs import GrantedPrivilege, all_privs_for_resource_type
 from snowcap.identifiers import URN
 from snowcap.resource_name import ResourceName
+from snowcap.resources.grant import _Grant
 from snowcap.resources.resource import ResourcePointer
 
 
@@ -14,7 +15,8 @@ def test_grant_global_priv():
     assert grant.on == "ACCOUNT"
     assert grant.to.name == "somerole"
     assert (
-        str(URN.from_resource(grant)) == "urn:::grant/GRANT?grant_type=OBJECT&priv=CREATE WAREHOUSE&on=account/ACCOUNT&to=role/SOMEROLE"
+        str(URN.from_resource(grant))
+        == "urn:::grant/GRANT?grant_type=OBJECT&priv=CREATE WAREHOUSE&on=account/ACCOUNT&to=role/SOMEROLE"
     )
     assert grant.create_sql() == "GRANT CREATE WAREHOUSE ON ACCOUNT TO ROLE SOMEROLE"
 
@@ -70,7 +72,10 @@ def test_grant_all():
     assert grant.on_type == ResourceType.WAREHOUSE
     assert grant.to.name == "SOMEROLE"
     assert grant._data._privs == all_privs_for_resource_type(ResourceType.WAREHOUSE)
-    assert str(URN.from_resource(grant)) == "urn:::grant/GRANT?grant_type=OBJECT&priv=ALL&on=warehouse/SOMEWH&to=role/SOMEROLE"
+    assert (
+        str(URN.from_resource(grant))
+        == "urn:::grant/GRANT?grant_type=OBJECT&priv=ALL&on=warehouse/SOMEWH&to=role/SOMEROLE"
+    )
 
 
 def test_role_grant_to_user():
@@ -172,6 +177,40 @@ def test_grant_on_cortex_search_service():
     )
     assert monitor_grant._data.on_type == ResourceType.CORTEX_SEARCH_SERVICE
     assert "MONITOR ON CORTEX SEARCH SERVICE" in monitor_grant.create_sql()
+
+
+def test_grant_on_cortex_agent_server_resolves_to_mcp_server():
+    """'CORTEX AGENT SERVER' is the grant-side spelling of an MCP server.
+
+    Snowflake creates an MCP server when an account connects an MCP client.
+    SHOW MCP SERVERS lists it, but SHOW GRANTS reports privileges on it with
+    granted_on 'CORTEX_AGENT_SERVER', and the DDL grammar accepts only
+    MCP SERVER -- GRANT ... ON CORTEX AGENT SERVER is a syntax error. Reading
+    that remote state used to abort plan with "Expected Grant.on_type to be
+    one of (...)".
+    """
+    assert ResourceType("CORTEX AGENT SERVER") is ResourceType.MCP_SERVER
+
+    # fetch_remote_state builds the spec directly via resource_cls.spec(**data),
+    # bypassing Grant.__init__ and its OWNERSHIP rejection. Snowflake reports
+    # the server it creates for an MCP client as OWNERSHIP to ACCOUNTADMIN.
+    remote_spec = _Grant(
+        priv="OWNERSHIP",
+        on="somedb.someschema.someserver",
+        on_type="CORTEX_AGENT_SERVER".replace("_", " "),
+        to="somerole",
+    )
+    assert remote_spec.on_type == ResourceType.MCP_SERVER
+
+    # However it is spelled in config, it renders as the DDL Snowflake accepts
+    grant = res.Grant(
+        priv="USAGE",
+        on_cortex_agent_server="somedb.someschema.someserver",
+        to="somerole",
+    )
+    assert grant._data.on == "SOMEDB.SOMESCHEMA.SOMESERVER"
+    assert grant._data.on_type == ResourceType.MCP_SERVER
+    assert "USAGE ON MCP SERVER" in grant.create_sql()
 
 
 def test_grant_on_dbt_project():
@@ -385,7 +424,7 @@ def test_grant_to_database_role_string():
     grant = res.Grant(
         priv="SELECT",
         on_table="somedb.someschema.sometable",
-        to="somedb.mydbrole"  # Database role inferred from dot notation
+        to="somedb.mydbrole",  # Database role inferred from dot notation
     )
     assert grant.to_type == ResourceType.DATABASE_ROLE
     assert grant.to.name == "MYDBROLE"
@@ -395,11 +434,7 @@ def test_grant_to_database_role_string():
 def test_grant_to_database_role_object():
     """Test grant TO a database role using DatabaseRole object."""
     db_role = res.DatabaseRole(name="mydbrole", database="somedb")
-    grant = res.Grant(
-        priv="SELECT",
-        on_table="somedb.someschema.sometable",
-        to=db_role
-    )
+    grant = res.Grant(priv="SELECT", on_table="somedb.someschema.sometable", to=db_role)
     assert grant.to_type == ResourceType.DATABASE_ROLE
     assert grant.to.name == "MYDBROLE"
     assert "TO DATABASE ROLE SOMEDB.MYDBROLE" in grant.create_sql()
@@ -407,11 +442,7 @@ def test_grant_to_database_role_object():
 
 def test_future_grant_to_database_role():
     """Test future grant TO a database role."""
-    grant = res.Grant(
-        priv="SELECT",
-        on="FUTURE TABLES IN SCHEMA somedb.someschema",
-        to="somedb.mydbrole"
-    )
+    grant = res.Grant(priv="SELECT", on="FUTURE TABLES IN SCHEMA somedb.someschema", to="somedb.mydbrole")
     assert grant.to_type == ResourceType.DATABASE_ROLE
     assert grant.grant_type == GrantType.FUTURE
     sql = grant.create_sql()
@@ -421,11 +452,7 @@ def test_future_grant_to_database_role():
 def test_future_grant_to_database_role_object():
     """Test future grant TO a database role using DatabaseRole object."""
     db_role = res.DatabaseRole(name="mydbrole", database="somedb")
-    grant = res.Grant(
-        priv="CREATE VIEW",
-        on=["FUTURE", "SCHEMAS", res.Database(name="somedb")],
-        to=db_role
-    )
+    grant = res.Grant(priv="CREATE VIEW", on=["FUTURE", "SCHEMAS", res.Database(name="somedb")], to=db_role)
     assert grant.to_type == ResourceType.DATABASE_ROLE
     assert grant.grant_type == GrantType.FUTURE
     sql = grant.create_sql()
@@ -581,11 +608,7 @@ class TestRoleGrantsWithRolesList:
         """Test: role_grants: with role: X, to_role: Y creates one grant."""
         from snowcap.gitops import collect_blueprint_config
 
-        config = {
-            "role_grants": [
-                {"role": "ANALYST", "to_role": "SYSADMIN"}
-            ]
-        }
+        config = {"role_grants": [{"role": "ANALYST", "to_role": "SYSADMIN"}]}
         blueprint_config = collect_blueprint_config(config)
         assert len(blueprint_config.resources) == 1
         grant = blueprint_config.resources[0]
@@ -596,11 +619,7 @@ class TestRoleGrantsWithRolesList:
         """Test: role_grants: with role: X, to_user: Y creates one grant."""
         from snowcap.gitops import collect_blueprint_config
 
-        config = {
-            "role_grants": [
-                {"role": "ANALYST", "to_user": "john_doe"}
-            ]
-        }
+        config = {"role_grants": [{"role": "ANALYST", "to_user": "john_doe"}]}
         blueprint_config = collect_blueprint_config(config)
         assert len(blueprint_config.resources) == 1
         grant = blueprint_config.resources[0]
@@ -611,14 +630,7 @@ class TestRoleGrantsWithRolesList:
         """Test: role_grants: with roles: [X, Y, Z] to_role: creates multiple grants."""
         from snowcap.gitops import collect_blueprint_config
 
-        config = {
-            "role_grants": [
-                {
-                    "roles": ["ANALYST", "ENGINEER", "DATA_SCIENTIST"],
-                    "to_role": "SYSADMIN"
-                }
-            ]
-        }
+        config = {"role_grants": [{"roles": ["ANALYST", "ENGINEER", "DATA_SCIENTIST"], "to_role": "SYSADMIN"}]}
         blueprint_config = collect_blueprint_config(config)
         assert len(blueprint_config.resources) == 3
 
@@ -635,14 +647,7 @@ class TestRoleGrantsWithRolesList:
         """Test: role_grants: with roles: [X, Y, Z] to_user: creates multiple grants."""
         from snowcap.gitops import collect_blueprint_config
 
-        config = {
-            "role_grants": [
-                {
-                    "roles": ["ANALYST", "ENGINEER"],
-                    "to_user": "jane_doe"
-                }
-            ]
-        }
+        config = {"role_grants": [{"roles": ["ANALYST", "ENGINEER"], "to_user": "jane_doe"}]}
         blueprint_config = collect_blueprint_config(config)
         assert len(blueprint_config.resources) == 2
 
@@ -658,14 +663,7 @@ class TestRoleGrantsWithRolesList:
         """Test: role_grants: with role: X, to_roles: [Y, Z] creates multiple grants."""
         from snowcap.gitops import collect_blueprint_config
 
-        config = {
-            "role_grants": [
-                {
-                    "role": "ANALYST",
-                    "to_roles": ["SYSADMIN", "ACCOUNTADMIN", "SECURITYADMIN"]
-                }
-            ]
-        }
+        config = {"role_grants": [{"role": "ANALYST", "to_roles": ["SYSADMIN", "ACCOUNTADMIN", "SECURITYADMIN"]}]}
         blueprint_config = collect_blueprint_config(config)
         assert len(blueprint_config.resources) == 3
 
@@ -683,14 +681,7 @@ class TestRoleGrantsWithRolesList:
         """Test: role_grants: with role: X, to_users: [Y, Z] creates multiple grants."""
         from snowcap.gitops import collect_blueprint_config
 
-        config = {
-            "role_grants": [
-                {
-                    "role": "ANALYST",
-                    "to_users": ["john_doe", "jane_doe", "bob_smith"]
-                }
-            ]
-        }
+        config = {"role_grants": [{"role": "ANALYST", "to_users": ["john_doe", "jane_doe", "bob_smith"]}]}
         blueprint_config = collect_blueprint_config(config)
         assert len(blueprint_config.resources) == 3
 
@@ -714,10 +705,7 @@ class TestRoleGrantsWithRolesList:
                 {"role": "DEV_ANALYST", "to_role": "DEV_ADMIN"},
                 {"role": "DEV_ADMIN", "to_role": "SYSADMIN"},
                 # Also grant DEV_ANALYST to users
-                {
-                    "role": "DEV_ANALYST",
-                    "to_users": ["developer1", "developer2"]
-                }
+                {"role": "DEV_ANALYST", "to_users": ["developer1", "developer2"]},
             ]
         }
         blueprint_config = collect_blueprint_config(config)
@@ -735,14 +723,7 @@ class TestRoleGrantsWithRolesList:
         """Test: Empty roles list raises error."""
         from snowcap.gitops import collect_blueprint_config
 
-        config = {
-            "role_grants": [
-                {
-                    "roles": [],
-                    "to_role": "SYSADMIN"
-                }
-            ]
-        }
+        config = {"role_grants": [{"roles": [], "to_role": "SYSADMIN"}]}
         with pytest.raises(ValueError, match="No role grants found"):
             collect_blueprint_config(config)
 
@@ -871,3 +852,188 @@ class TestSemanticViewBulkGrants:
         """on_all_* kwargs are rejected by design; only on=[...]/on="..." forms are supported."""
         with pytest.raises(ValueError):
             res.Grant(priv="SELECT", on_all_semantic_views_in_schema="somedb.someschema", to="somerole")
+
+
+class TestInheritedGrants:
+    """
+    Tests for inherited grants: one container-level grant covering every current and future
+    object of a type, in place of an ALL + FUTURE pair.
+
+    https://docs.snowflake.com/en/user-guide/inherited-grants-intro
+    """
+
+    def test_string_form_on_a_schema(self):
+        grant = res.Grant(priv="SELECT", on="INHERITED TABLES IN SCHEMA somedb.someschema", to="somerole")
+
+        assert grant.grant_type == GrantType.INHERITED
+        assert grant.items_type == ResourceType.TABLE
+        assert grant.on_type == ResourceType.SCHEMA
+        assert grant.on == "SOMEDB.SOMESCHEMA"
+        assert grant.create_sql() == (
+            "GRANT INHERITED SELECT ON ALL TABLES IN SCHEMA SOMEDB.SOMESCHEMA TO ROLE SOMEROLE"
+        )
+        assert grant.drop_sql() == (
+            "REVOKE INHERITED SELECT ON ALL TABLES IN SCHEMA SOMEDB.SOMESCHEMA FROM ROLE SOMEROLE"
+        )
+
+    def test_multi_word_object_type_on_a_database(self):
+        grant = res.Grant(priv="SELECT", on="INHERITED DYNAMIC TABLES IN DATABASE somedb", to="somerole")
+
+        assert grant.items_type == ResourceType.DYNAMIC_TABLE
+        assert grant.on_type == ResourceType.DATABASE
+        assert "ON ALL DYNAMIC TABLES IN DATABASE SOMEDB" in grant.create_sql()
+
+    def test_list_form(self):
+        grant = res.Grant(priv="USAGE", on=["INHERITED", "SCHEMAS", "DATABASE", "somedb"], to="somerole")
+
+        assert grant.grant_type == GrantType.INHERITED
+        assert grant.items_type == ResourceType.SCHEMA
+        assert "GRANT INHERITED USAGE ON ALL SCHEMAS IN DATABASE SOMEDB" in grant.create_sql()
+
+    def test_resource_form(self):
+        grant = res.Grant(priv="SELECT", on=["INHERITED", "TABLES", res.Database(name="somedb")], to="somerole")
+
+        assert grant.on_type == ResourceType.DATABASE
+        assert grant.on == "SOMEDB"
+
+    def test_account_container(self):
+        """Only inherited grants can be scoped to the whole account, and the account has no
+        name of its own to render."""
+        grant = res.Grant(priv="SELECT", on="INHERITED TABLES IN ACCOUNT", to="trust_center")
+
+        assert grant.on_type == ResourceType.ACCOUNT
+        assert grant.on == "ACCOUNT"
+        assert grant.create_sql() == "GRANT INHERITED SELECT ON ALL TABLES IN ACCOUNT TO ROLE TRUST_CENTER"
+        assert grant.drop_sql() == "REVOKE INHERITED SELECT ON ALL TABLES IN ACCOUNT FROM ROLE TRUST_CENTER"
+
+    def test_all_and_future_cannot_target_the_whole_account(self):
+        """Only inherited grants may be scoped to ACCOUNT. ALL/FUTURE + ACCOUNT must fail at
+        construction, not render doubled-ACCOUNT SQL that only errors mid-apply."""
+        for keyword in ("ALL", "FUTURE"):
+            with pytest.raises(ValueError, match="cannot target the whole account"):
+                res.Grant(priv="SELECT", on=f"{keyword} TABLES IN ACCOUNT", to="somerole")
+
+    def test_a_database_named_account_is_not_the_account_container(self):
+        grant = res.Grant(priv="SELECT", on="INHERITED TABLES IN DATABASE account", to="somerole")
+
+        assert grant.on_type == ResourceType.DATABASE
+        assert grant.on == "ACCOUNT"
+        assert "IN DATABASE ACCOUNT" in grant.create_sql()
+
+    def test_inherited_flag_upgrades_a_grant_on_all(self):
+        grant = res.Grant(priv="SELECT", on="ALL TABLES IN DATABASE somedb", inherited=True, to="somerole")
+
+        assert grant.grant_type == GrantType.INHERITED
+        assert "GRANT INHERITED SELECT ON ALL TABLES IN DATABASE SOMEDB" in grant.create_sql()
+
+    def test_inherited_flag_rejects_object_grants(self):
+        with pytest.raises(ValueError, match="inherited=True applies to grants on all objects"):
+            res.Grant(priv="SELECT", on_table="somedb.someschema.sometable", inherited=True, to="somerole")
+
+    def test_inherited_flag_rejects_future_grants(self):
+        with pytest.raises(ValueError, match="inherited=True applies to grants on all objects"):
+            res.Grant(priv="SELECT", on="FUTURE TABLES IN DATABASE somedb", inherited=True, to="somerole")
+
+    def test_database_role_grantee(self):
+        grant = res.Grant(
+            priv="SELECT",
+            on="INHERITED TABLES IN SCHEMA somedb.someschema",
+            to=res.DatabaseRole(name="somerole", database="somedb"),
+        )
+
+        assert "TO DATABASE ROLE SOMEDB.SOMEROLE" in grant.create_sql()
+
+    def test_multiple_privs_expand_to_one_grant_each(self):
+        grant = res.Grant(priv=["SELECT", "INSERT"], on="INHERITED TABLES IN DATABASE somedb", to="somerole")
+        extra = grant.process_shortcuts()
+
+        assert len(extra) == 1
+        assert {grant.priv, extra[0].priv} == {"SELECT", "INSERT"}
+        assert extra[0].grant_type == GrantType.INHERITED
+
+    def test_urn_is_distinct_from_the_equivalent_all_grant(self):
+        """An inherited grant and an ON ALL grant on the same target are different objects
+        in Snowflake and must not collide in the plan."""
+        inherited = res.Grant(priv="SELECT", on="INHERITED TABLES IN DATABASE somedb", to="somerole")
+        on_all = res.Grant(priv="SELECT", on="ALL TABLES IN DATABASE somedb", to="somerole")
+
+        assert inherited.fqn != on_all.fqn
+        assert inherited.fqn.params["grant_type"] == "INHERITED"
+        assert on_all.fqn.params["grant_type"] == "ALL"
+
+    def test_grant_option_is_rejected(self):
+        with pytest.raises(ValueError, match="WITH GRANT OPTION"):
+            res.Grant(
+                priv="SELECT",
+                on="INHERITED TABLES IN DATABASE somedb",
+                to="somerole",
+                grant_option=True,
+            )
+
+    def test_priv_all_is_rejected(self):
+        with pytest.raises(ValueError, match="require explicit privileges"):
+            res.Grant(priv="ALL", on="INHERITED TABLES IN DATABASE somedb", to="somerole")
+
+    def test_unsupported_object_types_are_rejected(self):
+        with pytest.raises(ValueError, match="cannot be the target of an inherited grant"):
+            res.Grant(priv="USAGE", on="INHERITED SHARES IN ACCOUNT", to="somerole")
+
+    def test_usage_on_roles_is_rejected(self):
+        with pytest.raises(ValueError, match="USAGE on ROLE cannot be granted"):
+            res.Grant(priv="USAGE", on="INHERITED ROLES IN ACCOUNT", to="somerole")
+
+    def test_export_round_trips(self):
+        from snowcap.resources.grant import grant_yaml
+
+        for on in [
+            "INHERITED TABLES IN SCHEMA somedb.someschema",
+            "INHERITED DYNAMIC TABLES IN DATABASE somedb",
+            "INHERITED TABLES IN ACCOUNT",
+        ]:
+            grant = res.Grant(priv="SELECT", on=on, to="somerole")
+            exported = grant_yaml(grant.to_dict())
+            reimported = res.Grant(**exported)
+
+            assert reimported.fqn == grant.fqn, on
+            assert reimported.create_sql() == grant.create_sql(), on
+
+    def test_from_sql_round_trips_each_container(self):
+        for sql in [
+            "GRANT INHERITED SELECT ON ALL TABLES IN SCHEMA somedb.someschema TO ROLE somerole",
+            "GRANT INHERITED USAGE ON ALL SCHEMAS IN DATABASE somedb TO ROLE somerole",
+            "GRANT INHERITED SELECT ON ALL TABLES IN ACCOUNT TO ROLE somerole",
+        ]:
+            grant = res.Grant.from_sql(sql)
+
+            assert grant.grant_type == GrantType.INHERITED, sql
+            assert grant.create_sql() == sql.upper(), sql
+
+    def test_string_form_accepts_a_three_word_collection_type(self):
+        """A 3-word object type in the plural (CORTEX SEARCH SERVICES) must parse in the string
+        form, not split into tokens and trip the item-count guard."""
+        grant = res.Grant(priv="USAGE", on="INHERITED CORTEX SEARCH SERVICES IN SCHEMA db.s", to="r")
+
+        assert grant.items_type == ResourceType.CORTEX_SEARCH_SERVICE
+        assert grant.on_type == ResourceType.SCHEMA
+        assert "ON ALL CORTEX SEARCH SERVICES IN SCHEMA DB.S" in grant.create_sql()
+
+    def test_from_sql_leaves_grants_on_all_alone(self):
+        grant = res.Grant.from_sql("GRANT SELECT ON ALL TABLES IN SCHEMA somedb.someschema TO ROLE somerole")
+
+        assert grant.grant_type == GrantType.ALL
+
+    def test_yaml_config_accepts_the_inherited_key(self):
+        from snowcap.gitops import collect_blueprint_config
+
+        config = {
+            "grants": [
+                {"priv": "SELECT", "on": "INHERITED TABLES IN DATABASE somedb", "to": "somerole"},
+                {"priv": "SELECT", "on": "ALL TABLES IN DATABASE otherdb", "inherited": True, "to": "somerole"},
+            ]
+        }
+
+        blueprint_config = collect_blueprint_config(config)
+        grants = [r for r in blueprint_config.resources if isinstance(r, res.Grant)]
+
+        assert len(grants) == 2
+        assert all(g.grant_type == GrantType.INHERITED for g in grants)

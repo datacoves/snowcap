@@ -2,9 +2,15 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Union
 
-from inflection import singularize
+from inflection import pluralize, singularize
 
-from ..enums import GrantType, ParseableEnum, ResourceType
+from ..enums import (
+    NON_INHERITABLE_RESOURCE_TYPES,
+    NON_INHERITABLE_USAGE_TARGETS,
+    GrantType,
+    ParseableEnum,
+    ResourceType,
+)
 from ..identifiers import (
     FQN,
     parse_FQN,
@@ -22,6 +28,72 @@ from .role import DatabaseRole, Role
 from .user import User
 
 logger = logging.getLogger("snowcap")
+
+
+INHERITED_GRANT_DOCS = "https://docs.snowflake.com/en/user-guide/inherited-grants-intro"
+
+# Keywords that introduce a grant on a collection of objects in a container, as opposed to
+# a grant on one named object.
+COLLECTION_GRANT_KEYWORDS = (GrantType.FUTURE, GrantType.ALL, GrantType.INHERITED)
+
+
+def _is_account_container(on_items: list) -> bool:
+    """
+    True for `<keyword> <objects> IN ACCOUNT`, where the container is the account itself.
+
+    A database or schema may legitimately be named ACCOUNT, so the trailing ACCOUNT only
+    means the account container when it is not preceded by a container type keyword:
+    ["INHERITED", "TABLES", "ACCOUNT"] is the account, while
+    ["ALL", "TABLES", "DATABASE", "ACCOUNT"] is a database that happens to be called that.
+    """
+    last = on_items[-1]
+    if not isinstance(last, str) or last.upper() != "ACCOUNT":
+        return False
+    if len(on_items) < 3:
+        return False
+    preceding = on_items[-2]
+    return not (
+        isinstance(preceding, str) and preceding.upper() in (ResourceType.DATABASE.value, ResourceType.SCHEMA.value)
+    )
+
+
+def _validate_inherited_grant(grant: "_Grant") -> None:
+    """
+    Reject inherited grants that Snowflake will not accept.
+
+    These are checked here rather than left to Snowflake so the failure surfaces at plan
+    time, against the line of config that caused it, instead of mid-apply. The list is not
+    exhaustive: Snowflake also rejects privileges whose only target is the account, and
+    inherited grants on shared databases, which Snowcap cannot always determine locally.
+    """
+    if grant.items_type is None:
+        raise ValueError(
+            "Inherited grants target a collection of objects in a container, "
+            "e.g. on='INHERITED TABLES IN SCHEMA somedb.someschema'"
+        )
+    if grant.grant_option:
+        raise ValueError(f"Inherited grants do not support WITH GRANT OPTION. See {INHERITED_GRANT_DOCS}")
+    if grant.priv == "ALL":
+        raise ValueError(
+            "Inherited grants require explicit privileges; priv='ALL' is not supported. "
+            "List the privileges you want, e.g. priv=['SELECT', 'INSERT']."
+        )
+    # Inherited grants never transfer ownership, so OWNERSHIP is not a valid inherited priv.
+    if grant.priv == "OWNERSHIP":
+        raise ValueError(f"{grant.priv} cannot be granted as an inherited grant. See {INHERITED_GRANT_DOCS}")
+    if grant.items_type in NON_INHERITABLE_RESOURCE_TYPES:
+        raise ValueError(
+            f"{grant.items_type} objects cannot be the target of an inherited grant. See {INHERITED_GRANT_DOCS}"
+        )
+    if grant.priv == "USAGE" and grant.items_type in NON_INHERITABLE_USAGE_TARGETS:
+        raise ValueError(
+            f"USAGE on {grant.items_type} cannot be granted as an inherited grant. See {INHERITED_GRANT_DOCS}"
+        )
+    if grant.on_type not in (ResourceType.ACCOUNT, ResourceType.DATABASE, ResourceType.SCHEMA):
+        raise ValueError(
+            f"Inherited grants can only be created on ACCOUNT, DATABASE, or SCHEMA containers, "
+            f"got {grant.on_type}. See {INHERITED_GRANT_DOCS}"
+        )
 
 
 @dataclass(unsafe_hash=True)
@@ -60,6 +132,9 @@ class _Grant(ResourceSpec):
             )
         self.to_type = self.to.resource_type
 
+        if self.grant_type == GrantType.INHERITED:
+            _validate_inherited_grant(self)
+
 
 class Grant(Resource):
     """
@@ -74,7 +149,8 @@ class Grant(Resource):
         on (string or Resource, required): The resource on which the privilege is granted. Can be a string like 'ACCOUNT' or a specific resource object.
         to (string or Role, required): The role to which the privileges are granted.
         grant_option (bool): Specifies whether the grantee can grant the privileges to other roles. Defaults to False.
-        owner (string or Role): The owner role of the grant. Defaults to 'SYSADMIN'.
+        owner (string or Role): The owner role of the grant. Defaults to 'SYSADMIN'. For inherited grants, names the role holding MANAGE GRANTS on the container.
+        inherited (bool): Turns a grant on all objects in a container into an inherited grant, which also covers objects created later. Defaults to False.
 
     Python:
 
@@ -116,6 +192,27 @@ class Grant(Resource):
             to="somerole",
         )
 
+        # Inherited Grants (covers current and future objects with one grant):
+        inherited_grant = Grant(
+            priv="SELECT",
+            on="INHERITED TABLES IN SCHEMA somedb.someschema",
+            to="somerole",
+        )
+        inherited_grant = Grant(
+            priv="SELECT",
+            on=["INHERITED", "TABLES", Database(name="somedb")],
+            to="somerole",
+        )
+        # The account can only be the container of an inherited grant
+        inherited_grant = Grant(priv="SELECT", on="INHERITED TABLES IN ACCOUNT", to="somerole")
+        # Or upgrade an existing grant on all objects in place
+        inherited_grant = Grant(
+            priv="SELECT",
+            on="ALL TABLES IN DATABASE somedb",
+            inherited=True,
+            to="somerole",
+        )
+
         ```
 
     Yaml:
@@ -138,6 +235,17 @@ class Grant(Resource):
           - priv: SELECT
             on: ALL IMAGE REPOSITORIES IN DATABASE somedb
             to: somerole
+          # One inherited grant replaces an ALL + FUTURE pair
+          - priv: SELECT
+            on: INHERITED TABLES IN SCHEMA somedb.someschema
+            to: somerole
+          - priv: SELECT
+            on: ALL TABLES IN DATABASE somedb
+            inherited: true
+            to: somerole
+          - priv: SELECT
+            on: INHERITED TABLES IN ACCOUNT
+            to: somerole
         ```
     """
 
@@ -159,6 +267,7 @@ class Grant(Resource):
         to: Role = None,
         grant_option: bool = False,
         owner: str = None,
+        inherited: bool = False,
         **kwargs,
     ):
         self.kwargs = kwargs.copy()
@@ -167,6 +276,7 @@ class Grant(Resource):
         self.kwargs["to"] = to
         self.kwargs["grant_option"] = grant_option
         self.kwargs["owner"] = owner
+        self.kwargs["inherited"] = inherited
 
         kwargs.pop("_privs", None)
         to_type = kwargs.pop("to_type", None)
@@ -192,16 +302,13 @@ class Grant(Resource):
             #     complete `on` spec (e.g. ["warehouse FOO", "warehouse BAR"]
             #     or ["all schemas in database X", "future schemas in database X"]).
             #
-            # Heuristic: form (1) starts with the keyword FUTURE or ALL as its
-            # first element. Anything else is form (2).
+            # Heuristic: form (1) starts with the keyword FUTURE, ALL, or INHERITED
+            # as its first element. Anything else is form (2).
             first = on[0]
-            first_is_grant_type_keyword = (
-                isinstance(first, str)
-                and first.upper() in (GrantType.FUTURE, GrantType.ALL)
-            )
+            first_is_grant_type_keyword = isinstance(first, str) and first.upper() in COLLECTION_GRANT_KEYWORDS
             for item in on:
                 if isinstance(item, list):
-                    if item[0].upper() not in (GrantType.FUTURE, GrantType.ALL):
+                    if item[0].upper() not in COLLECTION_GRANT_KEYWORDS:
                         raise ValueError("You must specify a valid Grant Type when specifying a list of grants")
             has_many_ons = not first_is_grant_type_keyword
             if has_many_ons:
@@ -251,7 +358,7 @@ class Grant(Resource):
                 on_type = on.resource_type
                 on = str(on.name)
             elif isinstance(on, NamedResource):
-                # It might make sense to explicitly fail if we cant fully resolve the resource
+                # It might make sense to explicitly fail if we can't fully resolve the resource
                 on_type = on.resource_type
                 on = str(on.fqn)
             elif isinstance(on, str) and on.upper() == "ACCOUNT":
@@ -292,7 +399,10 @@ class Grant(Resource):
                             mw_words = mw.split()
                             if i + len(mw_words) <= len(parts):
                                 candidate = " ".join(parts[i : i + len(mw_words)]).upper()
-                                if candidate == mw:
+                                # Collection grants name the type in the plural ("CORTEX SEARCH
+                                # SERVICES"); singularize the last word so a 3+-word type matches
+                                # here as one item instead of splitting and tripping the count guard.
+                                if candidate == mw or singularize(candidate) == mw:
                                     matched_multi = mw
                                     break
                         if matched_multi is not None:
@@ -300,12 +410,9 @@ class Grant(Resource):
                             i += len(matched_multi.split())
                             continue
                         # Single-word matches: ResourceType values or
-                        # GrantType.FUTURE / GrantType.ALL keywords
+                        # GrantType.FUTURE / ALL / INHERITED keywords
                         part_normalized = part.upper().replace("_", " ")
-                        if part_normalized in resource_type_values or part.upper() in [
-                            GrantType.FUTURE,
-                            GrantType.ALL,
-                        ]:
+                        if part_normalized in resource_type_values or part.upper() in COLLECTION_GRANT_KEYWORDS:
                             on_items.append(part_normalized)
                         elif part:
                             # This is likely the FQN - preserve case
@@ -316,13 +423,28 @@ class Grant(Resource):
                 elif on_items[0].upper() in [e.value for e in ResourceType]:
                     on_type = resource_type_for_label(on_items[0])
                     on = on_items[1]
-                elif on_items[0].upper() in [GrantType.FUTURE, GrantType.ALL]:
+                elif on_items[0].upper() in COLLECTION_GRANT_KEYWORDS:
                     grant_type = on_items[0]
                     in_object = on_items[-1]
 
-                    if isinstance(in_object, Resource):
+                    if _is_account_container(on_items):
+                        # "INHERITED TABLES IN ACCOUNT" -- the account is the container and
+                        # has no name of its own. Only inherited grants can be scoped to
+                        # the whole account; ALL and FUTURE grants cannot. Reject those here
+                        # so it fails at plan time rather than rendering doubled-ACCOUNT SQL
+                        # that only errors mid-apply. `inherited=True` upgrades an ALL grant to
+                        # inherited later (also the from_sql round-trip path), so allow it.
+                        if on_items[0].upper() != GrantType.INHERITED.value and not inherited:
+                            raise ValueError(
+                                f"{on_items[0]} grants cannot target the whole account; only inherited "
+                                f"grants can be scoped to ACCOUNT. See {INHERITED_GRANT_DOCS}"
+                            )
+                        items_type = resource_type_for_label(singularize(" ".join(on_items[1:-1])))
+                        on_type = ResourceType.ACCOUNT
+                        on = "ACCOUNT"
+                    elif isinstance(in_object, Resource):
                         if len(on_items) > 4:
-                            raise ValueError("You must specify only three paramters: [grant_type, items_type, object]")
+                            raise ValueError("You must specify only three parameters: [grant_type, items_type, object]")
 
                         items_type = resource_type_for_label(singularize(" ".join(on_items[1:-1])))
                         on_type = in_object.resource_type
@@ -342,6 +464,17 @@ class Grant(Resource):
 
                 else:
                     raise ValueError(f"Grant type {on_items[0]} not recognized.")
+
+        if inherited:
+            # `inherited: true` upgrades an ALL grant in place, so an existing
+            # "all tables in database X" declaration becomes an inherited grant without
+            # having to be rewritten.
+            if GrantType(grant_type) not in (GrantType.ALL, GrantType.INHERITED):
+                raise ValueError(
+                    "inherited=True applies to grants on all objects in a container, "
+                    f"e.g. on='ALL TABLES IN DATABASE somedb'. Got {grant_type}."
+                )
+            grant_type = GrantType.INHERITED
 
         if owner is None:
             # Hacky fix
@@ -450,6 +583,16 @@ def grant_fqn(grant: _Grant):
     )
 
 
+def grant_on_clause(grant: _Grant) -> str:
+    """Render a collection grant's target as the `on:` string that recreates it."""
+    items = pluralize(str(grant.items_type)).upper()
+    if grant.on_type == ResourceType.ACCOUNT:
+        container = "ACCOUNT"
+    else:
+        container = f"{str(grant.on_type).upper()} {grant.on}"
+    return f"{grant.grant_type.value} {items} IN {container}"
+
+
 def grant_yaml(data: dict):
     grant = _Grant(**data)
     resource_label = resource_label_for_type(grant.on_type)
@@ -460,7 +603,7 @@ def grant_yaml(data: dict):
         "grant_option": grant.grant_option,
     }
     if grant.items_type:
-        yml["on"] = f"{grant.items_type} IN {resource_label} {grant.on}"
+        yml["on"] = grant_on_clause(grant)
     else:
         yml[f"on_{resource_label}"] = grant.on
     return yml
@@ -650,6 +793,15 @@ class DatabaseRoleGrant(Resource):
             to_database_role: somedb.someotherrole
           - database_role: somedb.somerole
             to_role: somerole
+
+          # `roles` and `database_roles` grant the same database role to several
+          # targets, and both kinds may appear in one entry
+          - database_role: somedb.somerole
+            roles:
+              - analyst
+              - loader
+            database_roles:
+              - somedb.someotherrole
         ```
     """
 
@@ -672,7 +824,7 @@ class DatabaseRoleGrant(Resource):
         to = kwargs.pop("to", None)
         if to:
             if to_role or to_database_role:
-                raise ValueError("You cant specify both to_role and to_database_role")
+                raise ValueError("You can't specify both to_role and to_database_role")
             if isinstance(to, Role):
                 to_role = to
             elif isinstance(to, DatabaseRole):

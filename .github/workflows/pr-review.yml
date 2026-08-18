@@ -42,7 +42,7 @@ jobs:
     env:
       BASE_REF: ${{ github.event.pull_request.base.ref }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0 # full history so the base...head diff is available
 
@@ -107,7 +107,7 @@ jobs:
 
       - name: Upload findings
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: pr-review-findings
           path: ${{ runner.temp }}/review.md
@@ -134,6 +134,8 @@ jobs:
       REPO: ${{ github.repository }}
     steps:
       - name: Download findings
+        # Pinned to v4 deliberately: actions/download-artifact has no Node 24
+        # release yet, so a bump would not clear the deprecation warning.
         uses: actions/download-artifact@v4
         continue-on-error: true
         with:

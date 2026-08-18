@@ -47,7 +47,7 @@ jobs:
       # silently. The `comment` job below keeps its own ISSUE/REPO — it needs them.
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Clear the agent→workflow handoff file
         run: rm -f "$RUNNER_TEMP/triage.md"
@@ -163,7 +163,7 @@ jobs:
 
       - name: Upload triage note
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: issue-triage-note
           path: ${{ runner.temp }}/triage.md
@@ -186,6 +186,8 @@ jobs:
       REPO: ${{ github.repository }}
     steps:
       - name: Download triage note
+        # Pinned to v4 deliberately: actions/download-artifact has no Node 24
+        # release yet, so a bump would not clear the deprecation warning.
         uses: actions/download-artifact@v4
         continue-on-error: true
         with:

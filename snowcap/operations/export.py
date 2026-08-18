@@ -72,9 +72,7 @@ def _fetch_resource_safe(session, urn: URN):
     return None
 
 
-def export_resource(
-    session, resource_type: ResourceType, threads: int = DEFAULT_EXPORT_THREADS
-) -> dict[str, list]:
+def export_resource(session, resource_type: ResourceType, threads: int = DEFAULT_EXPORT_THREADS) -> dict[str, list]:
     resource_label = resource_label_for_type(resource_type)
     resource_names = list_resource(session, resource_label)
     if len(resource_names) == 0:
@@ -105,9 +103,7 @@ def export_resource(
     # Fetch resources in parallel
     resources = []
     with ThreadPoolExecutor(max_workers=threads) as executor:
-        future_to_urn = {
-            executor.submit(_fetch_resource_safe, session, urn): urn for urn in urns
-        }
+        future_to_urn = {executor.submit(_fetch_resource_safe, session, urn): urn for urn in urns}
         for future in as_completed(future_to_urn):
             urn = future_to_urn[future]
             try:

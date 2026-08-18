@@ -50,7 +50,7 @@ from snowcap.data_provider import (
 )
 from snowcap.identifiers import FQN, URN
 from snowcap.resource_name import ResourceName
-from snowcap.enums import ResourceType
+from snowcap.enums import GrantType, ResourceType
 from snowcap import resources as res
 from snowcap.resources.warehouse import ADAPTIVE_UNSUPPORTED_FIELDS
 
@@ -96,37 +96,23 @@ class TestGetOwnerIdentifier:
 
     def test_database_role_owner(self):
         # Lowercase names from Snowflake metadata get quoted
-        data = {
-            "owner": "my_role",
-            "owner_role_type": "DATABASE_ROLE",
-            "database_name": "my_db"
-        }
+        data = {"owner": "my_role", "owner_role_type": "DATABASE_ROLE", "database_name": "my_db"}
         result = _get_owner_identifier(data)
         assert result == '"my_db"."my_role"'
 
     def test_database_role_owner_uppercase(self):
         # Uppercase names pass through without quotes
-        data = {
-            "owner": "MY_ROLE",
-            "owner_role_type": "DATABASE_ROLE",
-            "database_name": "MY_DB"
-        }
+        data = {"owner": "MY_ROLE", "owner_role_type": "DATABASE_ROLE", "database_name": "MY_DB"}
         result = _get_owner_identifier(data)
         assert result == "MY_DB.MY_ROLE"
 
     def test_role_type_owner(self):
-        data = {
-            "owner": "SYSADMIN",
-            "owner_role_type": "ROLE"
-        }
+        data = {"owner": "SYSADMIN", "owner_role_type": "ROLE"}
         result = _get_owner_identifier(data)
         assert result == "SYSADMIN"
 
     def test_empty_owner_with_role_type(self):
-        data = {
-            "owner": "",
-            "owner_role_type": "ROLE"
-        }
+        data = {"owner": "", "owner_role_type": "ROLE"}
         result = _get_owner_identifier(data)
         assert result == ""
 
@@ -141,11 +127,7 @@ class TestGetOwnerIdentifier:
         assert result == ""
 
     def test_unsupported_owner_role_type_raises(self):
-        data = {
-            "owner": "my_role",
-            "owner_role_type": "UNKNOWN_TYPE",
-            "database_name": "my_db"
-        }
+        data = {"owner": "my_role", "owner_role_type": "UNKNOWN_TYPE", "database_name": "my_db"}
         with pytest.raises(Exception, match="Unsupported owner role type"):
             _get_owner_identifier(data)
 
@@ -178,65 +160,47 @@ class TestDescType2ResultToDict:
     """Tests for _desc_type2_result_to_dict helper function."""
 
     def test_boolean_property(self):
-        desc_result = [
-            {"property": "ENABLED", "property_value": "true", "property_type": "Boolean"}
-        ]
+        desc_result = [{"property": "ENABLED", "property_value": "true", "property_type": "Boolean"}]
         result = _desc_type2_result_to_dict(desc_result)
         assert result["ENABLED"] is True
 
     def test_boolean_false(self):
-        desc_result = [
-            {"property": "ENABLED", "property_value": "false", "property_type": "Boolean"}
-        ]
+        desc_result = [{"property": "ENABLED", "property_value": "false", "property_type": "Boolean"}]
         result = _desc_type2_result_to_dict(desc_result)
         assert result["ENABLED"] is False
 
     def test_long_property(self):
-        desc_result = [
-            {"property": "SIZE", "property_value": "1024", "property_type": "Long"}
-        ]
+        desc_result = [{"property": "SIZE", "property_value": "1024", "property_type": "Long"}]
         result = _desc_type2_result_to_dict(desc_result)
         assert result["SIZE"] == "1024"
 
     def test_long_empty_value(self):
-        desc_result = [
-            {"property": "SIZE", "property_value": "", "property_type": "Long"}
-        ]
+        desc_result = [{"property": "SIZE", "property_value": "", "property_type": "Long"}]
         result = _desc_type2_result_to_dict(desc_result)
         assert result["SIZE"] is None
 
     def test_integer_property(self):
-        desc_result = [
-            {"property": "COUNT", "property_value": "42", "property_type": "Integer"}
-        ]
+        desc_result = [{"property": "COUNT", "property_value": "42", "property_type": "Integer"}]
         result = _desc_type2_result_to_dict(desc_result)
         assert result["COUNT"] == 42
 
     def test_string_property(self):
-        desc_result = [
-            {"property": "NAME", "property_value": "my_name", "property_type": "String"}
-        ]
+        desc_result = [{"property": "NAME", "property_value": "my_name", "property_type": "String"}]
         result = _desc_type2_result_to_dict(desc_result)
         assert result["NAME"] == "my_name"
 
     def test_string_empty_value(self):
-        desc_result = [
-            {"property": "NAME", "property_value": "", "property_type": "String"}
-        ]
+        desc_result = [{"property": "NAME", "property_value": "", "property_type": "String"}]
         result = _desc_type2_result_to_dict(desc_result)
         assert result["NAME"] is None
 
     def test_list_property(self):
-        desc_result = [
-            {"property": "ROLES", "property_value": "[role1, role2]", "property_type": "List"}
-        ]
+        desc_result = [{"property": "ROLES", "property_value": "[role1, role2]", "property_type": "List"}]
         result = _desc_type2_result_to_dict(desc_result)
         assert result["ROLES"] == ["role1", "role2"]
 
     def test_object_property(self):
-        desc_result = [
-            {"property": "CONFIG", "property_value": "[a, b, c]", "property_type": "Object"}
-        ]
+        desc_result = [{"property": "CONFIG", "property_value": "[a, b, c]", "property_type": "Object"}]
         result = _desc_type2_result_to_dict(desc_result)
         assert result["CONFIG"] == ["a", "b", "c"]
 
@@ -245,9 +209,7 @@ class TestDescType3ResultToDict:
     """Tests for _desc_type3_result_to_dict helper function."""
 
     def test_flat_property(self):
-        desc_result = [
-            {"parent_property": "", "property": "NAME", "property_value": "test", "property_type": "String"}
-        ]
+        desc_result = [{"parent_property": "", "property": "NAME", "property_value": "test", "property_type": "String"}]
         result = _desc_type3_result_to_dict(desc_result)
         assert result["NAME"] == "test"
 
@@ -752,11 +714,7 @@ class TestFetchResource:
         mock_fetch_database.return_value = {"name": "MY_DB"}
         mock_session = MagicMock()
 
-        urn = URN(
-            resource_type=ResourceType.DATABASE,
-            account_locator="ABC123",
-            fqn=FQN(name=ResourceName("MY_DB"))
-        )
+        urn = URN(resource_type=ResourceType.DATABASE, account_locator="ABC123", fqn=FQN(name=ResourceName("MY_DB")))
 
         result = fetch_resource(mock_session, urn)
 
@@ -771,7 +729,7 @@ class TestFetchResource:
         urn = URN(
             resource_type=ResourceType.SCHEMA,
             account_locator="ABC123",
-            fqn=FQN(database=ResourceName("MY_DB"), name=ResourceName("MY_SCHEMA"))
+            fqn=FQN(database=ResourceName("MY_DB"), name=ResourceName("MY_SCHEMA")),
         )
 
         result = fetch_resource(mock_session, urn)
@@ -782,14 +740,11 @@ class TestFetchResource:
     @patch("snowcap.data_provider.fetch_role")
     def test_returns_none_on_does_not_exist_error(self, mock_fetch_role):
         from snowflake.connector.errors import ProgrammingError
+
         mock_fetch_role.side_effect = ProgrammingError(errno=2003)
         mock_session = MagicMock()
 
-        urn = URN(
-            resource_type=ResourceType.ROLE,
-            account_locator="ABC123",
-            fqn=FQN(name=ResourceName("MISSING_ROLE"))
-        )
+        urn = URN(resource_type=ResourceType.ROLE, account_locator="ABC123", fqn=FQN(name=ResourceName("MISSING_ROLE")))
 
         result = fetch_resource(mock_session, urn)
         assert result is None
@@ -797,14 +752,11 @@ class TestFetchResource:
     @patch("snowcap.data_provider.fetch_role")
     def test_raises_other_programming_errors(self, mock_fetch_role):
         from snowflake.connector.errors import ProgrammingError
+
         mock_fetch_role.side_effect = ProgrammingError(errno=1234)
         mock_session = MagicMock()
 
-        urn = URN(
-            resource_type=ResourceType.ROLE,
-            account_locator="ABC123",
-            fqn=FQN(name=ResourceName("MY_ROLE"))
-        )
+        urn = URN(resource_type=ResourceType.ROLE, account_locator="ABC123", fqn=FQN(name=ResourceName("MY_ROLE")))
 
         with pytest.raises(ProgrammingError):
             fetch_resource(mock_session, urn)
@@ -1487,6 +1439,7 @@ class TestHasAccountUsageAccess:
     def test_returns_true_when_access_granted(self, mock_execute):
         """When ACCOUNT_USAGE query succeeds, function returns True."""
         from snowcap.data_provider import _has_account_usage_access
+
         mock_execute.return_value = [{"1": 1}]  # Query succeeds
         mock_session = MagicMock()
 
@@ -1526,6 +1479,7 @@ class TestHasAccountUsageAccess:
     def test_caches_result_per_session(self, mock_execute):
         """Result should be cached per session to avoid repeated queries."""
         from snowcap.data_provider import _has_account_usage_access
+
         mock_execute.return_value = [{"1": 1}]
         mock_session = MagicMock()
 
@@ -1543,6 +1497,7 @@ class TestHasAccountUsageAccess:
     def test_different_sessions_have_independent_cache(self, mock_execute):
         """Different sessions should have independent cache entries."""
         from snowcap.data_provider import _has_account_usage_access
+
         mock_execute.return_value = [{"1": 1}]
         session1 = MagicMock()
         session2 = MagicMock()
@@ -1709,6 +1664,7 @@ class TestShouldUseAccountUsage:
     def test_returns_false_when_config_disabled(self, mock_has_access):
         """Returns False when use_account_usage config is False."""
         from snowcap.data_provider import _should_use_account_usage
+
         mock_session = MagicMock()
 
         result = _should_use_account_usage(mock_session, use_account_usage=False)
@@ -1724,6 +1680,7 @@ class TestShouldUseAccountUsage:
             _should_use_account_usage,
             _ACCOUNT_USAGE_FALLBACK_CACHE,
         )
+
         mock_session = MagicMock()
         _ACCOUNT_USAGE_FALLBACK_CACHE[id(mock_session)] = True
 
@@ -1737,6 +1694,7 @@ class TestShouldUseAccountUsage:
     def test_returns_access_check_result_when_enabled(self, mock_has_access):
         """Returns result of _has_account_usage_access when config is enabled."""
         from snowcap.data_provider import _should_use_account_usage
+
         mock_session = MagicMock()
         mock_has_access.return_value = True
 
@@ -1749,6 +1707,7 @@ class TestShouldUseAccountUsage:
     def test_returns_false_when_no_access(self, mock_has_access):
         """Returns False when session doesn't have ACCOUNT_USAGE access."""
         from snowcap.data_provider import _should_use_account_usage
+
         mock_session = MagicMock()
         mock_has_access.return_value = False
 
@@ -1766,6 +1725,7 @@ class TestMarkAccountUsageFallback:
             _mark_account_usage_fallback,
             _ACCOUNT_USAGE_FALLBACK_CACHE,
         )
+
         mock_session = MagicMock()
 
         _mark_account_usage_fallback(mock_session)
@@ -1779,9 +1739,7 @@ class TestFetchRolePrivilegesAccountUsage:
     @patch("snowcap.data_provider._should_use_account_usage")
     @patch("snowcap.data_provider._fetch_grants_from_account_usage")
     @patch("snowcap.data_provider._show_grants_to_role")
-    def test_uses_account_usage_when_enabled_and_available(
-        self, mock_show_grants, mock_fetch_au, mock_should_use
-    ):
+    def test_uses_account_usage_when_enabled_and_available(self, mock_show_grants, mock_fetch_au, mock_should_use):
         """When ACCOUNT_USAGE is enabled and available, uses ACCOUNT_USAGE."""
         from snowcap.data_provider import fetch_role_privileges
         from datetime import datetime
@@ -1828,9 +1786,7 @@ class TestFetchRolePrivilegesAccountUsage:
     @patch("snowcap.data_provider._should_use_account_usage")
     @patch("snowcap.data_provider._fetch_grants_from_account_usage")
     @patch("snowcap.data_provider._show_grants_to_role")
-    def test_falls_back_when_account_usage_returns_none(
-        self, mock_show_grants, mock_fetch_au, mock_should_use
-    ):
+    def test_falls_back_when_account_usage_returns_none(self, mock_show_grants, mock_fetch_au, mock_should_use):
         """When ACCOUNT_USAGE query fails (returns None), falls back to SHOW."""
         from snowcap.data_provider import fetch_role_privileges
 
@@ -1928,3 +1884,781 @@ class TestFetchStreamlit:
         mock_show_resources.return_value = []
 
         assert fetch_streamlit(MagicMock(), FQN(name=ResourceName("MY_APP"))) is None
+
+
+class TestInheritedGrants:
+    """
+    Tests for how Snowcap reads inherited grants (GRANT INHERITED ...) from remote state.
+
+    Inherited grants are container-level grants that apply to every current and future
+    object of a type in a container. Snowflake reports them in SHOW GRANTS and
+    ACCOUNT_USAGE.GRANTS_TO_ROLES with IS_INHERITED set, an empty NAME, and the container
+    in the INHERITED_FROM columns. They are kept apart from object grants throughout, since
+    an inherited grant is revoked with REVOKE INHERITED against its container rather than
+    with a per-object REVOKE.
+    """
+
+    def _inherited_row(self, **overrides):
+        row = {
+            "privilege": "SELECT",
+            "granted_on": "TABLE",
+            "name": "",
+            "granted_to": "ROLE",
+            "grantee_name": "MY_ROLE",
+            "grant_option": "false",
+            "granted_by": "SECURITYADMIN",
+            "is_inherited": "true",
+            "inherited_from": "DATABASE",
+            "inherited_from_database": "MY_DB",
+            "inherited_from_schema": "",
+        }
+        row.update(overrides)
+        return row
+
+    def _regular_row(self, **overrides):
+        row = {
+            "privilege": "SELECT",
+            "granted_on": "TABLE",
+            "name": "MY_DB.MY_SCHEMA.MY_TABLE",
+            "granted_to": "ROLE",
+            "grantee_name": "MY_ROLE",
+            "grant_option": "false",
+            "granted_by": "SYSADMIN",
+            "is_inherited": "false",
+        }
+        row.update(overrides)
+        return row
+
+    @pytest.mark.parametrize(
+        "row,expected",
+        [
+            ({"is_inherited": "true"}, True),
+            ({"is_inherited": "TRUE"}, True),
+            ({"is_inherited": True}, True),
+            ({"IS_INHERITED": True}, True),
+            ({"IS_INHERITED": "true"}, True),
+            ({"is_inherited": "false"}, False),
+            ({"is_inherited": False}, False),
+            ({"is_inherited": None}, False),
+            ({"IS_INHERITED": None}, False),
+            # Accounts without the preview, and Snowflake versions without the column,
+            # simply do not return it.
+            ({}, False),
+        ],
+    )
+    def test_is_inherited_grant_reads_both_casings_and_shapes(self, row, expected):
+        from snowcap.data_provider import _is_inherited_grant
+
+        assert _is_inherited_grant(row) is expected
+
+    def test_drop_inherited_grants_keeps_regular_grants(self):
+        from snowcap.data_provider import _drop_inherited_grants
+
+        rows = [self._regular_row(), self._inherited_row(), self._regular_row(privilege="INSERT")]
+
+        kept = _drop_inherited_grants(rows, "test")
+
+        assert len(kept) == 2
+        assert all(row["name"] for row in kept)
+
+    def test_drop_inherited_grants_is_a_noop_without_the_column(self):
+        from snowcap.data_provider import _drop_inherited_grants
+
+        rows = [{"privilege": "SELECT", "granted_on": "TABLE", "name": "MY_DB.MY_SCHEMA.MY_TABLE"}]
+
+        assert _drop_inherited_grants(rows, "test") == rows
+
+    @patch("snowcap.data_provider.execute")
+    def test_show_grants_to_role_filters_inherited_rows(self, mock_execute):
+        from snowcap.data_provider import _show_grants_to_role
+
+        mock_execute.return_value = [self._regular_row(), self._inherited_row()]
+
+        grants = _show_grants_to_role(MagicMock(), ResourceName("MY_ROLE"))
+
+        assert len(grants) == 1
+        assert grants[0]["name"] == "MY_DB.MY_SCHEMA.MY_TABLE"
+
+    def _account_usage_rows(self):
+        from datetime import datetime
+
+        return [
+            {
+                "CREATED_ON": datetime(2024, 1, 1, 12, 0, 0),
+                "PRIVILEGE": "SELECT",
+                "GRANTED_ON": "TABLE",
+                "NAME": "MY_TABLE",
+                "TABLE_CATALOG": "MY_DB",
+                "TABLE_SCHEMA": "MY_SCHEMA",
+                "GRANTED_TO": "ACCOUNT ROLE",
+                "GRANTEE_NAME": "MY_ROLE",
+                "GRANT_OPTION": False,
+                "GRANTED_BY": "SYSADMIN",
+                "IS_INHERITED": False,
+                "INHERITED_FROM": None,
+                "INHERITED_FROM_DATABASE": None,
+                "INHERITED_FROM_SCHEMA": None,
+            },
+            {
+                "CREATED_ON": datetime(2024, 1, 1, 12, 0, 0),
+                "PRIVILEGE": "SELECT",
+                "GRANTED_ON": "TABLE",
+                "NAME": None,
+                "TABLE_CATALOG": None,
+                "TABLE_SCHEMA": None,
+                "GRANTED_TO": "ACCOUNT ROLE",
+                "GRANTEE_NAME": "MY_ROLE",
+                "GRANT_OPTION": False,
+                "GRANTED_BY": "SECURITYADMIN",
+                "IS_INHERITED": True,
+                "INHERITED_FROM": "DATABASE",
+                "INHERITED_FROM_DATABASE": "MY_DB",
+                "INHERITED_FROM_SCHEMA": None,
+            },
+        ]
+
+    @patch("snowcap.data_provider.execute")
+    def test_account_usage_query_requests_the_container_columns(self, mock_execute):
+        from snowcap.data_provider import _fetch_grants_from_account_usage
+
+        mock_execute.return_value = []
+
+        _fetch_grants_from_account_usage(MagicMock())
+
+        query = mock_execute.call_args[0][1]
+        for column in ("IS_INHERITED", "INHERITED_FROM", "INHERITED_FROM_DATABASE", "INHERITED_FROM_SCHEMA"):
+            assert column in query
+
+    @patch("snowcap.data_provider.execute")
+    def test_account_usage_keeps_inherited_rows_tagged(self, mock_execute):
+        """Both kinds are cached together so a role's grants are fetched once; the split
+        happens at read time."""
+        from snowcap.data_provider import _fetch_grants_from_account_usage
+
+        mock_execute.return_value = self._account_usage_rows()
+
+        result = _fetch_grants_from_account_usage(MagicMock())
+
+        assert result is not None
+        assert len(result) == 2
+        regular, inherited = result
+        assert regular["name"] == "MY_DB.MY_SCHEMA.MY_TABLE"
+        assert regular["is_inherited"] is False
+        assert inherited["is_inherited"] is True
+        assert inherited["inherited_from"] == "DATABASE"
+        assert inherited["inherited_from_database"] == "MY_DB"
+
+    @patch("snowcap.data_provider.execute")
+    def test_object_and_inherited_readers_split_the_same_rows(self, mock_execute):
+        from snowcap.data_provider import _show_grants_to_role, _show_inherited_grants_to_role
+
+        mock_execute.return_value = [self._regular_row(), self._inherited_row()]
+        session = MagicMock()
+
+        object_grants = _show_grants_to_role(session, ResourceName("MY_ROLE"))
+        inherited_grants = _show_inherited_grants_to_role(session, ResourceName("MY_ROLE"))
+
+        assert [g["name"] for g in object_grants] == ["MY_DB.MY_SCHEMA.MY_TABLE"]
+        assert [g["inherited_from_database"] for g in inherited_grants] == ["MY_DB"]
+
+    @patch("snowcap.data_provider.execute")
+    def test_account_usage_retries_without_the_column_when_unsupported(self, mock_execute):
+        """Snowflake versions without IS_INHERITED must not push the whole session onto the
+        slower per-role SHOW GRANTS path."""
+        from snowflake.connector.errors import ProgrammingError
+
+        from snowcap.client import INVALID_COLUMN_ERR
+        from snowcap.data_provider import _fetch_grants_from_account_usage
+
+        mock_execute.side_effect = [ProgrammingError(errno=INVALID_COLUMN_ERR), []]
+
+        result = _fetch_grants_from_account_usage(MagicMock())
+
+        assert result == []
+        assert mock_execute.call_count == 2
+        assert "IS_INHERITED" in mock_execute.call_args_list[0][0][1]
+        assert "IS_INHERITED" not in mock_execute.call_args_list[1][0][1]
+
+    @patch("snowcap.data_provider.execute")
+    def test_account_usage_still_falls_back_on_access_denied(self, mock_execute):
+        from snowflake.connector.errors import ProgrammingError
+
+        from snowcap.client import ACCESS_CONTROL_ERR
+        from snowcap.data_provider import _fetch_grants_from_account_usage
+
+        mock_execute.side_effect = ProgrammingError(errno=ACCESS_CONTROL_ERR)
+
+        assert _fetch_grants_from_account_usage(MagicMock()) is None
+        assert mock_execute.call_count == 1
+
+    @pytest.mark.parametrize(
+        "row_overrides,expected_on",
+        [
+            (
+                {"inherited_from": "ACCOUNT", "inherited_from_database": "", "inherited_from_schema": ""},
+                "account/ACCOUNT.<TABLE>",
+            ),
+            (
+                {"inherited_from": "DATABASE", "inherited_from_database": "MY_DB", "inherited_from_schema": ""},
+                "database/MY_DB.<TABLE>",
+            ),
+            (
+                {"inherited_from": "SCHEMA", "inherited_from_database": "MY_DB", "inherited_from_schema": "MY_SCHEMA"},
+                "schema/MY_DB.MY_SCHEMA.<TABLE>",
+            ),
+        ],
+    )
+    def test_inherited_grant_fqn_encodes_each_container(self, row_overrides, expected_on):
+        from snowcap.data_provider import inherited_grant_fqn
+
+        fqn = inherited_grant_fqn(self._inherited_row(**row_overrides), "role", "MY_ROLE")
+
+        assert fqn is not None
+        assert fqn.params["grant_type"] == "INHERITED"
+        assert fqn.params["on"] == expected_on
+        assert fqn.params["to"] == "role/MY_ROLE"
+
+    def test_inherited_grant_fqn_normalizes_synonym_object_types(self):
+        """SHOW GRANTS reports CORTEX_AGENT_SERVER for what GRANT/CREATE call an MCP SERVER.
+        The fetched URN must use the canonical MCP_SERVER type so it matches the declared
+        grant instead of forcing a non-converging DROP+CREATE that revokes inherited access."""
+        from snowcap.data_provider import inherited_grant_fqn
+
+        fqn = inherited_grant_fqn(
+            self._inherited_row(granted_on="CORTEX_AGENT_SERVER", inherited_from="SCHEMA", inherited_from_schema="SCH"),
+            "role",
+            "MY_ROLE",
+        )
+
+        assert fqn is not None
+        assert fqn.params["on"] == "schema/MY_DB.SCH.<MCP_SERVER>"
+
+    def test_normalize_future_grant_name_maps_synonym_object_types(self):
+        """A SHOW FUTURE GRANTS name embeds <OBJECT_TYPE>; a synonym (CORTEX_AGENT_SERVER)
+        must map to the manifest's canonical MCP_SERVER so the future grant converges instead
+        of being dropped and re-created each sync. Non-synonym and unknown types are untouched."""
+        from snowcap.data_provider import _normalize_future_grant_name
+
+        assert _normalize_future_grant_name("RAW.<SCHEMA>") == "RAW.<SCHEMA>"
+        assert _normalize_future_grant_name("DB.SCH.<TABLE>") == "DB.SCH.<TABLE>"
+        assert _normalize_future_grant_name("DB.SCH.<CORTEX_AGENT_SERVER>") == "DB.SCH.<MCP_SERVER>"
+        assert _normalize_future_grant_name("DB.SCH.<SOMETHING_NEW>") == "DB.SCH.<SOMETHING_NEW>"
+
+    def test_inherited_grant_fqn_skips_unrecognized_containers(self):
+        """An unknown container would produce a grant Snowcap could not revoke, so it is
+        left alone rather than guessed at."""
+        from snowcap.data_provider import inherited_grant_fqn
+
+        assert inherited_grant_fqn(self._inherited_row(inherited_from="SOMETHING_NEW"), "role", "MY_ROLE") is None
+
+    @patch("snowcap.data_provider.list_database_roles")
+    @patch("snowcap.data_provider._should_use_account_usage")
+    @patch("snowcap.data_provider.execute")
+    def test_list_grants_reports_inherited_grants_as_inherited(
+        self, mock_execute, mock_should_use, mock_list_database_roles
+    ):
+        """A grant sync run must never treat an inherited grant as an object grant: there is
+        no object name to revoke it on, and it can only be removed with REVOKE INHERITED."""
+        from snowcap.data_provider import list_grants
+
+        mock_should_use.return_value = False
+        mock_list_database_roles.return_value = []
+
+        def execute_side_effect(session, query, **kwargs):
+            if "SHOW DATABASES" in query:
+                return []
+            if "SHOW ROLES" in query:
+                return [{"name": "MY_ROLE"}]
+            return [self._regular_row(), self._inherited_row()]
+
+        mock_execute.side_effect = execute_side_effect
+
+        grants = list_grants(MagicMock(), include_future_grants=False)
+
+        by_type = {fqn.params["grant_type"]: fqn for fqn in grants}
+        assert set(by_type) == {"OBJECT", "INHERITED"}
+        assert by_type["OBJECT"].params["on"] == "table/MY_DB.MY_SCHEMA.MY_TABLE"
+        assert by_type["INHERITED"].params["on"] == "database/MY_DB.<TABLE>"
+        assert by_type["INHERITED"].params["priv"] == "SELECT"
+
+    @patch("snowcap.data_provider.execute")
+    def test_fetch_inherited_grant_matches_its_container(self, mock_execute):
+        from snowcap.data_provider import fetch_inherited_grant
+        from snowcap.identifiers import FQN
+
+        mock_execute.return_value = [self._regular_row(), self._inherited_row()]
+        fqn = FQN(
+            name=ResourceName("GRANT"),
+            params={
+                "grant_type": "INHERITED",
+                "priv": "SELECT",
+                "on": "database/MY_DB.<TABLE>",
+                "to": "role/MY_ROLE",
+            },
+        )
+
+        data = fetch_inherited_grant(MagicMock(), fqn)
+
+        assert data is not None
+        assert data["grant_type"] == GrantType.INHERITED
+        assert data["on"] == "MY_DB"
+        assert data["on_type"] == "DATABASE"
+        assert data["items_type"] == "TABLE"
+        assert data["grant_option"] is False
+
+    @patch("snowcap.data_provider.execute")
+    def test_fetch_inherited_grant_does_not_match_another_container(self, mock_execute):
+        from snowcap.data_provider import fetch_inherited_grant
+        from snowcap.identifiers import FQN
+
+        mock_execute.return_value = [self._inherited_row(inherited_from_database="OTHER_DB")]
+        fqn = FQN(
+            name=ResourceName("GRANT"),
+            params={
+                "grant_type": "INHERITED",
+                "priv": "SELECT",
+                "on": "database/MY_DB.<TABLE>",
+                "to": "role/MY_ROLE",
+            },
+        )
+
+        assert fetch_inherited_grant(MagicMock(), fqn) is None
+
+    @patch("snowcap.data_provider.execute")
+    def test_fetch_inherited_grant_reads_the_account_container(self, mock_execute):
+        from snowcap.data_provider import fetch_inherited_grant
+        from snowcap.identifiers import FQN
+
+        mock_execute.return_value = [
+            self._inherited_row(inherited_from="ACCOUNT", inherited_from_database="", inherited_from_schema="")
+        ]
+        fqn = FQN(
+            name=ResourceName("GRANT"),
+            params={
+                "grant_type": "INHERITED",
+                "priv": "SELECT",
+                "on": "account/ACCOUNT.<TABLE>",
+                "to": "role/MY_ROLE",
+            },
+        )
+
+        data = fetch_inherited_grant(MagicMock(), fqn)
+
+        assert data is not None
+        assert data["on"] == "ACCOUNT"
+        assert data["on_type"] == "ACCOUNT"
+
+    @pytest.mark.parametrize(
+        "value,expected",
+        [("ENABLED", True), ("enabled", True), ("DISABLED", False), ("", False)],
+    )
+    @patch("snowcap.data_provider.execute")
+    def test_feature_flag_probe_reads_the_parameter(self, mock_execute, value, expected):
+        from snowcap.data_provider import fetch_inherited_grants_enabled
+
+        mock_execute.return_value = [{"key": "FEATURE_RBAC_INHERITED_GRANTS", "value": value}]
+
+        assert fetch_inherited_grants_enabled(MagicMock()) is expected
+
+    @patch("snowcap.data_provider.execute")
+    def test_feature_flag_probe_is_undetermined_when_unreadable(self, mock_execute):
+        """The parameter does not exist on older Snowflake versions, and reading account
+        parameters needs privileges the session may not have. Neither should block a run."""
+        from snowcap.data_provider import fetch_inherited_grants_enabled
+
+        mock_execute.side_effect = Exception("Insufficient privileges")
+
+        assert fetch_inherited_grants_enabled(MagicMock()) is None
+
+    @pytest.mark.parametrize(
+        "status,expected",
+        [
+            ("Preview access is ENABLED for this account", True),
+            ("Preview access is DISABLED for this account", False),
+            ("something unexpected", None),
+        ],
+    )
+    @patch("snowcap.data_provider.execute")
+    def test_preview_access_status_is_read_from_the_system_function(self, mock_execute, status, expected):
+        from snowcap.data_provider import fetch_preview_access_enabled
+
+        mock_execute.return_value = [{"STATUS": status}]
+
+        assert fetch_preview_access_enabled(MagicMock()) is expected
+
+    @patch("snowcap.data_provider.execute")
+    def test_preview_access_status_is_undetermined_when_unreadable(self, mock_execute):
+        from snowcap.data_provider import fetch_preview_access_enabled
+
+        mock_execute.side_effect = Exception("Insufficient privileges")
+
+        assert fetch_preview_access_enabled(MagicMock()) is None
+
+
+class TestDatabaseRoleGrantsAreNotListedAsGrants:
+    """Snowflake reports a database role granted to an account role as a USAGE grant held
+    by the grantee. Snowcap models that as a DatabaseRoleGrant, so listing it as a Grant
+    too describes one Snowflake fact under two resource types: the declared
+    DatabaseRoleGrant never matches, sync proposes dropping the stray Grant on every run,
+    and the revoke it builds -- REVOKE USAGE ON DATABASE ROLE -- is rejected by Snowflake
+    as an unsupported feature, which aborts the apply."""
+
+    def _row(self, **overrides):
+        row = {
+            "privilege": "USAGE",
+            "granted_on": "DATABASE_ROLE",
+            "name": "GREAT_BAY_DEV.DR_READER_ROLE",
+            "granted_to": "ROLE",
+            "grantee_name": "MY_ROLE",
+            "grant_option": "false",
+            "granted_by": "SECURITYADMIN",
+            "is_inherited": "false",
+        }
+        row.update(overrides)
+        return row
+
+    @pytest.mark.parametrize(
+        "granted_on,expected",
+        [
+            ("DATABASE_ROLE", True),
+            ("DATABASE ROLE", True),
+            ("ROLE", True),
+            ("TABLE", False),
+            ("DATABASE", False),
+            ("MCP_SERVER", False),
+        ],
+    )
+    def test_role_hierarchy_rows_are_recognized_in_both_spellings(self, granted_on, expected):
+        """ACCOUNT_USAGE spells it DATABASE_ROLE, SHOW GRANTS spells it DATABASE ROLE, and
+        an underscore in an unrelated object type must not be mistaken for either."""
+        from snowcap.data_provider import _is_role_hierarchy_grant
+
+        assert _is_role_hierarchy_grant({"granted_on": granted_on}) is expected
+
+    @patch("snowcap.data_provider.list_database_roles")
+    @patch("snowcap.data_provider._should_use_account_usage")
+    @patch("snowcap.data_provider.execute")
+    def test_list_grants_omits_database_role_grants(self, mock_execute, mock_should_use, mock_list_database_roles):
+        from snowcap.data_provider import list_grants
+
+        mock_should_use.return_value = False
+        mock_list_database_roles.return_value = []
+
+        def execute_side_effect(session, query, **kwargs):
+            if "SHOW DATABASES" in query:
+                return []
+            if "SHOW ROLES" in query:
+                return [{"name": "MY_ROLE"}]
+            return [
+                self._row(),
+                self._row(granted_on="DATABASE ROLE", name="SNOWFLAKE.CORTEX_USER"),
+                {
+                    "privilege": "SELECT",
+                    "granted_on": "TABLE",
+                    "name": "MY_DB.MY_SCHEMA.MY_TABLE",
+                    "granted_to": "ROLE",
+                    "grantee_name": "MY_ROLE",
+                    "grant_option": "false",
+                    "granted_by": "SYSADMIN",
+                    "is_inherited": "false",
+                },
+            ]
+
+        mock_execute.side_effect = execute_side_effect
+
+        grants = list_grants(MagicMock(), include_future_grants=False)
+
+        on_values = [fqn.params["on"] for fqn in grants]
+        assert on_values == ["table/MY_DB.MY_SCHEMA.MY_TABLE"]
+        assert not [on for on in on_values if "database_role" in on]
+
+
+class TestGrantsReportedUnderASynonym:
+    """Snowflake reports a grant on an MCP server as CORTEX_AGENT_SERVER, while GRANT and
+    CREATE call the object an MCP SERVER. Remote state and the manifest have to identify it
+    the same way, or every plan both creates and drops the grant -- and drops run after
+    creates, so applying takes the access away."""
+
+    def _row(self, granted_on, name, **overrides):
+        row = {
+            "privilege": "USAGE",
+            "granted_on": granted_on,
+            "name": name,
+            "granted_to": "ROLE",
+            "grantee_name": "Z_MCP__DATACOVES",
+            "grant_option": "false",
+            "granted_by": "ACCOUNTADMIN",
+            "is_inherited": "false",
+        }
+        row.update(overrides)
+        return row
+
+    @pytest.mark.parametrize(
+        "granted_on,expected",
+        [
+            ("CORTEX_AGENT_SERVER", "mcp_server"),
+            ("MCP_SERVER", "mcp_server"),
+            ("TABLE", "table"),
+            ("MATERIALIZED_VIEW", "materialized_view"),
+            ("IMAGE_REPOSITORY", "image_repository"),
+            # Unknown to ResourceType: behaves exactly as the raw lowercase did
+            ("SOMETHING_SNOWFLAKE_ADDED_LATER", "something_snowflake_added_later"),
+        ],
+    )
+    def test_granted_on_label_matches_the_manifest_spelling(self, granted_on, expected):
+        from snowcap.data_provider import _granted_on_label
+
+        assert _granted_on_label(granted_on) == expected
+
+    def test_label_agrees_with_grant_fqn(self):
+        """The whole point is agreeing with the manifest, so assert against it directly
+        rather than against a hardcoded string."""
+        from snowcap.data_provider import _granted_on_label
+        from snowcap.resources.grant import Grant, grant_fqn
+
+        grant = Grant(priv="USAGE", on="mcp server ADMIN_DB.MCPS.DATACOVES", to="Z_MCP__DATACOVES")
+        manifest_on = grant_fqn(grant._data).params["on"]
+
+        assert manifest_on.split("/")[0] == _granted_on_label("CORTEX_AGENT_SERVER")
+
+    @patch("snowcap.data_provider.list_database_roles")
+    @patch("snowcap.data_provider._should_use_account_usage")
+    @patch("snowcap.data_provider.execute")
+    def test_list_grants_reports_a_cortex_agent_server_as_an_mcp_server(
+        self, mock_execute, mock_should_use, mock_list_database_roles
+    ):
+        from snowcap.data_provider import list_grants
+
+        mock_should_use.return_value = False
+        mock_list_database_roles.return_value = []
+
+        def execute_side_effect(session, query, **kwargs):
+            if "SHOW DATABASES" in query:
+                return []
+            if "SHOW ROLES" in query:
+                return [{"name": "Z_MCP__DATACOVES"}]
+            return [self._row("CORTEX_AGENT_SERVER", "ADMIN_DB.MCPS.DATACOVES")]
+
+        mock_execute.side_effect = execute_side_effect
+
+        grants = list_grants(MagicMock(), include_future_grants=False)
+
+        assert [fqn.params["on"] for fqn in grants] == ["mcp_server/ADMIN_DB.MCPS.DATACOVES"]
+
+
+class TestIntrinsicDatabaseRoleUsage:
+    """Creating a database role gives it USAGE on the database it belongs to. Snowflake
+    reports that like any other grant but with an empty granted_by, because no role granted
+    it -- it is part of the role existing, the way OWNERSHIP is. Nothing can revoke it:
+    REVOKE reports success and leaves it in place even when run as the database owner. So
+    listing it puts a row in remote state no config can declare away and no apply can
+    remove, and sync proposes the same drop on every run forever."""
+
+    def _row(self, **overrides):
+        row = {
+            "privilege": "USAGE",
+            "granted_on": "DATABASE",
+            "name": "GREAT_BAY",
+            "granted_to": "DATABASE_ROLE",
+            "grantee_name": "GREAT_BAY.DR_CREATE_ROLE",
+            "grant_option": "false",
+            "granted_by": "",
+            "is_inherited": "false",
+        }
+        row.update(overrides)
+        return row
+
+    @pytest.mark.parametrize(
+        "row_overrides,grantee,expected,because",
+        [
+            ({}, "GREAT_BAY.DR_CREATE_ROLE", True, "usage on its own database"),
+            ({"name": "OTHER_DB"}, "GREAT_BAY.DR_CREATE_ROLE", False, "usage on a different database is real"),
+            (
+                {"granted_on": "SCHEMA", "name": "GREAT_BAY.PUBLIC"},
+                "GREAT_BAY.DR_CREATE_ROLE",
+                False,
+                "schema usage is real",
+            ),
+            ({"privilege": "SELECT"}, "GREAT_BAY.DR_CREATE_ROLE", False, "only USAGE is intrinsic"),
+            ({}, "ANALYST", False, "an account role has no own database"),
+        ],
+    )
+    def test_only_the_roles_own_database_usage_is_intrinsic(self, row_overrides, grantee, expected, because):
+        from snowcap.data_provider import _is_intrinsic_database_role_usage
+
+        assert _is_intrinsic_database_role_usage(self._row(**row_overrides), grantee) is expected, because
+
+    def test_an_explicit_grant_is_indistinguishable_and_also_skipped(self):
+        """Snowflake keeps a second row with granted_by populated when the same usage is
+        granted explicitly. Both reduce to one grant URN, so both are skipped and a declared
+        usage on a database role's own database simply re-grants -- the role already has it."""
+        from snowcap.data_provider import _is_intrinsic_database_role_usage
+
+        explicit = self._row(granted_by="TRANSFORMER_DBT")
+
+        assert _is_intrinsic_database_role_usage(explicit, "GREAT_BAY.DR_CREATE_ROLE") is True
+
+    @patch("snowcap.data_provider.list_database_roles")
+    @patch("snowcap.data_provider._should_use_account_usage")
+    @patch("snowcap.data_provider.execute")
+    def test_list_grants_omits_it_but_keeps_real_grants(self, mock_execute, mock_should_use, mock_list_database_roles):
+        from snowcap.data_provider import list_grants
+        from snowcap.identifiers import FQN
+        from snowcap.resource_name import ResourceName
+
+        mock_should_use.return_value = False
+        mock_list_database_roles.return_value = [
+            FQN(name=ResourceName("DR_CREATE_ROLE"), database=ResourceName("GREAT_BAY"))
+        ]
+
+        def execute_side_effect(session, query, **kwargs):
+            if "SHOW DATABASES" in query:
+                return []
+            if "SHOW ROLES" in query:
+                return []
+            return [
+                self._row(),  # intrinsic, must not be listed
+                self._row(granted_on="SCHEMA", name="GREAT_BAY.COVE_MARKETING", granted_by="TRANSFORMER_DBT"),
+            ]
+
+        mock_execute.side_effect = execute_side_effect
+
+        grants = list_grants(MagicMock(), include_future_grants=False)
+
+        assert [fqn.params["on"] for fqn in grants] == ["schema/GREAT_BAY.COVE_MARKETING"]
+
+
+class TestShareBackedDatabaseGrants:
+    """GRANT IMPORTED PRIVILEGES ON DATABASE <db> is how access to a shared database is
+    given, and Snowflake reports the resulting grant on the database as plain USAGE.
+    Identifying it as USAGE means the declared grant never matches the one read back, so
+    every plan proposes creating it again -- forever, and invisibly, since re-granting
+    changes nothing. fetch_grant already resolved this, but syncing a resource type builds
+    remote state from list_* alone and discards manifest URNs, so that path never ran."""
+
+    SHARED = {"SNOWFLAKE", "SNOWFLAKE_SAMPLE_DATA", "COVID19_EPIDEMIOLOGICAL_DATA"}
+
+    def _row(self, **overrides):
+        row = {
+            "privilege": "USAGE",
+            "granted_on": "DATABASE",
+            "name": "SNOWFLAKE_SAMPLE_DATA",
+            "granted_to": "ROLE",
+            "grantee_name": "Z_DB__SNOWFLAKE_SAMPLE_DATA",
+            "grant_option": "false",
+            "granted_by": "ACCOUNTADMIN",
+            "is_inherited": "false",
+        }
+        row.update(overrides)
+        return row
+
+    @pytest.mark.parametrize(
+        "overrides,expected,because",
+        [
+            ({}, "IMPORTED PRIVILEGES", "usage on a shared database is imported privileges"),
+            ({"name": "SNOWFLAKE"}, "IMPORTED PRIVILEGES", "the SNOWFLAKE database is share-backed too"),
+            ({"name": "BALBOA"}, None, "on an ordinary database USAGE means USAGE"),
+            ({"privilege": "SELECT"}, None, "only USAGE is reported in place of imported privileges"),
+            (
+                {"granted_on": "SCHEMA", "name": "SNOWFLAKE.ACCOUNT_USAGE"},
+                None,
+                "the substitution is for the database grant, not objects inside it",
+            ),
+        ],
+    )
+    def test_only_database_usage_on_a_shared_database_is_rewritten(self, overrides, expected, because):
+        from snowcap.data_provider import _imported_privileges_priv
+
+        assert _imported_privileges_priv(self._row(**overrides), self.SHARED) == expected, because
+
+    @patch("snowcap.data_provider.list_shared_database_names")
+    @patch("snowcap.data_provider.list_database_roles")
+    @patch("snowcap.data_provider._should_use_account_usage")
+    @patch("snowcap.data_provider.execute")
+    def test_list_grants_reports_it_the_way_config_declares_it(
+        self, mock_execute, mock_should_use, mock_list_database_roles, mock_shared
+    ):
+        from snowcap.data_provider import list_grants
+
+        mock_should_use.return_value = False
+        mock_list_database_roles.return_value = []
+        mock_shared.return_value = self.SHARED
+
+        def execute_side_effect(session, query, **kwargs):
+            if "SHOW DATABASES" in query:
+                return []
+            if "SHOW ROLES" in query:
+                return [{"name": "Z_DB__SNOWFLAKE_SAMPLE_DATA"}]
+            return [
+                self._row(),
+                self._row(name="BALBOA"),  # ordinary database, must stay USAGE
+            ]
+
+        mock_execute.side_effect = execute_side_effect
+
+        grants = list_grants(MagicMock(), include_future_grants=False)
+        by_on = {fqn.params["on"]: fqn.params["priv"] for fqn in grants}
+
+        assert by_on["database/SNOWFLAKE_SAMPLE_DATA"] == "IMPORTED PRIVILEGES"
+        assert by_on["database/BALBOA"] == "USAGE"
+
+
+class TestGrantFetchMatchesOnObjectType:
+    """fetch_grant compared granted_on as a raw string, so a grant Snowflake reports under
+    a different name than its DDL uses -- CORTEX_AGENT_SERVER for an MCP SERVER -- never
+    matched the declared grant, and the plan proposed creating it on every run."""
+
+    def _grants(self):
+        return [
+            {
+                "privilege": "USAGE",
+                "granted_on": "CORTEX_AGENT_SERVER",
+                "name": "ADMIN_DB.MCPS.DATACOVES",
+                "granted_to": "ROLE",
+                "grantee_name": "Z_MCP__DATACOVES",
+                "grant_option": "false",
+                "granted_by": "ACCOUNTADMIN",
+            }
+        ]
+
+    @patch("snowcap.data_provider._show_grants_to_role")
+    def test_a_grant_reported_under_a_synonym_is_found(self, mock_show):
+        from snowcap.data_provider import _fetch_grant_to_role
+        from snowcap.enums import GrantType, ResourceType
+        from snowcap.resource_name import ResourceName
+
+        mock_show.return_value = self._grants()
+
+        found = _fetch_grant_to_role(
+            MagicMock(),
+            grant_type=GrantType.OBJECT,
+            role=ResourceName("Z_MCP__DATACOVES"),
+            granted_on="MCP_SERVER",
+            on_name="ADMIN_DB.MCPS.DATACOVES",
+            privilege="USAGE",
+            role_type=ResourceType.ROLE,
+        )
+
+        assert found is not None
+        assert found["granted_on"] == "CORTEX_AGENT_SERVER"
+
+    @patch("snowcap.data_provider._show_grants_to_role")
+    def test_an_unrelated_object_type_still_does_not_match(self, mock_show):
+        from snowcap.data_provider import _fetch_grant_to_role
+        from snowcap.enums import GrantType, ResourceType
+        from snowcap.resource_name import ResourceName
+
+        mock_show.return_value = self._grants()
+
+        assert (
+            _fetch_grant_to_role(
+                MagicMock(),
+                grant_type=GrantType.OBJECT,
+                role=ResourceName("Z_MCP__DATACOVES"),
+                granted_on="TABLE",
+                on_name="ADMIN_DB.MCPS.DATACOVES",
+                privilege="USAGE",
+                role_type=ResourceType.ROLE,
+            )
+            is None
+        )

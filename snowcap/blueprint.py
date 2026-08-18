@@ -17,6 +17,7 @@ from typing import (
 )
 
 import snowflake.connector
+from inflection import pluralize
 
 from . import data_provider, lifecycle
 from .blueprint_config import BlueprintConfig
@@ -30,6 +31,8 @@ from .client import (
 )
 from .data_provider import SessionContext
 from .enums import (
+    INHERITED_GRANTS_FEATURE_FLAG,
+    OWNER_EXECUTED_RESOURCE_TYPES,
     AccountEdition,
     BlueprintScope,
     GrantType,
@@ -51,12 +54,13 @@ from .exceptions import (
     NotADAGException,
     OrphanResourceException,
 )
-from .identifiers import URN, parse_identifier, parse_URN, resource_label_for_type
+from .identifiers import URN, parse_identifier, parse_URN, resource_label_for_type, smart_split
 from .privs import AccountPriv, CREATE_PRIV_FOR_RESOURCE_TYPE, system_role_for_priv
 from .resource_name import ResourceName
 from .resource_tags import ResourceTags
 from .resources import Database, Grant, RoleGrant, Schema
 from .resources.database import public_schema_urn
+from .resources.grant import INHERITED_GRANT_DOCS, _Grant, grant_on_clause
 from .resources.resource import (
     RESOURCE_SCOPES,
     NamedResource,
@@ -266,6 +270,327 @@ def manifest_future_grant_roles(manifest: "Manifest") -> set:
     return roles
 
 
+FUTURE_GRANT_PRECEDENCE_DOCS = (
+    "https://docs.snowflake.com/en/sql-reference/sql/grant-privilege#future-grants-on-database-or-schema-objects"
+)
+
+
+def _future_grant_scopes(entries) -> tuple[set[str], list[dict], set[tuple[str, str]]]:
+    """
+    Bucket resources into the three things the managed-access check needs:
+    managed access schemas, database-level future grants, and schema-level future grants.
+
+    `entries` is an iterable of (urn, resource_type, data) so the check can run over a
+    manifest, over remote state, or over a plan without caring which it was handed.
+    """
+    managed_access_schemas: set[str] = set()
+    database_future_grants: list[dict] = []
+    schema_future_grants: set[tuple[str, str]] = set()
+
+    for urn, resource_type, data in entries:
+        if resource_type == ResourceType.SCHEMA:
+            if data.get("managed_access") and urn.fqn.database:
+                managed_access_schemas.add(f"{urn.fqn.database}.{urn.fqn.name}".upper())
+        elif resource_type == ResourceType.GRANT:
+            if data.get("grant_type") != GrantType.FUTURE.value:
+                continue
+            items_type = str(data.get("items_type") or "").upper()
+            on_type = str(data.get("on_type") or "").upper()
+            on = str(data.get("on") or "").upper()
+            if not items_type or not on:
+                continue
+            if on_type == ResourceType.DATABASE.value:
+                database_future_grants.append(
+                    {
+                        "database": on,
+                        "items_type": items_type,
+                        "priv": str(data.get("priv") or ""),
+                        # `to` is a bare role name or a labelled FQN (database_role/DB.ROLE).
+                        "to": str(data.get("to") or "").split("/", 1)[-1],
+                    }
+                )
+            elif on_type == ResourceType.SCHEMA.value:
+                schema_future_grants.add((on, items_type))
+
+    return managed_access_schemas, database_future_grants, schema_future_grants
+
+
+def _format_schema_list(schemas: Sequence[str]) -> str:
+    shown = list(schemas[:3])
+    remainder = len(schemas) - len(shown)
+    if remainder > 0:
+        return f"{', '.join(shown)} (and {remainder} more)"
+    return ", ".join(shown)
+
+
+def future_grant_precedence_warnings(entries) -> list[str]:
+    """
+    Warn about database-level future grants that Snowflake will silently ignore.
+
+    Snowflake gives schema-level future grants precedence over database-level future
+    grants on the same object type: when both exist, the database-level grant is ignored
+    for that schema, and objects created there never receive the privilege.
+
+    Managed access schemas are where this bites hardest. They centralize privilege
+    management on the schema owner, so the schema-level future grants that shadow a
+    database-level grant are typically added by a different config (or a different team)
+    than the one that declared the database-level grant, and nothing surfaces the
+    conflict until someone reports missing access on a newly created table.
+
+    Note that this precedence rule is not specific to managed access schemas, and that
+    managed access does not by itself disable database-level future grants -- Snowflake
+    documents that they apply to regular and managed access schemas alike. The one
+    managed-access-specific exception is future grants of OWNERSHIP, which Snowcap does
+    not support.
+    """
+    managed_access_schemas, database_future_grants, schema_future_grants = _future_grant_scopes(entries)
+
+    if not database_future_grants:
+        return []
+
+    warnings = []
+
+    # Case 1: a schema-level future grant on the same object type already shadows the
+    # database-level grant. This is a live misconfiguration, not just a risk.
+    shadowed: dict[tuple[str, str, str, str], list[str]] = defaultdict(list)
+    for grant in database_future_grants:
+        prefix = grant["database"] + "."
+        for schema_fqn, schema_items_type in schema_future_grants:
+            if schema_items_type == grant["items_type"] and schema_fqn.startswith(prefix):
+                key = (grant["database"], grant["items_type"], grant["priv"], grant["to"])
+                shadowed[key].append(schema_fqn)
+
+    for (database, items_type, priv, to), schemas in sorted(shadowed.items()):
+        schemas = sorted(set(schemas))
+        managed = [schema for schema in schemas if schema in managed_access_schemas]
+        managed_note = (
+            f" {_format_schema_list(managed)} {'is a' if len(managed) == 1 else 'are'} managed access "
+            f"{'schema' if len(managed) == 1 else 'schemas'}."
+            if managed
+            else ""
+        )
+        warnings.append(
+            f"{priv} ON FUTURE {pluralize(items_type).upper()} IN DATABASE {database} to {to} is ignored for "
+            f"{_format_schema_list(schemas)}, which define their own future grants on {items_type}. "
+            f"Snowflake gives schema-level future grants precedence over database-level future grants on the "
+            f"same object type, so objects created in those schemas will not receive this privilege."
+            f"{managed_note} Declare the privilege as a schema-level future grant on those schemas. "
+            f"See {FUTURE_GRANT_PRECEDENCE_DOCS}"
+        )
+
+    # Case 2: managed access schemas covered only by database-level future grants. Not
+    # broken today, but a single schema-level future grant on the same object type --
+    # added anywhere, by anyone -- silently switches the privilege off for that schema.
+    databases_with_managed_access: dict[str, list[str]] = defaultdict(list)
+    for schema_fqn in managed_access_schemas:
+        databases_with_managed_access[schema_fqn.split(".", 1)[0]].append(schema_fqn)
+
+    at_risk: dict[str, set[str]] = defaultdict(set)
+    for grant in database_future_grants:
+        database = grant["database"]
+        if database not in databases_with_managed_access:
+            continue
+        if (database, grant["items_type"], grant["priv"], grant["to"]) in shadowed:
+            continue
+        at_risk[database].add(grant["items_type"])
+
+    for database, items_types in sorted(at_risk.items()):
+        schemas = sorted(databases_with_managed_access[database])
+        types = ", ".join(pluralize(items_type).upper() for items_type in sorted(items_types))
+        warnings.append(
+            f"Database {database} grants access to {types} with database-level future grants and contains "
+            f"managed access {'schema' if len(schemas) == 1 else 'schemas'} {_format_schema_list(schemas)}. "
+            f"Adding a schema-level future grant on the same object type to any of those schemas silently "
+            f"disables the database-level grant for that schema. Declaring future grants at the schema level "
+            f"alongside managed_access is the durable pattern. See {FUTURE_GRANT_PRECEDENCE_DOCS}"
+        )
+
+    return warnings
+
+
+def _container_covers(container_type: str, container: str, object_name: str) -> bool:
+    """Does a container hold the named object, by identifier alone?"""
+    if container_type == ResourceType.ACCOUNT.value:
+        return True
+    # Quote-aware split: a quoted identifier can contain a literal dot (e.g. "a.b"), which a
+    # plain str.split would miscount and mis-classify.
+    parts = smart_split(object_name, ".")
+    if container_type == ResourceType.SCHEMA.value:
+        return len(parts) == 3 and ResourceName(".".join(parts[:2])) == ResourceName(container)
+    if container_type == ResourceType.DATABASE.value:
+        return len(parts) >= 2 and ResourceName(parts[0]) == ResourceName(container)
+    return False
+
+
+def _covered_by_collection_grant(collection_grants: list["ManifestResource"], remote_res: dict) -> bool:
+    """
+    Is a remote per-object grant already provided by a declared ALL or INHERITED grant?
+
+    Snowflake materializes `GRANT ... ON ALL` into one grant per object, and those per-object
+    grants show up in remote state with nothing in the manifest to match them. Dropping them
+    would undo the collection grant on every apply. Inherited grants are matched the same
+    way so that migrating a config from per-object grants to an inherited grant does not
+    revoke access in the same run that establishes it.
+    """
+    if remote_res.get("grant_type") != GrantType.OBJECT.value:
+        return False
+    for grant in collection_grants:
+        data = grant.data
+        if data["to"] != remote_res["to"]:
+            continue
+        # A declared `GRANT ALL` fans out into a concrete-privilege row per object (SELECT,
+        # INSERT, ...); matching the privilege exactly would miss those and drop them on every
+        # sync. ALL covers whatever privilege the row carries. Other collection grants still
+        # match their single privilege.
+        if data["priv"] != "ALL" and data["priv"] != remote_res["priv"]:
+            continue
+        if data["items_type"] != remote_res["on_type"]:
+            continue
+        if _container_covers(data["on_type"], data["on"], remote_res["on"]):
+            return True
+    return False
+
+
+def _covered_by_imported_privileges(imported_privilege_grants: list["ManifestResource"], remote_res: dict) -> bool:
+    """
+    Is a remote per-object grant already provided by a declared IMPORTED PRIVILEGES grant?
+
+    `GRANT IMPORTED PRIVILEGES ON DATABASE <shared_db> TO ROLE <r>` is one statement, but
+    Snowflake fans it out in SHOW GRANTS into a row per object the share exposes -- every
+    view, function, procedure, schema, database role, class, tag and image repository in
+    the database, plus a USAGE row on the database itself. On the SNOWFLAKE shared database
+    that is several hundred rows.
+
+    None of those rows can be in the manifest: config declares the single IMPORTED
+    PRIVILEGES grant, not the fan-out. Without this check they read as undeclared grants and
+    get revoked on every sync, undoing the access the declared grant just handed out.
+
+    Unlike `_covered_by_collection_grant` this deliberately ignores the privilege. The
+    fan-out rows carry whatever privilege each object type takes -- SELECT on views, USAGE
+    on functions, READ on image repositories, APPLY on tags -- none of which is
+    "IMPORTED PRIVILEGES". Grantee and containment are what identify them.
+
+    Matching on containment alone is safe because IMPORTED PRIVILEGES is only grantable on a
+    shared database, and objects in a shared database cannot be granted independently: the
+    share is the only source of privileges on them.
+    """
+    if remote_res.get("grant_type") != GrantType.OBJECT.value:
+        return False
+    for grant in imported_privilege_grants:
+        data = grant.data
+        if data["to"] != remote_res["to"]:
+            continue
+        database = data["on"]
+        # The USAGE (and REFERENCE_USAGE) row Snowflake reports on the shared database itself
+        if remote_res["on_type"] == ResourceType.DATABASE.value and ResourceName(remote_res["on"]) == ResourceName(
+            database
+        ):
+            return True
+        if _container_covers(ResourceType.DATABASE.value, database, remote_res["on"]):
+            return True
+    return False
+
+
+def manifest_inherited_grants(manifest: "Manifest") -> list["ManifestResource"]:
+    """Inherited grants declared in the manifest."""
+    inherited = []
+    for urn in manifest.urns:
+        if urn.resource_type != ResourceType.GRANT:
+            continue
+        item = manifest[urn]
+        if isinstance(item, ManifestResource) and item.data.get("grant_type") == GrantType.INHERITED.value:
+            inherited.append(item)
+    return inherited
+
+
+def manifest_enables_inherited_grants(manifest: "Manifest") -> bool:
+    """Does the config itself turn the inherited grants preview on?"""
+    for urn in manifest.urns:
+        if urn.resource_type != ResourceType.ACCOUNT_PARAMETER:
+            continue
+        if ResourceName(urn.fqn.name) != ResourceName(INHERITED_GRANTS_FEATURE_FLAG):
+            continue
+        item = manifest[urn]
+        if isinstance(item, ManifestResource):
+            return str(item.data.get("value", "")).strip().upper() == "ENABLED"
+    return False
+
+
+def raise_if_inherited_grants_unavailable(session, manifest: "Manifest") -> None:
+    """
+    Fail before apply when config declares inherited grants an account cannot accept.
+
+    Inherited grants are a preview feature. Without FEATURE_RBAC_INHERITED_GRANTS every
+    GRANT INHERITED statement fails as a syntax error partway through an apply, which is a
+    confusing way to learn the account is not opted in.
+
+    A config that enables the parameter itself is left alone: the flag is off at plan time
+    by definition, and the apply turns it on before the grants run.
+    """
+    declared = manifest_inherited_grants(manifest)
+    if not declared:
+        return
+
+    if manifest_enables_inherited_grants(manifest):
+        return
+
+    if data_provider.fetch_inherited_grants_enabled(session) is not False:
+        return
+
+    example = grant_on_clause(_Grant(**declared[0].data))
+    message = (
+        f"This config declares {len(declared)} inherited grant(s), for example '{example}', but "
+        f"{INHERITED_GRANTS_FEATURE_FLAG} is not enabled on this account.\n"
+    )
+
+    # Preview access gates every preview feature at once and is normally on. When it is
+    # off, setting the parameter alone will not help, so say that rather than sending the
+    # operator down the wrong path.
+    if data_provider.fetch_preview_access_enabled(session) is False:
+        message += (
+            "  Preview features are disabled account-wide. Snowcap cannot change that -- it is a\n"
+            "  system function, not a resource -- so an account admin needs to run:\n"
+            "    SELECT SYSTEM$ENABLE_PREVIEW_ACCESS();\n"
+            "  after which Snowcap can manage the parameter itself:\n"
+        )
+    else:
+        message += "  Let Snowcap manage it:\n"
+
+    message += (
+        "    account_parameters:\n"
+        f"      - name: {INHERITED_GRANTS_FEATURE_FLAG}\n"
+        "        value: ENABLED\n"
+        "  Or set it directly:\n"
+        f"    ALTER ACCOUNT SET {INHERITED_GRANTS_FEATURE_FLAG} = 'ENABLED';\n"
+        f"  See {INHERITED_GRANT_DOCS}"
+    )
+    raise MissingPrivilegeException(message)
+
+
+def manifest_state_entries(manifest: "Manifest", remote_state: Optional["State"] = None):
+    """Yield (urn, resource_type, data) for every concrete resource in the manifest, plus
+    anything remote state knows about that the manifest doesn't declare."""
+    seen = set()
+    for urn, item in manifest.items():
+        if isinstance(item, ManifestResource):
+            seen.add(urn)
+            yield urn, urn.resource_type, item.data
+    for urn, data in (remote_state or {}).items():
+        if urn not in seen and isinstance(data, dict):
+            yield urn, urn.resource_type, data
+
+
+def plan_entries(plan: "Plan"):
+    """Yield (urn, resource_type, data) for the resources a plan creates or updates.
+
+    A plan only carries what is changing, so this sees less than the manifest does. It is
+    the fallback for `snowcap apply --plan plan.json`, where the manifest isn't rebuilt.
+    """
+    for change in plan:
+        if isinstance(change, (CreateResource, UpdateResource)):
+            yield change.urn, change.urn.resource_type, change.after
+
+
 def manifest_future_grant_database_roles(manifest: "Manifest") -> set:
     """
     Return the set of database role names that have future grants in the manifest.
@@ -377,9 +702,12 @@ State = dict[URN, dict]
 Plan = list[ResourceChange]
 
 
-def plan_from_dict(plan_dict: dict) -> Plan:
+def plan_from_dict(plan_dict) -> Plan:
+    # A plan file is either a bare list of changes (older format) or {"changes": [...],
+    # "levels": {...}} once dependency levels are persisted alongside it.
+    changes_data = plan_dict.get("changes", []) if isinstance(plan_dict, dict) else plan_dict
     changes: list[ResourceChange] = []
-    for change in plan_dict:
+    for change in changes_data:
         action = change["action"]
         if action == "CREATE":
             container_descriptor: Optional[ContainerDescriptor] = None
@@ -506,13 +834,32 @@ class Manifest:
         return list(self._resources.values())
 
 
-def dump_plan(plan: Plan, format: str = "json"):
+def dump_plan(plan: Plan, format: str = "json", levels: Optional[dict[URN, int]] = None):
     if format == "json":
-        return json.dumps([change.to_dict() for change in plan], indent=2)
+        changes = [change.to_dict() for change in plan]
+        if levels is None:
+            return json.dumps(changes, indent=2)
+        # Persist each change's dependency level so `apply --plan` preserves ordering (ownership
+        # transfers before creates inside them, the inherited-grants feature flag before the
+        # grants that need it). Without it the apply-plan path has no levels and runs everything
+        # at level 0. Older plan files (a bare change list) fall back to that flat behaviour.
+        payload = {
+            "changes": changes,
+            "levels": {str(change.urn): levels.get(change.urn, 0) for change in plan},
+        }
+        return json.dumps(payload, indent=2)
     elif format == "text":
         return _dump_plan_text(plan)
     else:
         raise Exception(f"Unsupported format {format}")
+
+
+def levels_from_plan_dict(plan_dict) -> dict[URN, int]:
+    """Dependency levels persisted alongside a plan by dump_plan. Empty for older plan files
+    (a bare change list), so apply falls back to running everything at level 0."""
+    if not isinstance(plan_dict, dict):
+        return {}
+    return {parse_URN(urn): level for urn, level in plan_dict.get("levels", {}).items()}
 
 
 def _render_value(value):
@@ -676,20 +1023,15 @@ def _format_grant_name(urn: URN, change: "ResourceChange") -> str:
         # Handle FUTURE and ALL grants
         grant_type_str = str(grant_type).replace("GrantType.", "").upper() if grant_type else "OBJECT"
 
-        if grant_type_str == "FUTURE" and items_type:
+        if grant_type_str in ("FUTURE", "ALL", "INHERITED") and items_type:
             # Format: SELECT on FUTURE TABLES in DATABASE.MYDB → ROLE.X
             items_type_str = str(items_type).replace("ResourceType.", "").upper()
             # Pluralize the items type
             items_plural = items_type_str + "S" if not items_type_str.endswith("S") else items_type_str
             on_type_str = str(on_type).replace("ResourceType.", "").upper() if on_type else ""
-            return f"{priv} on FUTURE {items_plural} in {on_type_str}.{on} → {to_type_str}.{to}"
-
-        elif grant_type_str == "ALL" and items_type:
-            # Format: SELECT on ALL TABLES in DATABASE.MYDB → ROLE.X
-            items_type_str = str(items_type).replace("ResourceType.", "").upper()
-            items_plural = items_type_str + "S" if not items_type_str.endswith("S") else items_type_str
-            on_type_str = str(on_type).replace("ResourceType.", "").upper() if on_type else ""
-            return f"{priv} on ALL {items_plural} in {on_type_str}.{on} → {to_type_str}.{to}"
+            # The account container has no name of its own
+            container = on_type_str if on_type_str == "ACCOUNT" else f"{on_type_str}.{on}"
+            return f"{priv} on {grant_type_str} {items_plural} in {container} → {to_type_str}.{to}"
 
         elif on_type:
             # Regular object grant: SELECT on TABLE.MYTABLE → ROLE.X
@@ -871,6 +1213,40 @@ def _dump_plan_text(plan: Plan) -> str:
 
 def print_plan(plan: Plan):
     print(dump_plan(plan, format="text"))
+
+
+def print_surviving_drops(survivors: list["ResourceChange"]):
+    """
+    Report drops Snowflake accepted without carrying out.
+
+    Printed rather than logged: a logger warning scrolls past in the middle of an apply,
+    and the whole problem with these is that nothing tells you they happened. Formatted the
+    way the plan formats the same change, so the line reads as the one the user just saw
+    under DROP rather than as a raw URN.
+    """
+    if not survivors:
+        return
+
+    yellow = "\033[93m"
+    reset = "\033[0m"
+    print(f"\n{yellow}!{reset} {len(survivors)} drop(s) reported success but the resource is still there:\n")
+    for change in survivors:
+        print(f"    {_format_resource_name(change.urn, change)}")
+    print(
+        "\n  Snowflake accepted these statements without carrying them out. A REVOKE does that\n"
+        "  when the executing role does not own the privilege or cannot resolve the grantee.\n"
+        "  They will appear in the next plan as well. Check what granted the privilege\n"
+        "  (SHOW GRANTS ... , granted_by) and whether that role is available to this session.\n"
+    )
+    # Database-role grantees are the common cause: no held role could resolve one without
+    # USAGE on its database, so the revoke ran as SECURITYADMIN and silently did nothing.
+    # Name the role that would work.
+    db_role_databases = sorted({d for d in (_database_of_database_role_grantee(c) for c in survivors) if d})
+    if db_role_databases:
+        print(
+            "  Some are held by database roles, revocable only by a role that owns their\n"
+            "  database. Grant your user the owner of: " + ", ".join(db_role_databases) + "\n"
+        )
 
 
 def print_diffs(diffs):
@@ -1166,8 +1542,22 @@ class Blueprint:
                 exception_block = "\n".join(exceptions)
             raise NonConformingPlanException("Non-conforming actions found in plan:\n" + exception_block)
 
-    def _warning_for_nonconforming_plan(self, session_ctx: SessionContext, plan: Plan):
+    def _warning_for_nonconforming_plan(
+        self,
+        session_ctx: SessionContext,
+        plan: Plan,
+        manifest: Optional[Manifest] = None,
+        remote_state: Optional[State] = None,
+    ):
         warnings = []
+
+        # Future grant precedence is a property of the whole config, not of the changes in
+        # the plan, so use the manifest when we have it and fall back to the plan when we
+        # were handed a pre-built one.
+        if manifest is not None:
+            warnings.extend(future_grant_precedence_warnings(manifest_state_entries(manifest, remote_state)))
+        else:
+            warnings.extend(future_grant_precedence_warnings(plan_entries(plan)))
 
         grant_to_system = False
         role_grant_to_system = False
@@ -1230,18 +1620,22 @@ class Blueprint:
 
         if self._config.sync_resources:
             urns = [item for item in manifest.urns if item.resource_type not in self._config.sync_resources]
-            # Pre-compute whether manifest has future grants (for GRANT sync optimization)
-            has_future_grants = manifest_has_future_grants(manifest)
-            future_grant_roles = manifest_future_grant_roles(manifest) if has_future_grants else set()
-            future_grant_database_roles = manifest_future_grant_database_roles(manifest) if has_future_grants else set()
             for resource_type in self._config.sync_resources:
-                # Pass include_future_grants=False for grants if manifest has no future grants
-                # Also pass future_grant_roles to only query roles that have future grants
+                # Future grants are read in full whenever grants are synced, and neither
+                # the query nor the set of roles queried is narrowed to what the manifest
+                # declares. Narrowing would be sound for a plan that only creates, but
+                # syncing a resource type means removing what is not declared, and a future
+                # grant absent from config is precisely what has to be found.
+                #
+                # Skipping the query when the manifest declared no future grants kept the
+                # ones already in Snowflake out of remote state, so sync could not propose
+                # dropping them -- unseen rather than deliberately kept, with nothing in
+                # the plan to say so. Migrating a config from ALL plus FUTURE pairs to
+                # inherited grants removes the last future grant and hit exactly that: 26
+                # orphaned future grants, zero drops, no warning.
                 list_kwargs: dict[str, Any] = {}
                 if resource_type == ResourceType.GRANT:
-                    list_kwargs["include_future_grants"] = has_future_grants
-                    list_kwargs["future_grant_roles"] = future_grant_roles
-                    list_kwargs["future_grant_database_roles"] = future_grant_database_roles
+                    list_kwargs["include_future_grants"] = True
                 for fqn in data_provider.list_resource(session, resource_label_for_type(resource_type), **list_kwargs):
                     if self._config.scope == BlueprintScope.DATABASE and fqn.database != self._config.database:
                         continue
@@ -1634,7 +2028,48 @@ class Blueprint:
         self._create_ownership_refs(session_ctx)
         self._create_grandparent_refs()
         self._create_stage_privilege_refs()
+        # Must run after _build_resource_graph populates self._root and before
+        # _finalize_resources locks resources, like the other ref-creators above —
+        # otherwise it walks an empty graph and the grant->flag edge is never added.
+        self._link_inherited_grants_to_feature_flag()
         self._finalize_resources()
+
+    def _link_inherited_grants_to_feature_flag(self) -> None:
+        """
+        Make inherited grants depend on the account parameter that enables them.
+
+        A config can turn the preview on itself:
+
+            account_parameters:
+              - name: FEATURE_RBAC_INHERITED_GRANTS
+                value: ENABLED
+
+        Without a dependency between the two, both land at the same level of the plan and
+        run concurrently, so the grants can reach Snowflake before the parameter does. The
+        reference is only added when the parameter is declared, since a reference to a
+        resource that is not in the manifest is an error in its own right.
+        """
+        resources = [r for r in _walk(self._root) if isinstance(r, Resource)]
+        feature_flag = next(
+            (
+                r
+                for r in resources
+                if r.resource_type == ResourceType.ACCOUNT_PARAMETER
+                and isinstance(r, NamedResource)
+                and ResourceName(r.name) == ResourceName(INHERITED_GRANTS_FEATURE_FLAG)
+            ),
+            None,
+        )
+        if feature_flag is None:
+            return
+
+        for resource in resources:
+            if (
+                resource.resource_type == ResourceType.GRANT
+                and getattr(resource, "grant_type", None) == GrantType.INHERITED
+                and not resource._finalized
+            ):
+                resource.requires(feature_flag)
 
     def generate_manifest(self, session_ctx: SessionContext) -> Manifest:
         manifest = Manifest(account_locator=session_ctx["account_locator"])
@@ -1684,6 +2119,7 @@ class Blueprint:
             logger.debug(f"  {key}")
         session_ctx = data_provider.fetch_session(session)
         manifest = self.generate_manifest(session_ctx)
+        raise_if_inherited_grants_unavailable(session, manifest)
         remote_state = self.fetch_remote_state(session, manifest)
         try:
             finished_plan = diff(remote_state, manifest)
@@ -1715,7 +2151,7 @@ class Blueprint:
             logger.error(manifest)
             raise
         self._raise_for_nonconforming_plan(session_ctx, finished_plan)
-        self._warning_for_nonconforming_plan(session_ctx, finished_plan)
+        self._warning_for_nonconforming_plan(session_ctx, finished_plan, manifest, remote_state)
         return finished_plan
 
     def apply(self, session, plan: Optional[Plan] = None) -> None:
@@ -1840,7 +2276,19 @@ class Blueprint:
 
         _raise_if_plan_would_drop_session_user(session_ctx, plan)
 
-        sql_commands_per_change, available_roles = compile_plan_to_sql(session_ctx, plan)
+        # Databases mounted from a share, resolved only when the plan actually revokes a
+        # grant: privileges on those cannot be revoked one at a time. See
+        # lifecycle.drop_shared_database_grant.
+        shared_databases: Optional[set[str]] = None
+        database_owners: Optional[dict[str, str]] = None
+        if any(c.urn.resource_type == ResourceType.GRANT for c in plan):
+            # Both read the same cached SHOW DATABASES response, so this is one query.
+            shared_databases = data_provider.list_shared_database_names(session)
+            database_owners = data_provider.list_database_owners(session)
+
+        sql_commands_per_change, available_roles = compile_plan_to_sql(
+            session_ctx, plan, shared_databases, database_owners
+        )
         roles_list: list[Any] = []
         additive_commands = []
         destructive_commands = []
@@ -1866,6 +2314,9 @@ class Blueprint:
 
         # Print completion summary
         print_apply_summary(plan, "end")
+
+        if not self._config.dry_run:
+            print_surviving_drops(surviving_drops(session, [c["change"] for c in destructive_commands]))
 
     def _add(self, resource: Resource):
         if self._finalized:
@@ -1898,20 +2349,170 @@ def owner_for_change(change: ResourceChange) -> Optional[ResourceName]:
         return None
 
 
+def _inherited_grant_execution_role(change: ResourceChange) -> Optional[str]:
+    """
+    The role an inherited grant declares itself to be managed by, if any.
+
+    Grants get a default owner (SYSADMIN, or ACCOUNTADMIN for integrations and Snowflake
+    schemas) when config does not name one, so those defaults are not treated as a
+    delegation and fall through to the usual SECURITYADMIN strategy.
+    """
+    if change.urn.resource_type != ResourceType.GRANT:
+        return None
+    if isinstance(change, (CreateResource, UpdateResource)):
+        data = change.after
+    elif isinstance(change, DropResource):
+        data = change.before
+    else:
+        return None
+    if not isinstance(data, dict) or data.get("grant_type") != GrantType.INHERITED.value:
+        return None
+    owner = data.get("owner")
+    if not owner or owner in ("SYSADMIN", "ACCOUNTADMIN"):
+        return None
+    return str(owner)
+
+
+def _shared_database_for_grant(change: ResourceChange, shared_databases: Optional[set[str]]) -> Optional[str]:
+    """
+    The shared database a grant being dropped belongs to, if any.
+
+    A grant on a shared database, or on anything inside one, is part of the fan-out of an
+    IMPORTED PRIVILEGES grant and cannot be revoked on its own. Returns the database so the
+    caller can revoke the share instead; None for ordinary grants.
+    """
+    if not shared_databases or not isinstance(change, DropResource):
+        return None
+    if change.urn.resource_type != ResourceType.GRANT:
+        return None
+    on = change.before.get("on")
+    if not on:
+        return None
+    # A share fan-out only touches the database itself or objects that live inside one. An
+    # account-level object (warehouse, integration, role, ...) that merely shares a name with
+    # an imported database must revoke its own privilege, not the share.
+    on_type = change.before.get("on_type")
+    if on_type is not None:
+        try:
+            rt: Optional[ResourceType] = ResourceType(str(on_type))
+        except ValueError:
+            rt = None
+        if rt is not None and rt != ResourceType.DATABASE and isinstance(RESOURCE_SCOPES.get(rt), AccountScope):
+            return None
+    # Quote-aware split (like _container_covers): a database quoted with a literal dot would
+    # otherwise mis-split and miss the shared-databases set.
+    database = smart_split(str(on), ".")[0].strip('"').upper()
+    return database if database in shared_databases else None
+
+
+def surviving_drops(session, changes: list[ResourceChange]) -> list[ResourceChange]:
+    """
+    Which of the resources an apply just dropped are still there.
+
+    Snowflake does not always fail a statement it could not carry out. REVOKE is the
+    conspicuous case: it reports success when the executing role does not own the privilege
+    or cannot resolve the grantee, rather than raising. The apply sees no exception, counts
+    the drop as applied, and the grant survives -- so the same drop comes back in the next
+    plan, and the one after that, with nothing in any output saying why.
+
+    Treating "no exception" as "applied" is what makes that invisible. Reading the dropped
+    resources back is the only thing that distinguishes a real drop from one Snowflake
+    quietly declined.
+
+    Costs one existence check per dropped resource, and runs only when a plan dropped
+    something. A resource type that cannot be read back is skipped rather than reported: not
+    being able to confirm a drop is not evidence that it failed.
+    """
+    dropped = [change for change in changes if isinstance(change, DropResource)]
+    if not dropped:
+        return []
+
+    # The apply just changed the very state these checks read. reset_cache() alone
+    # leaves the ACCOUNT_USAGE grant snapshot in place, and _show_grants_to_role serves
+    # it for account-role grants — so a revoked grant would re-appear as a false survivor
+    # on use_account_usage runs. Clear both.
+    reset_cache()
+    data_provider.reset_account_usage_caches()
+
+    survivors: list[ResourceChange] = []
+    for change in dropped:
+        try:
+            if data_provider.fetch_resource(session, change.urn, existence_only=True) is not None:
+                survivors.append(change)
+        except Exception:  # pragma: no cover - defensive, see docstring
+            logger.debug(f"Could not verify drop of {change.urn}", exc_info=True)
+    return survivors
+
+
+def _database_of_database_role_grantee(change: ResourceChange) -> Optional[str]:
+    """
+    The database a grant's grantee belongs to, when that grantee is a database role.
+
+    A database role is named <database>.<role> and lives inside its database. Managing a
+    grant held by one needs a role that can see that database: account-level MANAGE GRANTS
+    lets SECURITYADMIN administer grants, but without USAGE on the database it cannot
+    resolve the grantee, and REVOKE reports success rather than failing on a grantee it
+    cannot resolve. The grant survives, and the same drop comes back in every later plan.
+
+    Returns None for grants to account roles, which account-level authority does reach.
+    """
+    if change.urn.resource_type != ResourceType.GRANT:
+        return None
+    if isinstance(change, CreateResource):
+        data = change.after
+    elif isinstance(change, DropResource):
+        data = change.before
+    else:
+        return None
+    if str(data.get("to_type", "")).replace("_", " ").upper() != "DATABASE ROLE":
+        return None
+    grantee = str(data.get("to", ""))
+    if "." not in grantee:
+        return None
+    return grantee.split(".")[0].strip('"').upper()
+
+
 def execution_strategy_for_change(
     change: ResourceChange,
     available_roles: list[ResourceName],
     default_role: ResourceName,
+    transferred_owners: Optional[dict[URN, ResourceName]] = None,
+    database_owners: Optional[dict[str, str]] = None,
 ) -> tuple[ResourceName, bool]:
 
     change_owner = owner_for_change(change)
 
     if resource_type_is_grant(change.urn.resource_type):
+        # Inherited grants require MANAGE GRANTS on the container, which is how Snowflake
+        # lets a database or schema admin manage access without account-wide authority. An
+        # explicit `owner` on the grant names that delegated role, so it is used in
+        # preference to SECURITYADMIN when the session has it.
+        # https://docs.snowflake.com/en/user-guide/container-manage-grants-intro
+        inherited_grant_owner = _inherited_grant_execution_role(change)
+        if inherited_grant_owner and inherited_grant_owner in available_roles:
+            return ResourceName(inherited_grant_owner), False
+
         # 2024-10-22: maybe the better thing to do is check role privs selectively
-        if isinstance(change, CreateResource) and change.urn.resource_type == ResourceType.GRANT:
-            execution_role = system_role_for_priv(change.after["priv"])
+        #
+        # Revokes use the same role as grants. An account-level privilege belongs to the
+        # system role that owns it, and Snowflake will not take one back from a role that
+        # does not -- but it reports success rather than failing, so a revoke run as
+        # SECURITYADMIN silently leaves the privilege in place and the same drop reappears
+        # in every later plan.
+        if change.urn.resource_type == ResourceType.GRANT and isinstance(change, (CreateResource, DropResource)):
+            grant_data = change.after if isinstance(change, CreateResource) else change.before
+            execution_role = system_role_for_priv(grant_data["priv"])
             if execution_role and execution_role in available_roles:
                 return ResourceName(execution_role), False
+
+        # Grants held by a database role are managed from inside that database, by the role
+        # that owns it. SECURITYADMIN can hold MANAGE GRANTS and still be unable to resolve
+        # the grantee without USAGE on the database.
+        grantee_database = _database_of_database_role_grantee(change)
+        if grantee_database and database_owners:
+            database_owner = database_owners.get(grantee_database)
+            if database_owner and ResourceName(database_owner) in available_roles:
+                return ResourceName(database_owner), False
 
         if "SECURITYADMIN" in available_roles:
             return ResourceName("SECURITYADMIN"), False
@@ -1962,6 +2563,19 @@ def execution_strategy_for_change(
         )
 
     elif isinstance(change, (UpdateResource, DropResource, TransferOwnership)):
+        if (
+            isinstance(change, TransferOwnership)
+            and change.urn.resource_type in OWNER_EXECUTED_RESOURCE_TYPES
+            and "SECURITYADMIN" in available_roles
+        ):
+            # Owner-executed objects run their body or schedule with the privileges of
+            # their owner. Snowflake tightened authorization for transferring them:
+            # GRANT OWNERSHIP fails unless the receiving role is in the caller's active
+            # role hierarchy or the caller holds account-level MANAGE GRANTS. Running the
+            # transfer as the outgoing owner, which is what Snowcap does for every other
+            # resource, satisfies neither condition in the common case.
+            # https://docs.snowflake.com/en/user-guide/inherited-grants-intro
+            return ResourceName("SECURITYADMIN"), False
         if change_owner:
             return change_owner, False
         else:
@@ -1994,7 +2608,15 @@ def execution_strategy_for_change(
                 f"    GRANT ROLE {system_role} TO USER your_user;"
             )
         elif isinstance(change.resource_cls.scope, (DatabaseScope, SchemaScope)) and change.container:
-            container_owner = ResourceName(change.container[1])
+            container_urn, container_owner = change.container
+            container_owner = ResourceName(container_owner)
+            # The container's owner is recorded when the plan is built. When the same plan
+            # also transfers that container, the transfer has already run by the time this
+            # CREATE executes -- a container sits at a lower dependency level than the
+            # resources inside it -- so the role recorded here no longer owns the container
+            # and cannot create anything in it. Use the owner the container ends up with.
+            if transferred_owners and container_urn in transferred_owners:
+                container_owner = transferred_owners[container_urn]
             transfer_ownership = container_owner != change_owner
             if transfer_ownership and change.urn.resource_type == ResourceType.NOTEBOOK:
                 raise Exception("Notebook ownership cannot be transferred")
@@ -2007,6 +2629,9 @@ def sql_commands_for_change(
     change: ResourceChange,
     available_roles: list[ResourceName],
     default_role: ResourceName,
+    transferred_owners: Optional[dict[URN, ResourceName]] = None,
+    shared_databases: Optional[set[str]] = None,
+    database_owners: Optional[dict[str, str]] = None,
 ) -> tuple[ResourceName, list[str]]:
     """
     In Snowflake's RBAC model, a session has an active role, and zero or more secondary roles.
@@ -2018,7 +2643,7 @@ def sql_commands_for_change(
         - Otherwise, the PUBLIC role is activated (PUBLIC cannot be revoked)
     - Any time the USE ROLE command is run, the active role is switched
 
-    A session may run any command thats allowed by the active role or any role downstream from it in the role hierarchy.
+    A session may run any command that's allowed by the active role or any role downstream from it in the role hierarchy.
     When secondary roles are active (by running the command USE SECONDARY ROLES ALL), then the session may also run any
     command that any secondary role or a role downstream from it is allowed to run.
 
@@ -2037,6 +2662,8 @@ def sql_commands_for_change(
         change,
         available_roles,
         default_role,
+        transferred_owners,
+        database_owners,
     )
 
     if isinstance(change, CreateResource):
@@ -2081,11 +2708,15 @@ def sql_commands_for_change(
                     copy_current_grants=True,
                 )
             )
-        change_cmd = lifecycle.drop_resource(
-            change.urn,
-            change.before,
-            if_exists=True,
-        )
+        shared_database = _shared_database_for_grant(change, shared_databases)
+        if shared_database:
+            change_cmd = lifecycle.drop_shared_database_grant(change.before, shared_database)
+        else:
+            change_cmd = lifecycle.drop_resource(
+                change.urn,
+                change.before,
+                if_exists=True,
+            )
     elif isinstance(change, TransferOwnership):
         change_cmd = lifecycle.transfer_resource(
             change.urn,
@@ -2099,7 +2730,10 @@ def sql_commands_for_change(
 
 
 def compile_plan_to_sql(
-    session_ctx: SessionContext, plan: Plan
+    session_ctx: SessionContext,
+    plan: Plan,
+    shared_databases: Optional[set[str]] = None,
+    database_owners: Optional[dict[str, str]] = None,
 ) -> tuple[list[dict], list[ResourceName]]:
     """Compile the plan into a list of SQL command lists, one per change.
 
@@ -2111,6 +2745,12 @@ def compile_plan_to_sql(
     available_roles = session_ctx["available_roles"].copy()
     default_role = session_ctx["role"]
     current_user = ResourceName(session_ctx.get("user", "")) if session_ctx.get("user") else None
+    # Containers this plan hands to a new owner. Resources created inside one of them
+    # have to be created by the owner it ends up with, not the one it had when the plan
+    # was built, because the transfer runs first.
+    transferred_owners: dict[URN, ResourceName] = {
+        change.urn: ResourceName(change.to_owner) for change in plan if isinstance(change, TransferOwnership)
+    }
     for change in plan:
         if isinstance(change, CreateResource):
             if change.urn.resource_type == ResourceType.ROLE:
@@ -2120,10 +2760,16 @@ def compile_plan_to_sql(
                 if change.after.get("to_role") and change.after["to_role"] in available_roles:
                     available_roles.append(ResourceName(change.after["role"]))
                 # Handle role grants to the current user
-                elif current_user and change.after.get("to_user") and ResourceName(change.after["to_user"]) == current_user:
+                elif (
+                    current_user
+                    and change.after.get("to_user")
+                    and ResourceName(change.after["to_user"]) == current_user
+                ):
                     available_roles.append(ResourceName(change.after["role"]))
     for change in plan:
-        role, commands = sql_commands_for_change(change, available_roles, default_role)
+        role, commands = sql_commands_for_change(
+            change, available_roles, default_role, transferred_owners, shared_databases, database_owners
+        )
         sql_commands_per_change.append({"role": role, "commands": commands, "change": change})
     return sql_commands_per_change, available_roles
 
@@ -2290,31 +2936,35 @@ def diff(remote_state: State, manifest: Manifest) -> list:
                     logger.debug(f"        resource_type match: {urn.resource_type == state_urn.resource_type}")
                     logger.debug(f"        account_locator match: {urn.account_locator == state_urn.account_locator}")
 
-    grant_on_all_resources = [
+    collection_grants = [
         r
         for r in manifest.resources
         if not isinstance(r, ResourcePointer)
         and r.resource_cls == Grant
-        and r.data["grant_type"] == GrantType.ALL.value
+        and r.data["grant_type"] in (GrantType.ALL.value, GrantType.INHERITED.value)
+    ]
+
+    imported_privilege_grants = [
+        r
+        for r in manifest.resources
+        if not isinstance(r, ResourcePointer)
+        and r.resource_cls == Grant
+        and r.data["priv"] == "IMPORTED PRIVILEGES"
+        and r.data["on_type"] == ResourceType.DATABASE.value
     ]
 
     # Resources in remote state but not in the manifest should be removed
     for urn in state_urns - manifest_urns:
         remote_res = remote_state[urn]
-        # If there are ALL grants and the current resource is included we should not drop it
-        if grant_on_all_resources and remote_res.get("grant_type") == GrantType.OBJECT.value:
-            matching_grants = [
-                r
-                for r in grant_on_all_resources
-                if r.data["priv"] == remote_res["priv"]
-                and r.data["to"] == remote_res["to"]
-                and r.data["items_type"] == remote_res["on_type"]
-                and r.data["on"] == ".".join(remote_res["on"].split(".")[:-1])
-            ]
-            if matching_grants:
-                continue
-        else:
-            changes.append(DropResource(urn, remote_state[urn]))
+        # A grant on a collection of objects covers the per-object grants it produced, which
+        # are in remote state but never in the manifest. Dropping those would revoke the
+        # access the collection grant just handed out.
+        if _covered_by_collection_grant(collection_grants, remote_res):
+            continue
+        # Same reasoning for the fan-out of an IMPORTED PRIVILEGES grant on a shared database.
+        if _covered_by_imported_privileges(imported_privilege_grants, remote_res):
+            continue
+        changes.append(DropResource(urn, remote_state[urn]))
 
     # Resources in the manifest but not in remote state should be added
     for urn in manifest_urns - state_urns:

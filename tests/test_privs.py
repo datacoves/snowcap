@@ -53,7 +53,6 @@ from snowcap.privs import (
 from snowcap.enums import ResourceType
 from snowcap.identifiers import resource_label_for_type, resource_type_for_label
 
-
 # Pseudo-resources and meta-resources that don't have associated privileges
 # These are internal resources, grants, or container types that don't support GRANT statements
 PSEUDO_RESOURCE_TYPES = {

@@ -60,7 +60,6 @@ from snowcap.identifiers import FQN, URN
 from snowcap.resource_name import ResourceName
 from snowcap.props import Props
 
-
 # ============================================================================
 # Test fixtures and helpers
 # ============================================================================
@@ -422,6 +421,48 @@ class TestCreateGrant:
         props = MockProps("")
         result = create_grant(urn, data, props, if_not_exists=False)
         assert "ON ALL TABLES IN" in result
+
+    def test_grant_inherited(self):
+        """One container-level grant covering current and future objects."""
+        urn = make_urn(ResourceType.GRANT, "GRANT")
+        data = {
+            "priv": "SELECT",
+            "on_type": "SCHEMA",
+            "on": "MY_DB.MY_SCHEMA",
+            "items_type": "TABLE",
+            "to_type": "ROLE",
+            "to": "MY_ROLE",
+            "grant_type": GrantType.INHERITED,
+            "grant_option": False,
+        }
+        props = MockProps("")
+
+        assert create_grant(urn, data, props, if_not_exists=False) == (
+            "GRANT INHERITED SELECT ON ALL TABLES IN SCHEMA MY_DB.MY_SCHEMA TO ROLE MY_ROLE"
+        )
+        assert drop_grant(urn, data) == (
+            "REVOKE INHERITED SELECT ON ALL TABLES IN SCHEMA MY_DB.MY_SCHEMA FROM ROLE MY_ROLE"
+        )
+
+    def test_grant_inherited_in_account(self):
+        """The account container has no name, so it renders as a bare IN ACCOUNT."""
+        urn = make_urn(ResourceType.GRANT, "GRANT")
+        data = {
+            "priv": "SELECT",
+            "on_type": ResourceType.ACCOUNT,
+            "on": "ACCOUNT",
+            "items_type": "TABLE",
+            "to_type": "ROLE",
+            "to": "MY_ROLE",
+            "grant_type": GrantType.INHERITED,
+            "grant_option": False,
+        }
+        props = MockProps("")
+
+        assert create_grant(urn, data, props, if_not_exists=False) == (
+            "GRANT INHERITED SELECT ON ALL TABLES IN ACCOUNT TO ROLE MY_ROLE"
+        )
+        assert drop_grant(urn, data) == "REVOKE INHERITED SELECT ON ALL TABLES IN ACCOUNT FROM ROLE MY_ROLE"
 
     def test_grant_on_integration(self):
         """Test grant on integration (type normalization)."""
