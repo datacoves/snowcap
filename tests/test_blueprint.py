@@ -53,6 +53,7 @@ from snowcap.blueprint import (
     UpdateResource,
     compute_levels,
     _merge_pointers,
+    _summarize_plan_value,
     compile_plan_to_sql,
     diff,
     dump_plan,
@@ -2793,3 +2794,26 @@ class TestSyncReadsFutureGrantsRegardless:
 
         assert "future_grant_roles" not in kwargs
         assert "future_grant_database_roles" not in kwargs
+
+
+class TestSummarizePlanValue:
+    """The plan table must not dump a multiline SQL body (alert THEN, task body)."""
+
+    def test_short_scalar_prints_verbatim(self):
+        assert _summarize_plan_value("STARTED") == "STARTED"
+        assert _summarize_plan_value("1 MINUTE") == "1 MINUTE"
+
+    def test_none_is_empty(self):
+        assert _summarize_plan_value(None) == ""
+
+    def test_multiline_body_becomes_a_shape_not_sql(self):
+        body = "BEGIN\n  LET x;\n  CALL foo();\nEND"
+        summary = _summarize_plan_value(body)
+        assert summary == "<4 lines, 32 chars>"
+        assert "\n" not in summary
+        assert "CALL" not in summary
+
+    def test_long_single_line_is_bounded(self):
+        summary = _summarize_plan_value("x" * 90)
+        assert summary == "<1 line, 90 chars>"
+        assert len(summary) < 90
