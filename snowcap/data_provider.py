@@ -1702,11 +1702,12 @@ def fetch_alert(session: SnowflakeConnection, fqn: FQN):
     data = alerts[0]
     return {
         "name": _quote_snowflake_identifier(data["name"]),
-        "warehouse": data["warehouse"],
+        "warehouse": data["warehouse"] or None,
         "schedule": data["schedule"],
         "comment": data["comment"] or None,
         "condition": data["condition"],
         "then": data["action"],
+        "state": str(data["state"]).upper(),
         "owner": _get_owner_identifier(data),
     }
 
@@ -3431,6 +3432,10 @@ def fetch_task(session: SnowflakeConnection, fqn: FQN, include_params: bool = Tr
     if data["error_integration"] != "null":
         error_integration = _quote_snowflake_identifier(data["error_integration"])
 
+    success_integration = None
+    if data.get("success_integration") and data["success_integration"] != "null":
+        success_integration = _quote_snowflake_identifier(data["success_integration"])
+
     task_relations = json.loads(task_details["task_relations"])
     after = task_relations["Predecessors"]
 
@@ -3439,8 +3444,12 @@ def fetch_task(session: SnowflakeConnection, fqn: FQN, include_params: bool = Tr
         suspend_task_after_num_failures = params.get("suspend_task_after_num_failures", None)
 
     user_task_managed_initial_warehouse_size = None
+    serverless_task_min_statement_size = None
+    serverless_task_max_statement_size = None
     if not data["warehouse"]:
         user_task_managed_initial_warehouse_size = params.get("user_task_managed_initial_warehouse_size", None)
+        serverless_task_min_statement_size = params.get("serverless_task_min_statement_size", None)
+        serverless_task_max_statement_size = params.get("serverless_task_max_statement_size", None)
     return {
         "name": _quote_snowflake_identifier(data["name"]),
         "warehouse": data["warehouse"],
@@ -3451,6 +3460,14 @@ def fetch_task(session: SnowflakeConnection, fqn: FQN, include_params: bool = Tr
         "user_task_timeout_ms": params.get("user_task_timeout_ms", None),
         "suspend_task_after_num_failures": suspend_task_after_num_failures,
         "error_integration": error_integration,
+        "success_integration": success_integration,
+        "serverless_task_min_statement_size": serverless_task_min_statement_size,
+        "serverless_task_max_statement_size": serverless_task_max_statement_size,
+        "task_auto_retry_attempts": params.get("task_auto_retry_attempts", None),
+        "user_task_minimum_trigger_interval_in_seconds": params.get(
+            "user_task_minimum_trigger_interval_in_seconds", None
+        ),
+        "target_completion_interval": _normalize_snowflake_optional(data.get("target_completion_interval")),
         "state": str(data["state"]).upper(),
         "owner": _get_owner_identifier(data),
         "comment": task_details["comment"] or None,

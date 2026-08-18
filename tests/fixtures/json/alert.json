@@ -5,5 +5,6 @@
     "condition": "SELECT 1",
     "then": "SELECT 2",
     "owner": "SYSADMIN",
-    "comment": "This is a test alert"
+    "comment": "This is a test alert",
+    "state": "SUSPENDED"
 }

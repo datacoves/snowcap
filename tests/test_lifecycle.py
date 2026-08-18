@@ -1476,6 +1476,17 @@ class TestUpdateMCPServer:
         assert result.startswith("CREATE OR REPLACE MCP SERVER")
         assert "ALTER MCP SERVER" not in result
 
+    def test_update_resource_dispatches_alert_state_to_resume(self):
+        """Issue #57: an alert's state change routes to ALTER ALERT ... RESUME/SUSPEND."""
+        urn = make_urn(ResourceType.ALERT, "MY_ALERT", database="MY_DB", schema="MY_SCHEMA")
+        assert (
+            update_resource(urn, {"state": "STARTED"}, res.Alert.props) == "ALTER ALERT MY_DB.MY_SCHEMA.MY_ALERT RESUME"
+        )
+        assert (
+            update_resource(urn, {"state": "SUSPENDED"}, res.Alert.props)
+            == "ALTER ALERT MY_DB.MY_SCHEMA.MY_ALERT SUSPEND"
+        )
+
 
 class TestCreateMCPServer:
     """create_resource needs no MCP server override; create__default already produces valid DDL."""

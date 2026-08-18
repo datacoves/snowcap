@@ -33,6 +33,15 @@ class _Task(ResourceSpec):
     user_task_timeout_ms: Optional[int] = None  # Uses Snowflake default (3600000) if not specified
     suspend_task_after_num_failures: Optional[int] = None
     error_integration: Optional[str] = None
+    success_integration: Optional[str] = None
+    serverless_task_min_statement_size: Optional[WarehouseSize] = None
+    serverless_task_max_statement_size: Optional[WarehouseSize] = None
+    task_auto_retry_attempts: Optional[int] = None
+    user_task_minimum_trigger_interval_in_seconds: Optional[int] = None
+    target_completion_interval: Optional[str] = None
+    # ponytail: finalize wires a task into a DAG's finalizer slot at creation; not fetched
+    # back (create-only, like copy_grants), so declaring it on a live task is a no-op.
+    finalize: Optional[str] = field(default=None, metadata={"fetchable": False})
     copy_grants: bool = field(default=None, metadata={"fetchable": False})
     comment: Optional[str] = None
     after: Optional[list[str]] = None
@@ -75,7 +84,14 @@ class Task(NamedResource, Resource):
         allow_overlapping_execution (bool): Whether the task can have overlapping executions.
         user_task_timeout_ms (int): The timeout in milliseconds after which the task is aborted.
         suspend_task_after_num_failures (int): The number of consecutive failures after which the task is suspended.
-        error_integration (string): The integration used for error handling.
+        error_integration (string): The notification integration used for error handling.
+        success_integration (string): The notification integration used for success notifications.
+        serverless_task_min_statement_size (string or WarehouseSize): Minimum warehouse size for a serverless task.
+        serverless_task_max_statement_size (string or WarehouseSize): Maximum warehouse size for a serverless task.
+        task_auto_retry_attempts (int): Number of automatic retry attempts for a failed task run.
+        user_task_minimum_trigger_interval_in_seconds (int): Minimum interval between triggered task executions, in seconds.
+        target_completion_interval (string): Target completion time for the task, e.g. "1 minutes".
+        finalize (string): Name of the root task this task finalizes. Set at creation only.
         copy_grants (bool): Whether to copy grants from the referenced objects.
         comment (string): A comment for the task.
         after (list): A list of tasks that must be completed before this task runs.
@@ -118,6 +134,13 @@ class Task(NamedResource, Resource):
         user_task_timeout_ms=IntProp("user_task_timeout_ms"),
         suspend_task_after_num_failures=IntProp("suspend_task_after_num_failures"),
         error_integration=StringProp("error_integration"),
+        success_integration=StringProp("success_integration"),
+        serverless_task_min_statement_size=EnumProp("serverless_task_min_statement_size", WarehouseSize),
+        serverless_task_max_statement_size=EnumProp("serverless_task_max_statement_size", WarehouseSize),
+        task_auto_retry_attempts=IntProp("task_auto_retry_attempts"),
+        user_task_minimum_trigger_interval_in_seconds=IntProp("user_task_minimum_trigger_interval_in_seconds"),
+        target_completion_interval=StringProp("target_completion_interval"),
+        finalize=IdentifierProp("finalize"),
         copy_grants=FlagProp("copy grants"),
         comment=StringProp("comment"),
         after=IdentifierListProp("after", eq=False, parens=False),
@@ -139,6 +162,13 @@ class Task(NamedResource, Resource):
         user_task_timeout_ms: int = None,
         suspend_task_after_num_failures: int = None,
         error_integration: str = None,
+        success_integration: str = None,
+        serverless_task_min_statement_size: WarehouseSize = None,
+        serverless_task_max_statement_size: WarehouseSize = None,
+        task_auto_retry_attempts: int = None,
+        user_task_minimum_trigger_interval_in_seconds: int = None,
+        target_completion_interval: str = None,
+        finalize: str = None,
         copy_grants: bool = None,
         comment: str = None,
         after: list[str] = None,
@@ -159,6 +189,13 @@ class Task(NamedResource, Resource):
             user_task_timeout_ms=user_task_timeout_ms,
             suspend_task_after_num_failures=suspend_task_after_num_failures,
             error_integration=error_integration,
+            success_integration=success_integration,
+            serverless_task_min_statement_size=serverless_task_min_statement_size,
+            serverless_task_max_statement_size=serverless_task_max_statement_size,
+            task_auto_retry_attempts=task_auto_retry_attempts,
+            user_task_minimum_trigger_interval_in_seconds=user_task_minimum_trigger_interval_in_seconds,
+            target_completion_interval=target_completion_interval,
+            finalize=finalize,
             copy_grants=copy_grants,
             comment=comment,
             after=after,

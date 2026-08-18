@@ -546,6 +546,17 @@ def update_task(urn: URN, data: dict, props: Props) -> str:
         return update__default(urn, {attr: new_value}, props)
 
 
+def update_alert(urn: URN, data: dict, props: Props) -> str:
+    attr, new_value = data.popitem()
+    attr = attr.lower()
+    # Alerts, like tasks, reach STARTED via ALTER ALERT ... RESUME rather than a CREATE clause.
+    if attr == "state":
+        change_verb = "RESUME" if new_value == "STARTED" else "SUSPEND"
+        return tidy_sql("ALTER ALERT", urn.fqn, change_verb)
+    else:
+        return update__default(urn, {attr: new_value}, props)
+
+
 def update_iceberg_table(urn: URN, data: dict, props: Props) -> str:
     attr, new_value = data.popitem()
     attr = attr.lower()
