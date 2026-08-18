@@ -1017,6 +1017,18 @@ class TestAlert:
         assert alert._data.warehouse is None
         assert "WAREHOUSE" not in alert.create_sql()
 
+    def test_alert_triggered_omits_schedule(self):
+        """A triggered/manual alert can omit schedule (no SCHEDULE clause)."""
+        alert = res.Alert(
+            name="test_alert",
+            database="test_db",
+            schema="test_schema",
+            condition="SELECT 1",
+            then="SELECT 1",
+        )
+        assert alert._data.schedule is None
+        assert "SCHEDULE" not in alert.create_sql()
+
     def test_alert_state_defaults_suspended_and_is_not_a_create_clause(self):
         """Alerts are created SUSPENDED; state is reached via ALTER, never rendered in CREATE."""
         alert = res.Alert(

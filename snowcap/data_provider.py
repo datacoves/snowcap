@@ -1703,7 +1703,7 @@ def fetch_alert(session: SnowflakeConnection, fqn: FQN):
     return {
         "name": _quote_snowflake_identifier(data["name"]),
         "warehouse": data["warehouse"] or None,
-        "schedule": data["schedule"],
+        "schedule": data["schedule"] or None,
         "comment": data["comment"] or None,
         "condition": data["condition"],
         "then": data["action"],

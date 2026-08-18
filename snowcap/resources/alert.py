@@ -14,10 +14,11 @@ from .warehouse import Warehouse
 @dataclass(unsafe_hash=True)
 class _Alert(ResourceSpec):
     name: ResourceName
-    schedule: str
     condition: str
     then: str
-    # Omitting warehouse yields a serverless alert (needs the EXECUTE MANAGED ALERT priv).
+    # A triggered/manual alert can omit schedule (it runs only via EXECUTE ALERT or a trigger)
+    # and warehouse (serverless, needs the EXECUTE MANAGED ALERT priv).
+    schedule: Optional[str] = None
     warehouse: Optional[Warehouse] = None
     owner: RoleRef = "SYSADMIN"
     comment: str = None
@@ -37,7 +38,7 @@ class Alert(NamedResource, TaggableResource, Resource):
     Fields:
         name (string, required): The name of the alert.
         warehouse (string or Warehouse): The warehouse to run the query on. Omit for a serverless alert.
-        schedule (string): The schedule for the alert to run on.
+        schedule (string): The schedule for the alert to run on. Omit for a triggered/manual alert.
         condition (string): The condition for the alert to trigger on.
         then (string): The query to run when the alert triggers.
         owner (string or Role): The owner role of the alert. Defaults to "SYSADMIN".
@@ -86,9 +87,9 @@ class Alert(NamedResource, TaggableResource, Resource):
     def __init__(
         self,
         name: str,
-        schedule: str,
         condition: str,
         then: str,
+        schedule: str = None,
         warehouse: Warehouse = None,
         owner: str = "SYSADMIN",
         comment: str = None,
