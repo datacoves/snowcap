@@ -1649,9 +1649,12 @@ class TestCreateSnowflakeCustomOAuthSecurityIntegration:
             "CREATE SECURITY INTEGRATION CLAUDE_MCP_OAUTH type = OAUTH ENABLED = TRUE "
             "oauth_client = CUSTOM oauth_client_type = 'CONFIDENTIAL' "
             "OAUTH_REDIRECT_URI = $$https://example.com/cb$$ "
+            "OAUTH_ALLOW_NON_TLS_REDIRECT_URI = FALSE "
             "OAUTH_ALTERNATE_REDIRECT_URIS = ($$https://example.com/cb2$$) "
             "OAUTH_ISSUE_REFRESH_TOKENS = TRUE OAUTH_REFRESH_TOKEN_VALIDITY = 7776000 "
-            "oauth_use_secondary_roles = NONE OAUTH_ENFORCE_PKCE = TRUE "
+            "OAUTH_SINGLE_USE_REFRESH_TOKENS_REQUIRED = FALSE "
+            "oauth_use_secondary_roles = NONE oauth_any_role_mode = DISABLE "
+            "OAUTH_ENFORCE_PKCE = TRUE OAUTH_ENABLE_ROLE_SELECTION = FALSE "
             "BLOCKED_ROLES_LIST = ($$ANALYST$$, $$SYSADMIN$$) COMMENT = $$test comment$$"
         )
 

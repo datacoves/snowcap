@@ -50,6 +50,12 @@ class OAuthUseSecondaryRoles(ParseableEnum):
     NONE = "NONE"
 
 
+class OAuthAnyRoleMode(ParseableEnum):
+    DISABLE = "DISABLE"
+    ENABLE = "ENABLE"
+    ENABLE_FOR_PRIVILEGE = "ENABLE_FOR_PRIVILEGE"
+
+
 @dataclass(unsafe_hash=True)
 class _SnowflakePartnerOAuthSecurityIntegration(ResourceSpec):
     name: ResourceName
@@ -377,11 +383,15 @@ class _SnowflakeCustomOAuthSecurityIntegration(ResourceSpec):
         },
     )
     oauth_redirect_uri: str = None
+    oauth_allow_non_tls_redirect_uri: bool = False
     oauth_alternate_redirect_uris: list[str] = field(default=None, metadata={"fetchable": False})
     oauth_issue_refresh_tokens: bool = True
     oauth_refresh_token_validity: int = 7776000
+    oauth_single_use_refresh_tokens_required: bool = False
     oauth_use_secondary_roles: OAuthUseSecondaryRoles = OAuthUseSecondaryRoles.NONE
+    oauth_any_role_mode: OAuthAnyRoleMode = OAuthAnyRoleMode.DISABLE
     oauth_enforce_pkce: bool = False
+    oauth_enable_role_selection: bool = False
     network_policy: str = None
     pre_authorized_roles_list: list[str] = None
     blocked_roles_list: list[str] = None
@@ -437,11 +447,15 @@ class SnowflakeCustomOAuthSecurityIntegration(NamedResource, Resource):
         enabled (bool): Specifies if the security integration is enabled. Defaults to True.
         oauth_client_type (string or OAuthClientType, required): The type of OAuth client. Supported values are 'CONFIDENTIAL' and 'PUBLIC'. Cannot be changed after creation.
         oauth_redirect_uri (string, required): The redirect URI the client uses to complete the OAuth flow.
+        oauth_allow_non_tls_redirect_uri (bool): Allows non-HTTPS redirect URIs. Defaults to False.
         oauth_alternate_redirect_uris (list): Additional allowed redirect URIs, set at creation only.
         oauth_issue_refresh_tokens (bool): Indicates if refresh tokens should be issued. Defaults to True.
         oauth_refresh_token_validity (int): The validity period of the refresh token in seconds. Defaults to 7776000.
+        oauth_single_use_refresh_tokens_required (bool): Requires refresh tokens to be single-use (rotated on each use). Defaults to False.
         oauth_use_secondary_roles (string or OAuthUseSecondaryRoles): Whether secondary roles are activated for OAuth sessions. Supported values are 'IMPLICIT' and 'NONE'. Defaults to 'NONE'.
+        oauth_any_role_mode (string or OAuthAnyRoleMode): Whether a client can request any role the user has. Supported values are 'DISABLE', 'ENABLE', and 'ENABLE_FOR_PRIVILEGE'. Defaults to 'DISABLE'.
         oauth_enforce_pkce (bool): Requires clients to use PKCE during the OAuth flow. Defaults to False.
+        oauth_enable_role_selection (bool): Lets the client request a role at authorization time. Defaults to False.
         network_policy (string): The network policy enforced for requests made with this integration's tokens.
         pre_authorized_roles_list (list): Roles granted access without displaying a consent screen to the user.
         blocked_roles_list (list): Roles that are not allowed to use this integration.
@@ -491,13 +505,20 @@ class SnowflakeCustomOAuthSecurityIntegration(NamedResource, Resource):
             "oauth_client_type", [OAuthClientType.CONFIDENTIAL, OAuthClientType.PUBLIC], quoted=True
         ),
         oauth_redirect_uri=StringProp("oauth_redirect_uri"),
+        oauth_allow_non_tls_redirect_uri=BoolProp("oauth_allow_non_tls_redirect_uri"),
         oauth_alternate_redirect_uris=StringListProp("oauth_alternate_redirect_uris", parens=True),
         oauth_issue_refresh_tokens=BoolProp("oauth_issue_refresh_tokens"),
         oauth_refresh_token_validity=IntProp("oauth_refresh_token_validity"),
+        oauth_single_use_refresh_tokens_required=BoolProp("oauth_single_use_refresh_tokens_required"),
         oauth_use_secondary_roles=EnumProp(
             "oauth_use_secondary_roles", [OAuthUseSecondaryRoles.IMPLICIT, OAuthUseSecondaryRoles.NONE]
         ),
+        oauth_any_role_mode=EnumProp(
+            "oauth_any_role_mode",
+            [OAuthAnyRoleMode.DISABLE, OAuthAnyRoleMode.ENABLE, OAuthAnyRoleMode.ENABLE_FOR_PRIVILEGE],
+        ),
         oauth_enforce_pkce=BoolProp("oauth_enforce_pkce"),
+        oauth_enable_role_selection=BoolProp("oauth_enable_role_selection"),
         network_policy=StringProp("network_policy"),
         pre_authorized_roles_list=StringListProp("pre_authorized_roles_list", parens=True),
         blocked_roles_list=StringListProp("blocked_roles_list", parens=True),
@@ -512,11 +533,15 @@ class SnowflakeCustomOAuthSecurityIntegration(NamedResource, Resource):
         enabled: bool = True,
         oauth_client_type: OAuthClientType = None,
         oauth_redirect_uri: str = None,
+        oauth_allow_non_tls_redirect_uri: bool = False,
         oauth_alternate_redirect_uris: list[str] = None,
         oauth_issue_refresh_tokens: bool = True,
         oauth_refresh_token_validity: int = 7776000,
+        oauth_single_use_refresh_tokens_required: bool = False,
         oauth_use_secondary_roles: OAuthUseSecondaryRoles = OAuthUseSecondaryRoles.NONE,
+        oauth_any_role_mode: OAuthAnyRoleMode = OAuthAnyRoleMode.DISABLE,
         oauth_enforce_pkce: bool = False,
+        oauth_enable_role_selection: bool = False,
         network_policy: str = None,
         pre_authorized_roles_list: list[str] = None,
         blocked_roles_list: list[str] = None,
@@ -532,11 +557,15 @@ class SnowflakeCustomOAuthSecurityIntegration(NamedResource, Resource):
             enabled=enabled,
             oauth_client_type=oauth_client_type,
             oauth_redirect_uri=oauth_redirect_uri,
+            oauth_allow_non_tls_redirect_uri=oauth_allow_non_tls_redirect_uri,
             oauth_alternate_redirect_uris=oauth_alternate_redirect_uris,
             oauth_issue_refresh_tokens=oauth_issue_refresh_tokens,
             oauth_refresh_token_validity=oauth_refresh_token_validity,
+            oauth_single_use_refresh_tokens_required=oauth_single_use_refresh_tokens_required,
             oauth_use_secondary_roles=oauth_use_secondary_roles,
+            oauth_any_role_mode=oauth_any_role_mode,
             oauth_enforce_pkce=oauth_enforce_pkce,
+            oauth_enable_role_selection=oauth_enable_role_selection,
             network_policy=network_policy,
             pre_authorized_roles_list=pre_authorized_roles_list,
             blocked_roles_list=blocked_roles_list,

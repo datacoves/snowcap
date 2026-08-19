@@ -3122,17 +3122,25 @@ def fetch_security_integration(session: SnowflakeConnection, fqn: FQN):
                 "enabled": data["enabled"] == "true",
                 "oauth_client_type": properties.get("oauth_client_type"),
                 "oauth_redirect_uri": properties.get("oauth_redirect_uri"),
+                "oauth_allow_non_tls_redirect_uri": properties.get("oauth_allow_non_tls_redirect_uri"),
                 "oauth_issue_refresh_tokens": properties.get("oauth_issue_refresh_tokens"),
                 "oauth_refresh_token_validity": oauth_refresh_token_validity,
+                "oauth_single_use_refresh_tokens_required": properties.get("oauth_single_use_refresh_tokens_required"),
                 "oauth_use_secondary_roles": properties.get("oauth_use_secondary_roles"),
+                "oauth_any_role_mode": properties.get("oauth_any_role_mode"),
                 "oauth_enforce_pkce": properties.get("oauth_enforce_pkce"),
+                "oauth_enable_role_selection": properties.get("oauth_enable_role_selection"),
                 "network_policy": properties.get("network_policy"),
                 "pre_authorized_roles_list": pre_authorized_roles_list,
                 "blocked_roles_list": sorted(blocked_roles_list) or None,
                 "comment": data["comment"] or None,
                 "owner": owner,
             }
-    raise Exception(f"Unsupported security integration type {data['type']}")
+    # A single unmodeled security integration in the account must not break list/export.
+    # snowcap only models a subset of integration types; skip the rest with a warning
+    # rather than raising, so fetching one unknown type doesn't abort the whole run.
+    logger.warning(f"Skipping unsupported security integration type {data['type']!r} for {fqn.name}")
+    return None
 
 
 def fetch_sequence(session: SnowflakeConnection, fqn: FQN):
