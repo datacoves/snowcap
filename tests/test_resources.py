@@ -127,6 +127,15 @@ def test_warehouse_adaptive_construction_nulls_unsupported_fields():
         assert getattr(warehouse._data, field_name) is None
 
 
+def test_warehouse_adaptive_accepts_none_for_unsupported_fields():
+    """The fetch path (data_provider) normalizes adaptive-inapplicable fields to None
+    before constructing the resource; validation must accept None as unset (issue #61)."""
+    kwargs = {field_name: None for field_name in ADAPTIVE_UNSUPPORTED_FIELDS}
+    warehouse = _Warehouse(name="WH", warehouse_type=WarehouseType.ADAPTIVE, **kwargs)
+    for field_name in ADAPTIVE_UNSUPPORTED_FIELDS:
+        assert getattr(warehouse, field_name) is None
+
+
 @pytest.mark.parametrize(
     "kwargs",
     [
