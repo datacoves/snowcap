@@ -556,15 +556,15 @@ def update_alert(urn: URN, data: dict, props: Props) -> str:
     # clause, and RESUME/SUSPEND can't be combined with a SET in one statement. Handle state
     # on its own; delegate every other field to update__default, which renders multi-field
     # deltas without dropping any (an arbitrary popitem() here would silently lose the rest).
+    # Read data without mutating it: it is the live change.delta, passed by reference.
     if "state" not in data:
         return update__default(urn, data, props)
-    new_value = data.pop("state")
-    if data:
+    if len(data) > 1:
         raise NotImplementedError(
             f"update_alert cannot combine 'state' (RESUME/SUSPEND) with other fields in one "
-            f"ALTER for {urn}; got remaining keys {sorted(data.keys())!r}"
+            f"ALTER for {urn}; got delta keys {sorted(data.keys())!r}"
         )
-    change_verb = "RESUME" if new_value == "STARTED" else "SUSPEND"
+    change_verb = "RESUME" if data["state"] == "STARTED" else "SUSPEND"
     return tidy_sql("ALTER ALERT", urn.fqn, change_verb)
 
 
