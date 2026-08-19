@@ -53,6 +53,7 @@ from snowcap.blueprint import (
     UpdateResource,
     compute_levels,
     _merge_pointers,
+    _summarize_plan_value,
     compile_plan_to_sql,
     diff,
     dump_plan,
@@ -2793,3 +2794,61 @@ class TestSyncReadsFutureGrantsRegardless:
 
         assert "future_grant_roles" not in kwargs
         assert "future_grant_database_roles" not in kwargs
+
+
+class TestSummarizePlanValue:
+    """The plan table must not dump a multiline SQL body (alert THEN, task body)."""
+
+    def test_short_scalar_prints_verbatim(self):
+        assert _summarize_plan_value("STARTED") == "STARTED"
+        assert _summarize_plan_value("1 MINUTE") == "1 MINUTE"
+
+    def test_none_is_empty(self):
+        assert _summarize_plan_value(None) == ""
+
+    def test_multiline_body_becomes_a_shape_not_sql(self):
+        body = "BEGIN\n  LET x;\n  CALL foo();\nEND"
+        summary = _summarize_plan_value(body)
+        assert summary == "<4 lines, 32 chars>"
+        assert "\n" not in summary
+        assert "CALL" not in summary
+
+    def test_long_single_line_is_bounded(self):
+        summary = _summarize_plan_value("x" * 90)
+        assert summary == "<1 line, 90 chars>"
+        assert len(summary) < 90
+
+
+def test_alert_body_under_ignore_changes_leaves_only_state(session_ctx):
+    """An alert's IF/THEN body can't be reconciled by ALTER, so it is declared under
+    lifecycle.ignore_changes: a body difference must drop out of the delta, leaving a
+    clean state-only update (ALTER ALERT ... SUSPEND) rather than a combined change."""
+    db = res.Database("DB")
+    schema = res.Schema("SCHEMA", database=db)
+    alert = res.Alert(
+        name="A1",
+        schema=schema,
+        condition="select 1",
+        then="BEGIN new END",
+        state="SUSPENDED",
+        lifecycle={"ignore_changes": ["condition", "then"]},
+    )
+    manifest = Blueprint(name="bp", resources=[db, schema, alert]).generate_manifest(session_ctx)
+    remote_state = {
+        parse_URN("urn::ABCD123:account/ACCOUNT"): {},
+        parse_URN("urn::ABCD123:database/DB"): {"owner": "SYSADMIN"},
+        parse_URN("urn::ABCD123:schema/DB.SCHEMA"): {"owner": "SYSADMIN"},
+        parse_URN("urn::ABCD123:alert/DB.SCHEMA.A1"): {
+            "name": "A1",
+            "warehouse": None,
+            "schedule": None,
+            "comment": None,
+            "condition": "select 1",
+            "then": "BEGIN old-and-different END",
+            "state": "STARTED",
+            "owner": "SYSADMIN",
+        },
+    }
+    updates = [c for c in diff(remote_state, manifest) if isinstance(c, UpdateResource)]
+    assert len(updates) == 1
+    assert updates[0].delta == {"state": "SUSPENDED"}

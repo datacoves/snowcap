@@ -1001,6 +1001,18 @@ class TestUpdateTask:
         result = update_task(urn, data, props)
         assert "SUSPEND" in result
 
+    def test_non_special_delta_delegates_to_default(self):
+        """A plain SET-able field routes to update__default, not the bespoke ALTER branches."""
+        urn = make_urn(ResourceType.TASK, "MY_TASK", database="MY_DB", schema="MY_SCHEMA")
+        result = update_task(urn, {"comment": "hi"}, res.Task.props)
+        assert result == "ALTER TASK MY_DB.MY_SCHEMA.MY_TASK SET COMMENT = $$hi$$"
+
+    def test_state_combined_with_other_fields_raises_rather_than_dropping(self):
+        """RESUME/SUSPEND can't be combined with a SET; the delta must not be silently truncated."""
+        urn = make_urn(ResourceType.TASK, "MY_TASK", database="MY_DB", schema="MY_SCHEMA")
+        with pytest.raises(NotImplementedError, match="cannot combine"):
+            update_task(urn, {"state": "STARTED", "comment": "hi"}, res.Task.props)
+
 
 class TestUpdateIcebergTable:
     """Tests for update_iceberg_table function."""
@@ -1475,6 +1487,29 @@ class TestUpdateMCPServer:
 
         assert result.startswith("CREATE OR REPLACE MCP SERVER")
         assert "ALTER MCP SERVER" not in result
+
+    def test_update_resource_dispatches_alert_state_to_resume(self):
+        """Issue #57: an alert's state change routes to ALTER ALERT ... RESUME/SUSPEND."""
+        urn = make_urn(ResourceType.ALERT, "MY_ALERT", database="MY_DB", schema="MY_SCHEMA")
+        assert (
+            update_resource(urn, {"state": "STARTED"}, res.Alert.props) == "ALTER ALERT MY_DB.MY_SCHEMA.MY_ALERT RESUME"
+        )
+        assert (
+            update_resource(urn, {"state": "SUSPENDED"}, res.Alert.props)
+            == "ALTER ALERT MY_DB.MY_SCHEMA.MY_ALERT SUSPEND"
+        )
+
+    def test_update_alert_non_state_delta_delegates_to_default(self):
+        """A non-state alert field routes to update__default (multi-field SET), not popitem."""
+        urn = make_urn(ResourceType.ALERT, "MY_ALERT", database="MY_DB", schema="MY_SCHEMA")
+        result = update_resource(urn, {"comment": "hi"}, res.Alert.props)
+        assert result == "ALTER ALERT MY_DB.MY_SCHEMA.MY_ALERT SET COMMENT = $$hi$$"
+
+    def test_update_alert_state_with_other_fields_raises_rather_than_dropping(self):
+        """state can't be combined with a SET; the other field must not be silently dropped."""
+        urn = make_urn(ResourceType.ALERT, "MY_ALERT", database="MY_DB", schema="MY_SCHEMA")
+        with pytest.raises(NotImplementedError, match="cannot combine"):
+            update_resource(urn, {"state": "STARTED", "comment": "hi"}, res.Alert.props)
 
 
 class TestCreateMCPServer:

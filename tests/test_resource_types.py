@@ -625,6 +625,30 @@ class TestTask:
         )
         assert task._data.warehouse.name == "test_wh"
 
+    def test_task_serverless_execution_clauses_render(self):
+        """Issue #57: the serverless-execution clauses must be expressible and rendered."""
+        task = res.Task(
+            name="test_task",
+            database="test_db",
+            schema="test_schema",
+            target_completion_interval="1 minutes",
+            serverless_task_min_statement_size="XSMALL",
+            serverless_task_max_statement_size="SMALL",
+            task_auto_retry_attempts=3,
+            user_task_minimum_trigger_interval_in_seconds=60,
+            success_integration="my_notif_int",
+            finalize="root_task",
+            as_="SELECT 1",
+        )
+        sql = task.create_sql()
+        assert "TARGET_COMPLETION_INTERVAL = $$1 minutes$$" in sql
+        assert "serverless_task_min_statement_size = XSMALL" in sql
+        assert "serverless_task_max_statement_size = SMALL" in sql
+        assert "TASK_AUTO_RETRY_ATTEMPTS = 3" in sql
+        assert "USER_TASK_MINIMUM_TRIGGER_INTERVAL_IN_SECONDS = 60" in sql
+        assert "SUCCESS_INTEGRATION = $$my_notif_int$$" in sql
+        assert "FINALIZE = root_task" in sql
+
     def test_task_fqn(self):
         """Test Task FQN generation."""
         task = res.Task(
@@ -980,6 +1004,47 @@ class TestAlert:
         assert alert.name == "test_alert"
         assert alert.resource_type == ResourceType.ALERT
 
+    def test_alert_serverless_omits_warehouse(self):
+        """Issue #57: omitting warehouse yields a serverless alert (no WAREHOUSE clause)."""
+        alert = res.Alert(
+            name="test_alert",
+            database="test_db",
+            schema="test_schema",
+            schedule="1 MINUTE",
+            condition="SELECT 1",
+            then="SELECT 1",
+        )
+        assert alert._data.warehouse is None
+        assert "WAREHOUSE" not in alert.create_sql()
+
+    def test_alert_triggered_omits_schedule(self):
+        """A triggered/manual alert can omit schedule (no SCHEDULE clause)."""
+        alert = res.Alert(
+            name="test_alert",
+            database="test_db",
+            schema="test_schema",
+            condition="SELECT 1",
+            then="SELECT 1",
+        )
+        assert alert._data.schedule is None
+        assert "SCHEDULE" not in alert.create_sql()
+
+    def test_alert_state_defaults_suspended_and_is_not_a_create_clause(self):
+        """Alerts are created SUSPENDED; state is reached via ALTER, never rendered in CREATE."""
+        alert = res.Alert(
+            name="test_alert",
+            database="test_db",
+            schema="test_schema",
+            warehouse="test_wh",
+            schedule="1 MINUTE",
+            condition="SELECT 1",
+            then="SELECT 1",
+            state="STARTED",
+        )
+        assert str(alert._data.state) == "STARTED"
+        assert "STARTED" not in alert.create_sql()
+        assert "SUSPENDED" not in alert.create_sql()
+
 
 class TestResourceMonitor:
     """Tests for ResourceMonitor resource."""
@@ -1118,6 +1183,17 @@ class TestStream:
             on_stage="source_stage",
         )
         assert stream.name == "test_stream"
+
+    def test_dynamic_table_stream_renders_on_dynamic_table(self):
+        """#57 (related): a stream over a dynamic table renders ON DYNAMIC TABLE."""
+        stream = res.DynamicTableStream(
+            name="test_stream",
+            database="test_db",
+            schema="test_schema",
+            on_dynamic_table="source_dt",
+        )
+        assert stream.name == "test_stream"
+        assert "ON DYNAMIC TABLE SOURCE_DT" in stream.create_sql()
 
 
 class TestFileFormat:

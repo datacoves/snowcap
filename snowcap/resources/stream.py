@@ -6,6 +6,7 @@ from ..resource_name import ResourceName
 from ..role_ref import RoleRef
 from ..scope import SchemaScope
 from .resource import NamedResource, Resource, ResourcePointer, ResourceSpec
+from .dynamic_table import DynamicTable
 from .table import Table
 from .view import View
 
@@ -15,6 +16,7 @@ class StreamType(ParseableEnum):
     EXTERNAL_TABLE = "EXTERNAL TABLE"
     STAGE = "STAGE"
     VIEW = "VIEW"
+    DYNAMIC_TABLE = "DYNAMIC TABLE"
 
 
 @dataclass(unsafe_hash=True)
@@ -129,6 +131,119 @@ class TableStream(NamedResource, Resource):
             comment=comment,
         )
         self.requires(self._data.on_table)
+        if self._data.at and "stream" in self._data.at:
+            self.requires(ResourcePointer(name=self._data.at["stream"], resource_type=ResourceType.STREAM))
+        if self._data.before and "stream" in self._data.before:
+            self.requires(ResourcePointer(name=self._data.before["stream"], resource_type=ResourceType.STREAM))
+
+
+@dataclass(unsafe_hash=True)
+class _DynamicTableStream(ResourceSpec):
+    name: ResourceName
+    on_dynamic_table: DynamicTable
+    owner: RoleRef = "SYSADMIN"
+    copy_grants: bool = field(default=None, metadata={"fetchable": False})
+    at: dict[str, str] = field(default=None, metadata={"fetchable": False})
+    before: dict[str, str] = field(default=None, metadata={"fetchable": False})
+    append_only: bool = False
+    show_initial_rows: bool = field(default=None, metadata={"fetchable": False})
+    comment: str = None
+
+    def __post_init__(self):
+        super().__post_init__()
+        if self.at:
+            self.at = {k.lower(): v for k, v in self.at.items()}
+        if self.before:
+            self.before = {k.lower(): v for k, v in self.before.items()}
+
+
+class DynamicTableStream(NamedResource, Resource):
+    """
+    Description:
+        Represents a stream on a dynamic table in Snowflake, capturing change data on the
+        dynamic table as it refreshes.
+
+    Snowflake Docs:
+        https://docs.snowflake.com/en/sql-reference/sql/create-stream
+
+    Fields:
+        name (string, required): The name of the stream.
+        on_dynamic_table (string, required): The name of the dynamic table the stream is based on.
+        owner (string or Role): The role that owns the stream. Defaults to "SYSADMIN".
+        copy_grants (bool): Whether to copy grants from the source dynamic table to the stream.
+        at (dict): A dictionary specifying the point in time for the stream to start, using keys like TIMESTAMP, OFFSET, STATEMENT, or STREAM.
+        before (dict): A dictionary specifying the point in time for the stream to start, similar to 'at' but defining a point before the specified time.
+        append_only (bool): If set to True, the stream records only append operations.
+        show_initial_rows (bool): If set to True, the stream includes the initial rows of the dynamic table at the time of stream creation.
+        comment (string): An optional description for the stream.
+
+    Python:
+
+        ```python
+        stream = DynamicTableStream(
+            name="some_stream",
+            on_dynamic_table="some_dynamic_table",
+            owner="SYSADMIN",
+            copy_grants=True,
+            append_only=False,
+            show_initial_rows=True,
+            comment="This is a sample stream on a dynamic table."
+        )
+        ```
+
+    Yaml:
+
+        ```yaml
+        streams:
+          - name: some_stream
+            on_dynamic_table: some_dynamic_table
+            owner: SYSADMIN
+            copy_grants: true
+            append_only: false
+            show_initial_rows: true
+            comment: This is a sample stream on a dynamic table.
+        ```
+    """
+
+    resource_type = ResourceType.STREAM
+    props = Props(
+        copy_grants=FlagProp("copy grants"),
+        on_dynamic_table=IdentifierProp("on dynamic table", eq=False),
+        at=TimeTravelProp("at"),
+        before=TimeTravelProp("before"),
+        append_only=BoolProp("append_only"),
+        show_initial_rows=BoolProp("show_initial_rows"),
+        comment=StringProp("comment"),
+    )
+    scope = SchemaScope()
+    spec = _DynamicTableStream
+
+    def __init__(
+        self,
+        name: str,
+        on_dynamic_table: str,
+        owner: str = "SYSADMIN",
+        copy_grants: bool = None,
+        at: dict[str, str] = None,
+        before: dict[str, str] = None,
+        append_only: bool = False,
+        show_initial_rows: bool = None,
+        comment: str = None,
+        **kwargs,
+    ):
+        super().__init__(name, **kwargs)
+        self._data: _DynamicTableStream = _DynamicTableStream(
+            name=self._name,
+            on_dynamic_table=on_dynamic_table,
+            owner=owner,
+            copy_grants=copy_grants,
+            at=at,
+            before=before,
+            append_only=append_only,
+            show_initial_rows=show_initial_rows,
+            comment=comment,
+        )
+        self.requires(self._data.on_dynamic_table)
         if self._data.at and "stream" in self._data.at:
             self.requires(ResourcePointer(name=self._data.at["stream"], resource_type=ResourceType.STREAM))
         if self._data.before and "stream" in self._data.before:
@@ -385,6 +500,7 @@ StreamTypeMap = {
     # StreamType.EXTERNAL_TABLE: ExternalTableStream,
     StreamType.STAGE: StageStream,
     StreamType.VIEW: ViewStream,
+    StreamType.DYNAMIC_TABLE: DynamicTableStream,
 }
 
 
@@ -397,6 +513,8 @@ def _resolver(data: dict):
         return StageStream
     elif "on_view" in data:
         return ViewStream
+    elif "on_dynamic_table" in data:
+        return DynamicTableStream
     # using this as a workaround because there may not be enough properties during a small change to disambiguate
     # really the different stream types should probably have separate resource types.
     # Either that, or the resolver would need to look at the database to see what type of stream it is

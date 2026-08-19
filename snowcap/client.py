@@ -149,7 +149,13 @@ def execute(
                     _EXECUTION_CACHE[session.role][sql_text] = []
             return []
         logger.error(f"{session_header}    \033[31m(err {err.errno}, {time.time() - start:.2f}s)\033[0m")
-        raise ProgrammingError(f"{err} on {sql_text}", errno=err.errno) from err
+        # Attach a one-line preview of the failing statement, not the whole (often
+        # hundreds-of-lines) body -- the full SQL is already in the query log above.
+        # A multi-line CREATE dumped into the exception message buries the actual error.
+        sql_preview = " ".join(sql_text.split())
+        if len(sql_preview) > 140:
+            sql_preview = sql_preview[:140] + " ..."
+        raise ProgrammingError(f"{err} on: {sql_preview}", errno=err.errno) from err
     finally:
         # Always signal waiting threads and cleanup pending query marker
         # This must happen regardless of success, failure, or exception type

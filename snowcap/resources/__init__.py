@@ -67,7 +67,7 @@ from .storage_integration import (
     GCSStorageIntegration,
     S3StorageIntegration,
 )
-from .stream import StageStream, TableStream, ViewStream  # ExternalTableStream
+from .stream import DynamicTableStream, StageStream, TableStream, ViewStream  # ExternalTableStream
 from .streamlit import Streamlit
 from .table import Table  # , CreateTableAsSelect
 from .tag import Tag, TagMaskingPolicyReference, TagReference
@@ -96,6 +96,7 @@ __all__ = [
     "DatabaseRole",
     "DatabaseRoleGrant",
     "DynamicTable",
+    "DynamicTableStream",
     "EmailNotificationIntegration",
     "EventTable",
     "ExternalAccessIntegration",

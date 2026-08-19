@@ -869,6 +869,24 @@ def _render_value(value):
     return str(value)
 
 
+def _summarize_plan_value(value, max_len: int = 60) -> str:
+    """Render a delta value for the plan table on a single, bounded line.
+
+    A multiline or long field (an alert THEN block, a task body, a view definition)
+    dumped verbatim carries newlines the box table can't lay out and stretches the
+    columns off-screen. Short scalars (state, schedule, comment) print as-is; a body
+    is shown as a compact shape instead of its SQL, so the plan stays readable.
+    """
+    if value is None:
+        return ""
+    text = str(value)
+    if "\n" not in text and len(text) <= max_len:
+        return text
+    lines = text.count("\n") + 1
+    unit = "line" if lines == 1 else "lines"
+    return f"<{lines} {unit}, {len(text)} chars>"
+
+
 def _render_table(rows: list[list[str]], headers: list[str]) -> str:
     """
     Render a table with box-drawing characters.
@@ -1177,8 +1195,8 @@ def _dump_plan_text(plan: Plan) -> str:
                     rows.append(
                         [
                             key,
-                            str(before) if before is not None else "",
-                            str(new_value) if new_value is not None else "",
+                            _summarize_plan_value(before),
+                            _summarize_plan_value(new_value),
                         ]
                     )
 
@@ -2209,7 +2227,15 @@ class Blueprint:
                     try:
                         future.result()
                     except Exception as e:
-                        logger.error(f"Failed to execute change {change}: {e}")
+                        verb = {
+                            CreateResource: "create",
+                            UpdateResource: "update",
+                            DropResource: "drop",
+                            TransferOwnership: "transfer ownership of",
+                        }.get(type(change), "apply")
+                        # Name the resource and the error, not the full change repr (which
+                        # dumps the entire rendered SQL and buries what actually went wrong).
+                        logger.error(f"Failed to {verb} {change.urn.resource_label} {change.urn.fqn}: {e}")
                         raise
 
         def process_commands(commands, roles, available_roles):

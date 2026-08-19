@@ -314,6 +314,31 @@ class TestExecuteErrorHandling:
         assert excinfo.value.errno == DOES_NOT_EXIST_ERR
         assert "SELECT * FROM nonexistent" in str(excinfo.value)
 
+    def test_execute_error_truncates_long_multiline_sql(self):
+        """A long multi-line statement must not dump its whole body into the error message.
+
+        A multi-hundred-line CREATE (alert THEN block, task body) buried the actual error;
+        the wrapped exception should carry the error plus a one-line, bounded SQL preview.
+        """
+        long_sql = "CREATE ALERT A\n" + "\n".join(f"  -- filler line {i}" for i in range(200)) + "\n  AS SELECT 1"
+        mock_cursor = Mock()
+        mock_cursor.execute.side_effect = ProgrammingError("Object 'X' does not exist", errno=DOES_NOT_EXIST_ERR)
+
+        mock_connection = Mock(spec=SnowflakeConnection)
+        mock_connection.cursor.return_value = mock_cursor
+        mock_connection.user = "u"
+        mock_connection.role = "r"
+
+        with pytest.raises(ProgrammingError) as excinfo:
+            execute(mock_connection, long_sql)
+
+        msg = str(excinfo.value)
+        preview = msg.split(" on: ", 1)[-1]
+        assert "Object 'X' does not exist" in msg
+        assert "\n" not in preview  # collapsed to a single line
+        assert preview.endswith("...")  # truncated, not the whole 200-line body
+        assert len(preview) < 160
+
     def test_execute_empty_response_code_returns_empty_list(self):
         """Test execute() returns empty list for error codes in empty_response_codes"""
         mock_cursor = Mock()
