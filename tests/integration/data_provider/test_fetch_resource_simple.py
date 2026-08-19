@@ -307,6 +307,13 @@ def resource_fixtures() -> list:
             owner=TEST_ROLE,
             comment="This is a test warehouse",
         ),
+        res.Warehouse(
+            name="TEST_FETCH_ADAPTIVE_WAREHOUSE",
+            warehouse_type="ADAPTIVE",
+            max_query_performance_level="MEDIUM",
+            owner=TEST_ROLE,
+            comment="This is a test adaptive warehouse",
+        ),
     ]
 
 

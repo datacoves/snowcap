@@ -156,7 +156,7 @@ class _Warehouse(ResourceSpec):
 
         if self.warehouse_type == WarehouseType.ADAPTIVE:
             for field_name in ADAPTIVE_UNSUPPORTED_FIELDS:
-                if getattr(self, field_name) != _ADAPTIVE_FIELD_DEFAULTS[field_name]:
+                if getattr(self, field_name) not in (None, _ADAPTIVE_FIELD_DEFAULTS[field_name]):
                     raise ValueError(f"{field_name} does not apply to ADAPTIVE warehouses")
                 setattr(self, field_name, None)
 
