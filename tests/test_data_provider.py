@@ -1394,19 +1394,33 @@ class TestFetchSecurityIntegration:
     @patch("snowcap.data_provider._fetch_owner")
     @patch("snowcap.data_provider.execute")
     def test_unmodeled_type_returns_none_with_warning(self, mock_execute, mock_fetch_owner, caplog):
-        """A security integration type snowcap doesn't fetch must not raise: it would break
-        list/export whenever the account holds one. Return None and warn instead."""
+        """A type snowcap doesn't model (e.g. SAML2) must not raise: it would break list/export
+        whenever the account holds one. Return None and warn instead."""
+        mock_fetch_owner.return_value = "ACCOUNTADMIN"
+        mock_execute.side_effect = self._mock_execute(
+            desc_rows=[],
+            show_row=_security_integration_show_row(name="MY_SAML", type="SAML2"),
+        )
+
+        with caplog.at_level("WARNING", logger="snowcap"):
+            result = fetch_security_integration(MagicMock(), FQN(name=ResourceName("MY_SAML")))
+
+        assert result is None
+        assert "unsupported security integration type" in caplog.text.lower()
+
+    @patch("snowcap.data_provider._fetch_owner")
+    @patch("snowcap.data_provider.execute")
+    def test_partner_oauth_still_raises(self, mock_execute, mock_fetch_owner):
+        """Partner OAuth is modeled/declarable but not fetchable, so it must still raise:
+        returning None would make a declared partner integration look absent and churn a CREATE."""
         mock_fetch_owner.return_value = "ACCOUNTADMIN"
         mock_execute.side_effect = self._mock_execute(
             desc_rows=[],
             show_row=_security_integration_show_row(name="TABLEAU", type="OAUTH - TABLEAU_DESKTOP"),
         )
 
-        with caplog.at_level("WARNING", logger="snowcap"):
-            result = fetch_security_integration(MagicMock(), FQN(name=ResourceName("TABLEAU")))
-
-        assert result is None
-        assert "unsupported security integration type" in caplog.text.lower()
+        with pytest.raises(Exception, match="cannot read back partner OAuth"):
+            fetch_security_integration(MagicMock(), FQN(name=ResourceName("TABLEAU")))
 
 
 class TestListResource:

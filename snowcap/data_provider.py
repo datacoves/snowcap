@@ -3136,9 +3136,18 @@ def fetch_security_integration(session: SnowflakeConnection, fqn: FQN):
                 "comment": data["comment"] or None,
                 "owner": owner,
             }
-    # A single unmodeled security integration in the account must not break list/export.
-    # snowcap only models a subset of integration types; skip the rest with a warning
-    # rather than raising, so fetching one unknown type doesn't abort the whole run.
+        elif oauth_client in ("LOOKER", "TABLEAU_DESKTOP", "TABLEAU_SERVER"):
+            # Partner OAuth is modeled (SnowflakePartnerOAuthSecurityIntegration) and
+            # declarable, but has no fetch branch. Returning None would make a declared
+            # partner integration look absent and plan a spurious CREATE on every apply, so
+            # fail loudly: a declared resource that genuinely can't be read back is an error.
+            raise Exception(
+                f"snowcap cannot read back partner OAuth integration {fqn.name!r} "
+                f"(oauth_client={oauth_client}): fetch is not implemented for partner OAuth"
+            )
+    # A security integration type snowcap does not model (e.g. SAML2, SCIM, EXTERNAL_OAUTH)
+    # must not break list/export just because the account holds one. Skip it with a warning
+    # rather than raising, so fetching one unmodeled type doesn't abort the whole run.
     logger.warning(f"Skipping unsupported security integration type {data['type']!r} for {fqn.name}")
     return None
 
