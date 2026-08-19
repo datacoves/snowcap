@@ -1670,6 +1670,9 @@ class TestUpdateSnowflakeCustomOAuthSecurityIntegration:
         # The plan-time error must explain why snowcap refuses to recreate.
         assert "client_id and client_secret" in oauth_client_type_metadata.replacement_message
         assert spec.get_metadata("oauth_alternate_redirect_uris").fetchable is False
+        # oauth_enable_role_selection is CREATE-only: DESC never returns it, so it must be
+        # unfetchable or it drifts "set to default" on every plan.
+        assert spec.get_metadata("oauth_enable_role_selection").fetchable is False
 
     def test_update_set_sql(self):
         """A single-field delta renders as ALTER SECURITY INTEGRATION ... SET, never CREATE OR REPLACE."""

@@ -391,7 +391,9 @@ class _SnowflakeCustomOAuthSecurityIntegration(ResourceSpec):
     oauth_use_secondary_roles: OAuthUseSecondaryRoles = OAuthUseSecondaryRoles.NONE
     oauth_any_role_mode: OAuthAnyRoleMode = OAuthAnyRoleMode.DISABLE
     oauth_enforce_pkce: bool = False
-    oauth_enable_role_selection: bool = False
+    # CREATE-only: Snowflake accepts it at creation but DESC never echoes it back, so it
+    # can't round-trip. Marking it unfetchable keeps it out of the diff (no phantom drift).
+    oauth_enable_role_selection: bool = field(default=False, metadata={"fetchable": False})
     network_policy: str = None
     pre_authorized_roles_list: list[str] = None
     blocked_roles_list: list[str] = None
@@ -455,7 +457,7 @@ class SnowflakeCustomOAuthSecurityIntegration(NamedResource, Resource):
         oauth_use_secondary_roles (string or OAuthUseSecondaryRoles): Whether secondary roles are activated for OAuth sessions. Supported values are 'IMPLICIT' and 'NONE'. Defaults to 'NONE'.
         oauth_any_role_mode (string or OAuthAnyRoleMode): Whether a client can request any role the user has. Supported values are 'DISABLE', 'ENABLE', and 'ENABLE_FOR_PRIVILEGE'. Defaults to 'DISABLE'.
         oauth_enforce_pkce (bool): Requires clients to use PKCE during the OAuth flow. Defaults to False.
-        oauth_enable_role_selection (bool): Lets the client request a role at authorization time. Defaults to False.
+        oauth_enable_role_selection (bool): Lets the client request a role at authorization time. Defaults to False. Set at creation only (DESC does not return it, so it is not reconciled).
         network_policy (string): The network policy enforced for requests made with this integration's tokens.
         pre_authorized_roles_list (list): Roles granted access without displaying a consent screen to the user.
         blocked_roles_list (list): Roles that are not allowed to use this integration.

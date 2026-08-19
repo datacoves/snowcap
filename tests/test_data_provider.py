@@ -1243,7 +1243,6 @@ def _custom_oauth_desc_rows(blocked_roles_list="[]", pre_authorized_roles_list="
         row("OAUTH_USE_SECONDARY_ROLES", "NONE", "String"),
         row("OAUTH_ANY_ROLE_MODE", "DISABLE", "String"),
         row("OAUTH_ENFORCE_PKCE", "false", "Boolean"),
-        row("OAUTH_ENABLE_ROLE_SELECTION", "false", "Boolean"),
         row("NETWORK_POLICY", "", "String"),
         row("PRE_AUTHORIZED_ROLES_LIST", pre_authorized_roles_list, "List"),
         row("BLOCKED_ROLES_LIST", blocked_roles_list, "List"),
@@ -1389,7 +1388,8 @@ class TestFetchSecurityIntegration:
         assert result["oauth_allow_non_tls_redirect_uri"] is False
         assert result["oauth_single_use_refresh_tokens_required"] is False
         assert result["oauth_any_role_mode"] == "DISABLE"
-        assert result["oauth_enable_role_selection"] is False
+        # oauth_enable_role_selection is CREATE-only (not in DESC), so fetch omits it.
+        assert "oauth_enable_role_selection" not in result
 
     @patch("snowcap.data_provider._fetch_owner")
     @patch("snowcap.data_provider.execute")

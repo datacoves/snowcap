@@ -3129,7 +3129,8 @@ def fetch_security_integration(session: SnowflakeConnection, fqn: FQN):
                 "oauth_use_secondary_roles": properties.get("oauth_use_secondary_roles"),
                 "oauth_any_role_mode": properties.get("oauth_any_role_mode"),
                 "oauth_enforce_pkce": properties.get("oauth_enforce_pkce"),
-                "oauth_enable_role_selection": properties.get("oauth_enable_role_selection"),
+                # oauth_enable_role_selection is CREATE-only (DESC never returns it); it is
+                # marked unfetchable on the spec, so it is intentionally not read back here.
                 "network_policy": properties.get("network_policy"),
                 "pre_authorized_roles_list": pre_authorized_roles_list,
                 "blocked_roles_list": sorted(blocked_roles_list) or None,
