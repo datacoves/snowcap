@@ -18,24 +18,32 @@ jobs:
         python-version: ["3.10", "3.11", "3.12"]
     steps:
     - uses: actions/checkout@v5
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v6
+    - name: Install uv
+      uses: astral-sh/setup-uv@v9
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Create a virtual environment
-      run: |
-        python -m venv .venv
+        enable-cache: true
     - name: Install dependencies
-      run: |
-        source ./.venv/bin/activate
-        python -m pip install --upgrade pip
-        make install-dev
+      run: uv sync --locked
     - name: Run checks (linter, code style, static type checks, tests)
       run: |
-        source ./.venv/bin/activate
         make lint
         make typecheck
-        python -m pytest --ignore=tests/integration --cov=snowcap --cov-report=xml
+        uv run pytest --ignore=tests/integration --cov=snowcap --cov-report=xml
+    - name: Check the package builds
+      # Catches packaging regressions (version regex, entry point, included files)
+      # before a release: release-package.yml uploads straight to PyPI.
+      run: |
+        uv build
+        uv run twine check dist/*
+        uv run python - <<'EOF'
+        import zipfile, glob
+        wheel = zipfile.ZipFile(glob.glob("dist/snowcap-*.whl")[0])
+        names = wheel.namelist()
+        assert any(n.endswith("entry_points.txt") for n in names), "missing entry points"
+        assert any("snowcap/templates/" in n for n in names), "missing templates"
+        assert any(n.endswith("snowcap/py.typed") for n in names), "missing py.typed"
+        EOF
     - name: Upload coverage reports to Codecov
       # v6 is the first release that pins a Node 24 build of actions/github-script;
       # v5 pins v7.0.1, which GitHub now reports as a deprecated Node 20 action.

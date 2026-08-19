@@ -3,47 +3,49 @@ EDITION ?= standard or enterprise
 EMAIL ?=
 
 install:
-	pip install -e .
+	uv sync --no-dev
 
 install-dev:
-	pip install -e ".[dev]"
+	# Legacy `pip install -e .` metadata shadows the uv-managed install; drop it.
+	rm -rf *.egg-info
+	uv sync
 
 test:
-	python -m pytest
+	uv run pytest
 
 integration:
-	python -m pytest --snowflake -m "$(EDITION)"
+	uv run pytest --snowflake -m "$(EDITION)"
 
 setup-test-resources:
 	@echo "Setting up static resources for integration tests..."
 	./tests/fixtures/static_resources/apply.sh
 
 reset-test-account:
-	python tools/manage_test_account.py reset
+	uv run python tools/manage_test_account.py reset
 
 provision-test-account:
 	@if [ -z "$(EMAIL)" ]; then \
 		echo "EMAIL is required, e.g. make provision-test-account EMAIL=you@example.com"; \
 		exit 1; \
 	fi
-	python tools/manage_test_account.py provision --email $(EMAIL)
+	uv run python tools/manage_test_account.py provision --email $(EMAIL)
 
 drop-test-account:
-	python tools/manage_test_account.py drop
+	uv run python tools/manage_test_account.py drop
 
 style:
-	python -m black .
-	codespell .
+	uv run black .
+	uv run codespell .
 
 # Same checks as `style`, but read-only. This is what CI runs.
 lint:
-	python -m black --check .
-	codespell .
-	ruff check snowcap/
+	uv run black --check .
+	uv run codespell .
+	uv run ruff check snowcap/
 
 
 typecheck:
-	mypy --exclude="snowcap/resources/.*" --exclude="snowcap/sql.py" --follow-imports=skip snowcap/
+	uv run mypy --exclude="snowcap/resources/.*" --exclude="snowcap/sql.py" --follow-imports=skip snowcap/
 
 check: style typecheck test
 
@@ -53,16 +55,16 @@ clean:
 
 build:
 	mkdir -p dist
-	zip -vrX dist/snowcap-$(shell python setup.py -V).zip snowcap/
+	zip -vrX dist/snowcap-$(shell grep '# version' version.md | cut -d ' ' -f3).zip snowcap/
 
-docs: 
-	python tools/generate_resource_docs.py
+docs:
+	uv run python tools/generate_resource_docs.py
 
 coverage: clean
-	python tools/check_resource_coverage.py
+	uv run python tools/check_resource_coverage.py
 
 package: clean
-	python -m build
+	uv build
 
 submit: package
-	python -m twine upload dist/*
+	uv run twine upload dist/*
