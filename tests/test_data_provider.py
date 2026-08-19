@@ -39,6 +39,7 @@ from snowcap.data_provider import (
     fetch_grant,
     fetch_shared_database,
     fetch_security_integration,
+    fetch_task,
     fetch_warehouse,
     fetch_streamlit,
     list_resource,
@@ -968,6 +969,72 @@ def _warehouse_show_row(**overrides):
     }
     row.update(overrides)
     return row
+
+
+class TestFetchTask:
+    """Tests for fetch_task round-trip."""
+
+    @patch("snowcap.data_provider.execute")
+    @patch("snowcap.data_provider._show_resources")
+    def test_when_is_read_from_condition_column(self, mock_show_resources, mock_execute):
+        """A task's WHEN lives in the SHOW TASKS 'condition' column; fetch must read it back,
+        else a triggered task drifts 'MODIFY WHEN ...' on every apply."""
+        mock_show_resources.return_value = [
+            {
+                "name": "T1",
+                "warehouse": "",
+                "schedule": "",
+                "config": None,
+                "allow_overlapping_execution": "false",
+                "error_integration": "null",
+                "success_integration": "null",
+                "state": "suspended",
+                "condition": "system$stream_has_data('dynamic_table_stream')",
+                "target_completion_interval": "1 minutes",
+                "owner": "SYSADMIN",
+                "owner_role_type": "ROLE",
+            }
+        ]
+        mock_execute.return_value = [
+            {"task_relations": '{"Predecessors":[]}', "comment": None, "definition": "SELECT 1"}
+        ]
+
+        result = fetch_task(
+            MagicMock(),
+            FQN(name=ResourceName("T1"), database=ResourceName("DB"), schema=ResourceName("SCH")),
+            include_params=False,
+        )
+        assert result["when"] == "system$stream_has_data('dynamic_table_stream')"
+
+    @patch("snowcap.data_provider.execute")
+    @patch("snowcap.data_provider._show_resources")
+    def test_empty_condition_becomes_none(self, mock_show_resources, mock_execute):
+        mock_show_resources.return_value = [
+            {
+                "name": "T1",
+                "warehouse": "",
+                "schedule": "",
+                "config": None,
+                "allow_overlapping_execution": "false",
+                "error_integration": "null",
+                "success_integration": "null",
+                "state": "suspended",
+                "condition": "",
+                "target_completion_interval": "",
+                "owner": "SYSADMIN",
+                "owner_role_type": "ROLE",
+            }
+        ]
+        mock_execute.return_value = [
+            {"task_relations": '{"Predecessors":[]}', "comment": None, "definition": "SELECT 1"}
+        ]
+
+        result = fetch_task(
+            MagicMock(),
+            FQN(name=ResourceName("T1"), database=ResourceName("DB"), schema=ResourceName("SCH")),
+            include_params=False,
+        )
+        assert result["when"] is None
 
 
 class TestFetchWarehouse:

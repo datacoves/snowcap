@@ -3480,6 +3480,9 @@ def fetch_task(session: SnowflakeConnection, fqn: FQN, include_params: bool = Tr
         "owner": _get_owner_identifier(data),
         "comment": task_details["comment"] or None,
         "after": after or None,
+        # SHOW TASKS reports the WHEN clause in the 'condition' column. Without reading it back,
+        # a task with a WHEN never round-trips and snowcap re-plans "MODIFY WHEN ..." every apply.
+        "when": data["condition"] or None,
         "as_": task_details["definition"],
     }
 
