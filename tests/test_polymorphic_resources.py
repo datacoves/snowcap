@@ -44,6 +44,13 @@ def test_view_stream():
     assert isinstance(resource, res.ViewStream)
 
 
+def test_custom_oauth_security_integration():
+    resource_cls = Resource.resolve_resource_cls(
+        ResourceType.SECURITY_INTEGRATION, {"type": "OAUTH", "oauth_client": "CUSTOM"}
+    )
+    assert resource_cls is res.SnowflakeCustomOAuthSecurityIntegration
+
+
 def enumerate_polymorphic_resources():
     """Get polymorphic resources that have resolvers (can be distinguished by data)."""
     # List of resource fixtures that have been intentionally removed because they

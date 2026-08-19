@@ -1236,9 +1236,12 @@ def _custom_oauth_desc_rows(blocked_roles_list="[]", pre_authorized_roles_list="
     return [
         row("OAUTH_CLIENT_TYPE", "CONFIDENTIAL", "String"),
         row("OAUTH_REDIRECT_URI", "https://example.com/callback", "String"),
+        row("OAUTH_ALLOW_NON_TLS_REDIRECT_URI", "false", "Boolean"),
         row("OAUTH_ISSUE_REFRESH_TOKENS", "true", "Boolean"),
         row("OAUTH_REFRESH_TOKEN_VALIDITY", "7776000", "Long"),
+        row("OAUTH_SINGLE_USE_REFRESH_TOKENS_REQUIRED", "false", "Boolean"),
         row("OAUTH_USE_SECONDARY_ROLES", "NONE", "String"),
+        row("OAUTH_ANY_ROLE_MODE", "DISABLE", "String"),
         row("OAUTH_ENFORCE_PKCE", "false", "Boolean"),
         row("NETWORK_POLICY", "", "String"),
         row("PRE_AUTHORIZED_ROLES_LIST", pre_authorized_roles_list, "List"),
@@ -1375,14 +1378,48 @@ class TestFetchSecurityIntegration:
 
     @patch("snowcap.data_provider._fetch_owner")
     @patch("snowcap.data_provider.execute")
-    def test_unsupported_oauth_client_raises(self, mock_execute, mock_fetch_owner):
+    def test_custom_oauth_new_fields_round_trip(self, mock_execute, mock_fetch_owner):
+        """The serverless-OAuth toggles read back from DESC so they don't drift on every plan."""
+        mock_fetch_owner.return_value = "ACCOUNTADMIN"
+        mock_execute.side_effect = self._mock_execute(_custom_oauth_desc_rows())
+
+        result = fetch_security_integration(MagicMock(), FQN(name=ResourceName("CUSTOM_OAUTH")))
+
+        assert result["oauth_allow_non_tls_redirect_uri"] is False
+        assert result["oauth_single_use_refresh_tokens_required"] is False
+        assert result["oauth_any_role_mode"] == "DISABLE"
+        # oauth_enable_role_selection is CREATE-only (not in DESC), so fetch omits it.
+        assert "oauth_enable_role_selection" not in result
+
+    @patch("snowcap.data_provider._fetch_owner")
+    @patch("snowcap.data_provider.execute")
+    def test_unmodeled_type_returns_none_with_warning(self, mock_execute, mock_fetch_owner, caplog):
+        """A type snowcap doesn't model (e.g. SAML2) must not raise: it would break list/export
+        whenever the account holds one. Return None and warn instead."""
+        mock_fetch_owner.return_value = "ACCOUNTADMIN"
+        mock_execute.side_effect = self._mock_execute(
+            desc_rows=[],
+            show_row=_security_integration_show_row(name="MY_SAML", type="SAML2"),
+        )
+
+        with caplog.at_level("WARNING", logger="snowcap"):
+            result = fetch_security_integration(MagicMock(), FQN(name=ResourceName("MY_SAML")))
+
+        assert result is None
+        assert "unsupported security integration type" in caplog.text.lower()
+
+    @patch("snowcap.data_provider._fetch_owner")
+    @patch("snowcap.data_provider.execute")
+    def test_partner_oauth_still_raises(self, mock_execute, mock_fetch_owner):
+        """Partner OAuth is modeled/declarable but not fetchable, so it must still raise:
+        returning None would make a declared partner integration look absent and churn a CREATE."""
         mock_fetch_owner.return_value = "ACCOUNTADMIN"
         mock_execute.side_effect = self._mock_execute(
             desc_rows=[],
             show_row=_security_integration_show_row(name="TABLEAU", type="OAUTH - TABLEAU_DESKTOP"),
         )
 
-        with pytest.raises(Exception, match="Unsupported security integration type"):
+        with pytest.raises(Exception, match="cannot read back partner OAuth"):
             fetch_security_integration(MagicMock(), FQN(name=ResourceName("TABLEAU")))
 
 

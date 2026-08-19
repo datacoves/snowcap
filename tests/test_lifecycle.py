@@ -1649,9 +1649,12 @@ class TestCreateSnowflakeCustomOAuthSecurityIntegration:
             "CREATE SECURITY INTEGRATION CLAUDE_MCP_OAUTH type = OAUTH ENABLED = TRUE "
             "oauth_client = CUSTOM oauth_client_type = 'CONFIDENTIAL' "
             "OAUTH_REDIRECT_URI = $$https://example.com/cb$$ "
+            "OAUTH_ALLOW_NON_TLS_REDIRECT_URI = FALSE "
             "OAUTH_ALTERNATE_REDIRECT_URIS = ($$https://example.com/cb2$$) "
             "OAUTH_ISSUE_REFRESH_TOKENS = TRUE OAUTH_REFRESH_TOKEN_VALIDITY = 7776000 "
-            "oauth_use_secondary_roles = NONE OAUTH_ENFORCE_PKCE = TRUE "
+            "OAUTH_SINGLE_USE_REFRESH_TOKENS_REQUIRED = FALSE "
+            "oauth_use_secondary_roles = NONE oauth_any_role_mode = DISABLE "
+            "OAUTH_ENFORCE_PKCE = TRUE OAUTH_ENABLE_ROLE_SELECTION = FALSE "
             "BLOCKED_ROLES_LIST = ($$ANALYST$$, $$SYSADMIN$$) COMMENT = $$test comment$$"
         )
 
@@ -1667,6 +1670,9 @@ class TestUpdateSnowflakeCustomOAuthSecurityIntegration:
         # The plan-time error must explain why snowcap refuses to recreate.
         assert "client_id and client_secret" in oauth_client_type_metadata.replacement_message
         assert spec.get_metadata("oauth_alternate_redirect_uris").fetchable is False
+        # oauth_enable_role_selection is CREATE-only: DESC never returns it, so it must be
+        # unfetchable or it drifts "set to default" on every plan.
+        assert spec.get_metadata("oauth_enable_role_selection").fetchable is False
 
     def test_update_set_sql(self):
         """A single-field delta renders as ALTER SECURITY INTEGRATION ... SET, never CREATE OR REPLACE."""

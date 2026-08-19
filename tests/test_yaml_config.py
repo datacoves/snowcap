@@ -692,3 +692,37 @@ class TestSharedDatabaseYaml:
         grant = blueprint_config.resources[0]
         assert isinstance(grant, res.Grant)
         assert grant.create_sql() == "GRANT IMPORTED PRIVILEGES ON DATABASE GONG TO ROLE GONG_R"
+
+
+class TestSecurityIntegrationConfig:
+    """A security_integrations: block with oauth_client: CUSTOM resolves to the custom OAuth resource."""
+
+    def test_custom_oauth_from_yaml(self):
+        from snowcap import resources as res
+
+        config = {
+            "security_integrations": [
+                {
+                    "name": "claude_mcp_oauth",
+                    "type": "OAUTH",
+                    "oauth_client": "CUSTOM",
+                    "oauth_client_type": "CONFIDENTIAL",
+                    "oauth_redirect_uri": "https://claude.ai/api/mcp/auth_callback",
+                    "oauth_enforce_pkce": True,
+                    "oauth_any_role_mode": "ENABLE_FOR_PRIVILEGE",
+                    "oauth_allow_non_tls_redirect_uri": False,
+                    "blocked_roles_list": ["SYSADMIN"],
+                    "comment": "OAuth client for the Claude MCP connector",
+                }
+            ],
+        }
+        blueprint_config = collect_blueprint_config(config)
+
+        assert len(blueprint_config.resources) == 1
+        integration = blueprint_config.resources[0]
+        assert isinstance(integration, res.SnowflakeCustomOAuthSecurityIntegration)
+        data = integration.to_dict()
+        assert data["oauth_client_type"] == "CONFIDENTIAL"
+        assert data["oauth_any_role_mode"] == "ENABLE_FOR_PRIVILEGE"
+        assert data["oauth_enforce_pkce"] is True
+        assert data["blocked_roles_list"] == ["SYSADMIN"]
