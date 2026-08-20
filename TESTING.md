@@ -4,19 +4,24 @@ This document provides comprehensive instructions for running and writing tests 
 
 ## Quick Start
 
-Run the full test suite autonomously in 3 commands:
+Run the full test suite autonomously in 4 commands:
 
 ```bash
-# 1. Copy and configure your environment
+# 1. Set up the dev environment (creates .venv with snowcap installed editable)
+uv sync
+
+# 2. Copy and configure your environment
 cp tests/.env.example tests/.env
 # Edit tests/.env with your Snowflake credentials
 
-# 2. Set up static resources (one-time)
+# 3. Set up static resources (one-time)
 make setup-test-resources
 
-# 3. Run all tests
-pytest tests/ --snowflake -v
+# 4. Run all tests
+uv run pytest tests/ --snowflake -v
 ```
+
+The dev environment is managed by [uv](https://docs.astral.sh/uv/). `uv sync` installs snowcap editable plus the pinned dev dependencies from `uv.lock`, and `uv run` re-checks the environment on every invocation, so it can never drift from the checkout. The `pytest` commands below work either through `uv run pytest ...` or directly after `source .venv/bin/activate`.
 
 ## Running Tests
 

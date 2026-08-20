@@ -1,2 +1,0 @@
-include version.md
-recursive-include snowcap/templates *

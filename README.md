@@ -97,6 +97,24 @@ Full documentation, examples, and resource reference at **[snowcap.datacoves.com
 - [Getting Started](https://snowcap.datacoves.com/getting-started/)
 - [Why Snowcap?](https://snowcap.datacoves.com/why-snowcap/)
 
+## Development
+
+Contributor setup uses [uv](https://docs.astral.sh/uv/). One command creates `.venv`, installs snowcap editable, and installs the pinned dev dependencies from `uv.lock`:
+
+```sh
+make install-dev
+```
+
+This removes stale `pip install -e .` metadata (which would shadow the uv-managed install) and runs `uv sync`. Run tools through uv so the environment can never drift from the checkout:
+
+```sh
+uv run pytest          # unit tests
+make lint              # black --check, codespell, ruff
+make typecheck         # mypy
+```
+
+See [TESTING.md](TESTING.md) for integration test setup.
+
 ## Background
 
 Snowcap is a fork of [Titan Core](https://github.com/Titan-Systems/titan). The original project appeared unmaintained, so Datacoves forked it to continue active development, fix bugs, and add new features. We're grateful to the Titan Systems team for creating and open-sourcing the original project under the Apache 2.0 license.
