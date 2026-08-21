@@ -34,7 +34,7 @@ from .enums import (
     ResourceType,
     WarehouseSize,
 )
-from .identifiers import FQN, URN, parse_FQN, resource_label_for_type, resource_type_for_label
+from .identifiers import FQN, URN, parse_FQN, resource_label_for_type, resource_type_for_label, smart_split
 from .parse import (
     _parse_column,
     _parse_dynamic_table_text,
@@ -890,7 +890,8 @@ def _show_future_grants_to_role(
     )
     for grant in grants:
         grant["name"] = _normalize_future_grant_name(grant["name"])
-        grant["granted_on"] = "DATABASE" if len(grant["name"].split(".")) == 2 else "SCHEMA"
+        # smart_split: quoted identifiers may contain dots ('"DB.WITH.DOT".<SCHEMA>')
+        grant["granted_on"] = "DATABASE" if len(smart_split(grant["name"], ".")) == 2 else "SCHEMA"
     return grants
 
 
@@ -920,7 +921,8 @@ def _show_future_grants_to_database_role(
         # Database-level: "DB_NAME.<SCHEMA>" (2 parts)
         # Schema-level: "DB_NAME.SCHEMA_NAME.<TABLE>" (3 parts)
         grant["name"] = _normalize_future_grant_name(grant["name"])
-        grant["granted_on"] = "DATABASE" if len(grant["name"].split(".")) == 2 else "SCHEMA"
+        # smart_split: quoted identifiers may contain dots ('"DB.WITH.DOT".<SCHEMA>')
+        grant["granted_on"] = "DATABASE" if len(smart_split(grant["name"], ".")) == 2 else "SCHEMA"
     return grants
 
 
@@ -2385,7 +2387,14 @@ def fetch_inherited_grant(session: SnowflakeConnection, fqn: FQN):
 def fetch_grant(session: SnowflakeConnection, fqn: FQN):
     priv = fqn.params["priv"]
     on_type, on = fqn.params["on"].split("/", 1)
-    on_type = on_type.upper()
+    # Two forms of on_type are in play (verified live 2026-07-24):
+    #   - canonical (spec/diff) form: spaced, e.g. 'CATALOG INTEGRATION',
+    #     'GIT REPOSITORY' — what the Grant model stores and what we return.
+    #   - SHOW GRANTS query form: all *-integration types collapse to the bare
+    #     word 'INTEGRATION'; everything else keeps the underscored label
+    #     uppercased ('GIT_REPOSITORY', 'SCHEMA', ...).
+    query_on_type = "INTEGRATION" if on_type.lower().endswith("_integration") else on_type.upper()
+    on_type = on_type.upper().replace("_", " ")
     to_type, to = fqn.params["to"].split("/", 1)
     to_type = resource_type_for_label(to_type)
     # Default to OBJECT grant type if not specified
@@ -2396,13 +2405,19 @@ def fetch_grant(session: SnowflakeConnection, fqn: FQN):
 
     if priv == "ALL":
         filters = {
-            "granted_on": on_type,
+            "granted_on": query_on_type,
         }
 
-        if on_type != "ACCOUNT":
+        if query_on_type != "ACCOUNT":
             filters["name"] = on
 
-        grants = _show_grants_to_role(session, to, role_type=to_type, cacheable=True)
+        if grant_type == GrantType.FUTURE:
+            if to_type == ResourceType.DATABASE_ROLE:
+                grants = _show_future_grants_to_database_role(session, str(to), cacheable=True)
+            else:
+                grants = _show_future_grants_to_role(session, to, cacheable=True)
+        else:
+            grants = _show_grants_to_role(session, to, role_type=to_type, cacheable=True)
         grants = _filter_result(grants, **filters)
 
         if len(grants) == 0:
@@ -2416,7 +2431,7 @@ def fetch_grant(session: SnowflakeConnection, fqn: FQN):
             session,
             grant_type=grant_type,
             role=to,
-            granted_on=on_type,
+            granted_on=query_on_type,
             on_name=on,
             privilege=priv,
             role_type=to_type,

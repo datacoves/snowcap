@@ -381,6 +381,18 @@ class TestParseCollectionString:
         with pytest.raises(ValueError, match="Invalid collection string format"):
             parse_collection_string("MY_DB.tables")
 
+    def test_parse_quoted_identifier_containing_dots(self):
+        """Quoted identifiers may contain dots — the split must be quote-aware."""
+        result = parse_collection_string('"DB.WITH.DOT".<tables>')
+        assert result["on"] == '"DB.WITH.DOT"'
+        assert result["on_type"] == "database"
+        assert result["items_type"] == "tables"
+
+        result = parse_collection_string('"DB.WITH.DOT"."SCH.WITH.DOT".<views>')
+        assert result["on"] == '"DB.WITH.DOT"."SCH.WITH.DOT"'
+        assert result["on_type"] == "schema"
+        assert result["items_type"] == "views"
+
 
 class TestFormatCollectionString:
     """Tests for format_collection_string() function."""
