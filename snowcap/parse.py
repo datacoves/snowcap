@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 import pyparsing as pp
 
 from .enums import ResourceType, Scope
+from .identifiers import smart_split
 from .parse_primitives import FullyQualifiedIdentifier, Identifier
 from .scope import DatabaseScope, SchemaScope
 
@@ -733,7 +734,8 @@ def _parse_copy_into(sql: str):
 
 
 def parse_collection_string(collection: str):
-    parts = collection.split(".")
+    # smart_split: quoted identifiers may contain dots ('"DB.WITH.DOT".<TABLE>')
+    parts = smart_split(collection, ".")
     if len(parts) == 2 and parts[1].startswith("<") and parts[1].endswith(">"):
         return {
             "on": parts[0],

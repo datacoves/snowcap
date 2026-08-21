@@ -34,7 +34,7 @@ from .enums import (
     ResourceType,
     WarehouseSize,
 )
-from .identifiers import FQN, URN, parse_FQN, resource_label_for_type, resource_type_for_label
+from .identifiers import FQN, URN, parse_FQN, resource_label_for_type, resource_type_for_label, smart_split
 from .parse import (
     _parse_column,
     _parse_dynamic_table_text,
@@ -890,7 +890,8 @@ def _show_future_grants_to_role(
     )
     for grant in grants:
         grant["name"] = _normalize_future_grant_name(grant["name"])
-        grant["granted_on"] = "DATABASE" if len(grant["name"].split(".")) == 2 else "SCHEMA"
+        # smart_split: quoted identifiers may contain dots ('"DB.WITH.DOT".<SCHEMA>')
+        grant["granted_on"] = "DATABASE" if len(smart_split(grant["name"], ".")) == 2 else "SCHEMA"
     return grants
 
 
@@ -920,7 +921,8 @@ def _show_future_grants_to_database_role(
         # Database-level: "DB_NAME.<SCHEMA>" (2 parts)
         # Schema-level: "DB_NAME.SCHEMA_NAME.<TABLE>" (3 parts)
         grant["name"] = _normalize_future_grant_name(grant["name"])
-        grant["granted_on"] = "DATABASE" if len(grant["name"].split(".")) == 2 else "SCHEMA"
+        # smart_split: quoted identifiers may contain dots ('"DB.WITH.DOT".<SCHEMA>')
+        grant["granted_on"] = "DATABASE" if len(smart_split(grant["name"], ".")) == 2 else "SCHEMA"
     return grants
 
 

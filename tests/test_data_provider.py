@@ -30,6 +30,7 @@ from snowcap.data_provider import (
     _parse_pat_policy_property,
     _suppress_default_pat_policy,
     _cast_param_value,
+    _show_future_grants_to_role,
     params_result_to_dict,
     options_result_to_list,
     remove_none_values,
@@ -2777,30 +2778,13 @@ class TestFetchGrant:
             params["grant_type"] = grant_type
         return FQN(name=ResourceName("GRANT"), params=params)
 
-    def _show_grant_row(self, privilege, granted_on, name, granted_to="ROLE", grantee_name="SOME_ROLE"):
-        return {
-            "created_on": datetime.datetime(2024, 1, 1, 12, 0, 0),
-            "privilege": privilege,
-            "granted_on": granted_on,
-            "name": name,
-            "granted_to": granted_to,
-            "grantee_name": grantee_name,
-            "grant_option": "false",
-            "granted_by": "SYSADMIN",
-        }
-
-    def _future_grant_row(self, privilege, name, granted_on):
+    def _future_grant_row(self, privilege, name, granted_on, grant_to="ROLE"):
         """Row shape of _show_future_grants_to_role output (granted_on already inferred)."""
-        return {
-            "created_on": datetime.datetime(2024, 1, 1, 12, 0, 0),
-            "privilege": privilege,
-            "grant_on": granted_on,
-            "name": name,
-            "grant_to": "ROLE",
-            "grantee_name": "DBT_DEVELOPER",
-            "grant_option": "false",
-            "granted_on": granted_on,
-        }
+        row = _grant_to_role_row(
+            privilege=privilege, name=name, granted_on=granted_on, granted_to=grant_to, grantee_name="DBT_DEVELOPER"
+        )
+        row.update({"grant_on": granted_on, "grant_to": grant_to})
+        return row
 
     @patch("snowcap.data_provider._show_grants_to_role")
     @patch("snowcap.data_provider._show_future_grants_to_role")
@@ -2827,71 +2811,84 @@ class TestFetchGrant:
         mock_show_grants.assert_not_called()
 
     @patch("snowcap.data_provider._show_grants_to_role")
-    def test_fetch_grant_usage_on_catalog_integration(self, mock_show_grants):
-        """SHOW GRANTS collapses all *-integration types to granted_on='INTEGRATION'
-        (verified live 2026-07-24); the returned on_type stays canonical."""
-        fqn = self._fqn(priv="USAGE", on="catalog_integration/MY_CATALOG", to="role/SOME_ROLE")
-        mock_show_grants.return_value = [
-            self._show_grant_row("USAGE", "INTEGRATION", "MY_CATALOG"),
+    @patch("snowcap.data_provider._show_future_grants_to_role")
+    @patch("snowcap.data_provider._show_future_grants_to_database_role")
+    def test_fetch_grant_all_future_to_database_role(self, mock_db_role_grants, mock_future_grants, mock_show_grants):
+        """ALL on FUTURE grants to a DATABASE ROLE must query SHOW FUTURE GRANTS TO DATABASE ROLE."""
+        fqn = self._fqn(
+            priv="ALL",
+            on="database/DB_DEV.<SCHEMA>",
+            to="database_role/DB_DEV.DBT_ROLE",
+            grant_type="FUTURE",
+        )
+        mock_db_role_grants.return_value = [
+            self._future_grant_row("USAGE", "DB_DEV.<SCHEMA>", "DATABASE", grant_to="DATABASE_ROLE"),
         ]
 
         result = fetch_grant(MagicMock(), fqn)
 
         assert result is not None
-        assert result["priv"] == "USAGE"
-        assert result["on"] == "MY_CATALOG"
-        assert result["on_type"] == "CATALOG INTEGRATION"
+        assert result["priv"] == "ALL"
+        assert result["_privs"] == ["USAGE"]
+        assert result["grant_type"] == "FUTURE"
+        mock_db_role_grants.assert_called_once()
+        mock_future_grants.assert_not_called()
+        mock_show_grants.assert_not_called()
 
     @patch("snowcap.data_provider._show_grants_to_role")
-    def test_fetch_grant_usage_on_storage_integration(self, mock_show_grants):
-        fqn = self._fqn(priv="USAGE", on="storage_integration/MY_STORAGE", to="role/SOME_ROLE")
+    def test_fetch_grant_all_on_integration(self, mock_show_grants):
+        """ALL on an integration: SHOW GRANTS collapses *-integration types to
+        granted_on='INTEGRATION'; the direct _filter_result branch must still match."""
+        fqn = self._fqn(priv="ALL", on="security_integration/MY_OAUTH", to="role/SOME_ROLE")
         mock_show_grants.return_value = [
-            self._show_grant_row("USAGE", "INTEGRATION", "MY_STORAGE"),
+            _grant_to_role_row(privilege="USAGE", granted_on="INTEGRATION", name="MY_OAUTH", grantee_name="SOME_ROLE"),
         ]
 
         result = fetch_grant(MagicMock(), fqn)
 
         assert result is not None
-        assert result["on_type"] == "STORAGE INTEGRATION"
+        assert result["priv"] == "ALL"
+        assert result["_privs"] == ["USAGE"]
 
+    @pytest.mark.parametrize(
+        "priv,on,reported_on,expected_on_type",
+        [
+            # SHOW GRANTS collapses all *-integration types to granted_on='INTEGRATION'
+            # (verified live 2026-07-24); the returned on_type stays canonical.
+            ("USAGE", "catalog_integration/MY_CATALOG", "INTEGRATION", "CATALOG INTEGRATION"),
+            ("USAGE", "storage_integration/MY_STORAGE", "INTEGRATION", "STORAGE INTEGRATION"),
+            # GIT REPOSITORY is reported with an underscore ('GIT_REPOSITORY') — must
+            # still match, and round-trips to the canonical spaced form.
+            ("READ", "git_repository/DB_PROD.PUBLIC.DBT_PLATFORM_REPO", "GIT_REPOSITORY", "GIT REPOSITORY"),
+            ("AUDIT", "account/ACCOUNT", "ACCOUNT", "ACCOUNT"),
+            ("USAGE", "schema/DB_DEV.PUBLIC", "SCHEMA", "SCHEMA"),
+        ],
+    )
     @patch("snowcap.data_provider._show_grants_to_role")
-    def test_fetch_grant_read_on_git_repository(self, mock_show_grants):
-        """GIT REPOSITORY is reported with an underscore ('GIT_REPOSITORY') — must
-        still match, and round-trips to the canonical spaced form."""
-        fqn = self._fqn(priv="READ", on="git_repository/DB_PROD.PUBLIC.DBT_PLATFORM_REPO", to="role/SOME_ROLE")
+    def test_fetch_grant_object_type_round_trip(self, mock_show_grants, priv, on, reported_on, expected_on_type):
+        name = on.split("/", 1)[1]
         mock_show_grants.return_value = [
-            self._show_grant_row("READ", "GIT_REPOSITORY", "DB_PROD.PUBLIC.DBT_PLATFORM_REPO"),
+            _grant_to_role_row(privilege=priv, granted_on=reported_on, name=name, grantee_name="SOME_ROLE"),
         ]
 
-        result = fetch_grant(MagicMock(), fqn)
+        result = fetch_grant(MagicMock(), self._fqn(priv=priv, on=on, to="role/SOME_ROLE"))
 
         assert result is not None
-        assert result["on_type"] == "GIT REPOSITORY"
+        assert result["priv"] == priv
+        assert result["on"] == name
+        assert result["on_type"] == expected_on_type
 
-    @patch("snowcap.data_provider._show_grants_to_role")
-    def test_fetch_grant_audit_on_account_still_matches(self, mock_show_grants):
-        fqn = self._fqn(priv="AUDIT", on="account/ACCOUNT", to="role/SOME_ROLE")
-        mock_show_grants.return_value = [
-            self._show_grant_row("AUDIT", "ACCOUNT", "ACCOUNT"),
+    @patch("snowcap.data_provider.execute")
+    def test_show_future_grants_container_inference_is_quote_aware(self, mock_execute):
+        """Quoted identifiers may contain dots: '"DB.WITH.DOT".<SCHEMA>' is a database-level
+        collection and '"DB.WITH.DOT"."SCH.WITH.DOT".<TABLE>' is schema-level. A naive
+        name.split('.') misclassifies both."""
+        mock_execute.return_value = [
+            _grant_to_role_row(privilege="USAGE", name='"DB.WITH.DOT".<SCHEMA>'),
+            _grant_to_role_row(privilege="USAGE", name='"DB.WITH.DOT"."SCH.WITH.DOT".<TABLE>'),
         ]
 
-        result = fetch_grant(MagicMock(), fqn)
+        grants = _show_future_grants_to_role(MagicMock(), "SOME_ROLE")
 
-        assert result is not None
-        assert result["priv"] == "AUDIT"
-        assert result["on"] == "ACCOUNT"
-        assert result["on_type"] == "ACCOUNT"
-
-    @patch("snowcap.data_provider._show_grants_to_role")
-    def test_fetch_grant_usage_on_schema_still_matches(self, mock_show_grants):
-        fqn = self._fqn(priv="USAGE", on="schema/DB_DEV.PUBLIC", to="role/SOME_ROLE")
-        mock_show_grants.return_value = [
-            self._show_grant_row("USAGE", "SCHEMA", "DB_DEV.PUBLIC"),
-        ]
-
-        result = fetch_grant(MagicMock(), fqn)
-
-        assert result is not None
-        assert result["priv"] == "USAGE"
-        assert result["on"] == "DB_DEV.PUBLIC"
-        assert result["on_type"] == "SCHEMA"
+        assert grants[0]["granted_on"] == "DATABASE"
+        assert grants[1]["granted_on"] == "SCHEMA"
