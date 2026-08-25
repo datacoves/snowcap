@@ -1598,6 +1598,27 @@ class Blueprint:
                 if change.after["role"] in SYSTEM_ROLES:
                     role_grant_to_system = True
 
+            # A key pair rotation leaves the prior key valid for a grace period, under a
+            # name Snowflake generates. Snowcap doesn't manage that key -- it expires on
+            # its own -- so the plan has to say it will still be there.
+            if (
+                isinstance(change, UpdateResource)
+                and change.urn.resource_type == ResourceType.USER_KEY_PAIR
+                and "fingerprint" in change.delta
+            ):
+                expire_after_hours = change.after.get("expire_rotated_key_pair_after_hours")
+                if expire_after_hours == 0:
+                    grace_period = "revoked immediately"
+                elif expire_after_hours is None:
+                    grace_period = "valid for 24 hours (Snowflake's default)"
+                else:
+                    grace_period = f"valid for {expire_after_hours} hours"
+                warnings.append(
+                    f"Key pair {change.urn} will be rotated. The prior key is kept as "
+                    f"<name>_ROTATED_<epoch_ms> and stays {grace_period}; set "
+                    "expire_rotated_key_pair_after_hours to change that."
+                )
+
             # MCP server specification changes are applied via CREATE OR REPLACE, which
             # drops all grants on the server (see lifecycle.update_mcp_server).
             if (

@@ -5,6 +5,7 @@ import snowflake.connector.errors
 
 from tests.helpers import (
     TEST_PUBLIC_KEY,
+    TEST_PUBLIC_KEY_2,
     TEST_PUBLIC_KEY_FINGERPRINT,
     assert_resource_dicts_eq_ignore_nulls,
     assert_resource_dicts_eq_ignore_nulls_and_unfetchable,
@@ -754,3 +755,21 @@ def test_fetch_user_key_pair(cursor, suffix, marked_for_cleanup):
     assert clean_resource_data(res.UserKeyPair.spec, result) == clean_resource_data(
         res.UserKeyPair.spec, key_pair.to_dict()
     )
+
+
+def test_fetch_user_legacy_rsa_public_keys(cursor, suffix, marked_for_cleanup):
+    # Both legacy key properties have to be read back, or a config that stages a second
+    # key for rotation re-applies it on every plan.
+    user = res.User(
+        name=f"TEST_FETCH_LEGACY_KEYS_{suffix}",
+        type="SERVICE",
+        rsa_public_key=TEST_PUBLIC_KEY,
+        rsa_public_key_2=TEST_PUBLIC_KEY_2,
+    )
+    create(cursor, user)
+    marked_for_cleanup.append(user)
+
+    result = safe_fetch(cursor, user.urn)
+    assert result is not None
+    assert result["rsa_public_key"] == TEST_PUBLIC_KEY
+    assert result["rsa_public_key_2"] == TEST_PUBLIC_KEY_2

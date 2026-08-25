@@ -163,8 +163,15 @@ def test_user_key_pair_lifecycle(cursor, suffix, marked_for_cleanup):
     assert data["disabled"] is False
 
     # Rotating the key keeps the name and leaves the prior key behind as a tombstone,
-    # which snowcap must not report as an unmanaged key pair.
-    rotated = res.UserKeyPair(name="MY_KEY", user=user, public_key=TEST_PUBLIC_KEY_2)
+    # which snowcap must not report as an unmanaged key pair. Revoke the prior key
+    # immediately -- the response to a leaked private key, and it keeps the test account
+    # clean.
+    rotated = res.UserKeyPair(
+        name="MY_KEY",
+        user=user,
+        public_key=TEST_PUBLIC_KEY_2,
+        expire_rotated_key_pair_after_hours=0,
+    )
     for sql in lifecycle.update_resource(
         key_pair.urn,
         {"fingerprint": TEST_PUBLIC_KEY_2_FINGERPRINT},

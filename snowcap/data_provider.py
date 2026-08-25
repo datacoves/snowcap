@@ -51,11 +51,7 @@ from .resource_name import (
 )
 from .resources.authentication_policy import _PAT_POLICY_DEFAULT
 from .resources.security_integration import _canonicalize_role_name
-from .resources.user_key_pair import (
-    RESERVED_KEY_PAIR_NAMES,
-    key_pair_is_rotated_out,
-    normalize_fingerprint,
-)
+from .resources.user_key_pair import RESERVED_KEY_PAIR_NAMES, normalize_fingerprint
 from .resources.warehouse import ADAPTIVE_UNSUPPORTED_FIELDS
 
 __this__ = sys.modules[__name__]
@@ -3754,6 +3750,10 @@ def fetch_user(
         must_change_password = data["must_change_password"] == "true"
 
     rsa_public_key = properties["rsa_public_key"] if properties["rsa_public_key"] != "null" else None
+    # The second legacy key is what a key rotation on the legacy properties runs through.
+    # Without reading it back, a config that sets it re-applies it on every plan.
+    rsa_public_key_2 = properties.get("rsa_public_key_2")
+    rsa_public_key_2 = rsa_public_key_2 if rsa_public_key_2 not in (None, "null") else None
     middle_name = properties["middle_name"] if properties["middle_name"] != "null" else None
 
     default_secondary_roles = json.loads(data["default_secondary_roles"]) if data["default_secondary_roles"] else None
@@ -3775,6 +3775,7 @@ def fetch_user(
         "default_secondary_roles": default_secondary_roles,
         "type": user_type,
         "rsa_public_key": rsa_public_key,
+        "rsa_public_key_2": rsa_public_key_2,
         "network_policy": network_policy,
         "owner": _get_owner_identifier(data),
     }
@@ -3792,8 +3793,14 @@ def _key_pair_is_declarable(row: dict) -> bool:
     generated name until it expires, and the reserved PUBLIC_KEY_1 / PUBLIC_KEY_2 names
     Snowflake reports for the legacy rsa_public_key and rsa_public_key_2 user properties,
     which are managed on the user resource instead.
+
+    A rotated-out key is identified by `rotated_to`, the column Snowflake sets, and never
+    by its name. The generated name is a naming convention, not a guarantee: anyone who
+    can register a key pair can name one `<anything>_ROTATED_<digits>`, and treating that
+    as a tombstone would hide a live key from drift detection and from the sync sweep that
+    removes what config does not declare.
     """
-    if row.get("rotated_to") or key_pair_is_rotated_out(row["name"]):
+    if row.get("rotated_to"):
         return False
     return ResourceName(row["name"]) not in RESERVED_KEY_PAIR_NAMES
 
@@ -3814,6 +3821,9 @@ def _user_key_pair_to_dict(data: dict) -> dict:
         # disabled and expired, so a disabled key never reads back as enabled.
         # https://docs.snowflake.com/en/sql-reference/sql/show-user-key-pairs
         "disabled": status == "DISABLED",
+        # The duration a key pair was registered with is not reported, only the absolute
+        # time it expires. Whether it expires at all is comparable; the duration is not.
+        "has_expiration": data.get("expires_at") is not None,
         "comment": data["comment"] or None,
     }
 

@@ -75,9 +75,11 @@ def test_data_identity(resource):
     if resource_cls.__name__ == "Grant":
         serialized.pop("grant_type", None)
         serialized.pop("items_type", None)
-    # A key pair's fingerprint is computed from its public key, not configured
+    # A key pair's fingerprint and has_expiration are computed from its public key and
+    # days_to_expiry, not configured
     if resource_cls.__name__ == "UserKeyPair":
         serialized.pop("fingerprint", None)
+        serialized.pop("has_expiration", None)
     if "name" in serialized:
         assert _resource_names_are_eq(serialized.pop("name"), data.pop("name"))
     if "columns" in serialized:

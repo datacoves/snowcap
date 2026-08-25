@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import json
+import logging
 
 import pytest
 
@@ -65,6 +66,8 @@ def remote_key_pair(**overrides) -> dict:
         "fingerprint": PUBLIC_KEY_FINGERPRINT,
         "role_restriction": None,
         "days_to_expiry": None,
+        "has_expiration": False,
+        "expire_rotated_key_pair_after_hours": None,
         "disabled": False,
         "comment": None,
     }
@@ -121,6 +124,7 @@ class TestUserKeyPair:
             owner="SECURITYADMIN",
             role_restriction="some_role",
             days_to_expiry=90,
+            expire_rotated_key_pair_after_hours=4,
             disabled=True,
             comment="primary workload key",
         )
@@ -133,6 +137,8 @@ class TestUserKeyPair:
             "fingerprint": PUBLIC_KEY_FINGERPRINT,
             "role_restriction": "SOME_ROLE",
             "days_to_expiry": 90,
+            "has_expiration": True,
+            "expire_rotated_key_pair_after_hours": 4,
             "disabled": True,
             "comment": "primary workload key",
         }
@@ -294,9 +300,29 @@ class TestUserKeyPairPlan:
     def test_no_drift_when_the_key_is_unchanged(self, session_ctx):
         remote = {
             parse_URN("urn::ABCD123:account/ACCOUNT"): {},
-            KEY_PAIR_URN: remote_key_pair(),
+            KEY_PAIR_URN: remote_key_pair(has_expiration=True),
+        }
+        # days_to_expiry itself is never compared -- Snowflake reports an absolute
+        # expires_at -- so a key pair registered with an expiry plans nothing.
+        key_pair = res.UserKeyPair(name="my_key", user="some_user", public_key=PUBLIC_KEY, days_to_expiry=90)
+        assert diff(remote, self._manifest(session_ctx, key_pair)) == []
+
+    def test_adding_an_expiry_to_an_existing_key_pair_is_refused(self, session_ctx):
+        remote = {
+            parse_URN("urn::ABCD123:account/ACCOUNT"): {},
+            KEY_PAIR_URN: remote_key_pair(has_expiration=False),
         }
         key_pair = res.UserKeyPair(name="my_key", user="some_user", public_key=PUBLIC_KEY, days_to_expiry=90)
+        with pytest.raises(MarkedForReplacementException, match="expiration of an existing key pair"):
+            diff(remote, self._manifest(session_ctx, key_pair))
+
+    def test_an_undeclared_expiry_is_left_alone(self, session_ctx):
+        # None means "not managed" everywhere else in snowcap, and it means that here too.
+        remote = {
+            parse_URN("urn::ABCD123:account/ACCOUNT"): {},
+            KEY_PAIR_URN: remote_key_pair(has_expiration=True),
+        }
+        key_pair = res.UserKeyPair(name="my_key", user="some_user", public_key=PUBLIC_KEY)
         assert diff(remote, self._manifest(session_ctx, key_pair)) == []
 
     def test_a_new_key_plans_a_rotation(self, session_ctx):
@@ -384,8 +410,13 @@ class TestUserKeyPairFetch:
             "fingerprint": PUBLIC_KEY_FINGERPRINT,
             "role_restriction": "SOME_ROLE",
             "disabled": False,
+            "has_expiration": False,
             "comment": "hi",
         }
+
+    def test_an_expiring_key_pair_reports_that_it_expires(self):
+        row = self._show_row(expires_at="2026-11-01 00:00:00")
+        assert _user_key_pair_to_dict(row)["has_expiration"] is True
 
     def test_disabled_status(self):
         assert _user_key_pair_to_dict(self._show_row(status="DISABLED"))["disabled"] is True
@@ -398,12 +429,18 @@ class TestUserKeyPairFetch:
 
     def test_rotated_out_and_reserved_key_pairs_are_not_declarable(self):
         assert _key_pair_is_declarable(self._show_row())
-        assert not _key_pair_is_declarable(self._show_row(name="MY_KEY_ROTATED_1755000000000"))
         assert not _key_pair_is_declarable(self._show_row(rotated_to="MY_KEY"))
         # The legacy rsa_public_key / rsa_public_key_2 properties show up under these
         # names; they are managed on the user resource, not as key pairs.
         assert not _key_pair_is_declarable(self._show_row(name="PUBLIC_KEY_1"))
         assert not _key_pair_is_declarable(self._show_row(name="PUBLIC_KEY_2"))
+
+    def test_a_live_key_pair_named_like_a_tombstone_is_still_visible(self):
+        # `rotated_to` is what Snowflake sets on a rotated-out key. The generated name is
+        # only a convention, and anyone who can register a key pair can imitate it -- if
+        # the name were trusted, such a key would be invisible to drift and to sync.
+        row = self._show_row(name="MY_KEY_ROTATED_1755000000000", rotated_to=None)
+        assert _key_pair_is_declarable(row)
 
     def test_fetched_state_round_trips_through_the_spec(self):
         data = _user_key_pair_to_dict(self._show_row())
@@ -503,3 +540,162 @@ class TestUserKeyPairRename:
             "ALTER USER SOME_USER MODIFY KEY PAIR MY_KEY RENAME TO NEW_KEY",
             "ALTER USER SOME_USER MODIFY KEY PAIR NEW_KEY SET COMMENT = $$renamed$$",
         ]
+
+
+class TestUserKeyPairRotation:
+    def test_rotation_uses_snowflakes_default_grace_period(self):
+        after = res.UserKeyPair(name="my_key", user="some_user", public_key=OTHER_PUBLIC_KEY).to_dict()
+        sql = lifecycle.update_resource(
+            KEY_PAIR_URN, {"fingerprint": after["fingerprint"]}, res.UserKeyPair.props, after=after
+        )
+        assert sql == [f"ALTER USER SOME_USER ROTATE KEY PAIR MY_KEY PUBLIC_KEY = $${OTHER_PUBLIC_KEY}$$"]
+
+    def test_rotation_can_revoke_the_prior_key_immediately(self):
+        # The response to a leaked private key: rotate with no grace period.
+        after = res.UserKeyPair(
+            name="my_key",
+            user="some_user",
+            public_key=OTHER_PUBLIC_KEY,
+            expire_rotated_key_pair_after_hours=0,
+        ).to_dict()
+        sql = lifecycle.update_resource(
+            KEY_PAIR_URN, {"fingerprint": after["fingerprint"]}, res.UserKeyPair.props, after=after
+        )
+        assert sql == [
+            f"ALTER USER SOME_USER ROTATE KEY PAIR MY_KEY PUBLIC_KEY = $${OTHER_PUBLIC_KEY}$$ "
+            "EXPIRE_ROTATED_KEY_PAIR_AFTER_HOURS = 0"
+        ]
+
+    def test_rotation_can_widen_the_grace_period(self):
+        after = res.UserKeyPair(
+            name="my_key",
+            user="some_user",
+            public_key=OTHER_PUBLIC_KEY,
+            expire_rotated_key_pair_after_hours=72,
+        ).to_dict()
+        sql = lifecycle.update_resource(
+            KEY_PAIR_URN, {"fingerprint": after["fingerprint"]}, res.UserKeyPair.props, after=after
+        )
+        assert sql[0].endswith("EXPIRE_ROTATED_KEY_PAIR_AFTER_HOURS = 72")
+
+    def test_the_grace_period_is_not_part_of_the_add_statement(self):
+        # ALTER USER ... ADD KEY PAIR has no such option; it only applies to a rotation.
+        key_pair = res.UserKeyPair(
+            name="my_key", user="some_user", public_key=PUBLIC_KEY, expire_rotated_key_pair_after_hours=0
+        )
+        assert "EXPIRE_ROTATED" not in key_pair.create_sql()
+
+    def test_the_grace_period_alone_is_not_a_change(self, session_ctx):
+        # It describes the next rotation, not the state of the key pair, so changing it
+        # on its own must not plan anything.
+        remote = {
+            parse_URN("urn::ABCD123:account/ACCOUNT"): {},
+            KEY_PAIR_URN: remote_key_pair(),
+        }
+        key_pair = res.UserKeyPair(
+            name="my_key", user="some_user", public_key=PUBLIC_KEY, expire_rotated_key_pair_after_hours=0
+        )
+        assert diff(remote, Blueprint(resources=[key_pair]).generate_manifest(session_ctx)) == []
+
+    def test_a_negative_grace_period_is_rejected(self):
+        with pytest.raises(ValueError, match="expire_rotated_key_pair_after_hours"):
+            res.UserKeyPair(
+                name="my_key", user="some_user", public_key=PUBLIC_KEY, expire_rotated_key_pair_after_hours=-1
+            )
+
+    def test_the_plan_says_the_prior_key_survives(self, session_ctx, caplog):
+        remote = {
+            parse_URN("urn::ABCD123:account/ACCOUNT"): {},
+            KEY_PAIR_URN: remote_key_pair(),
+        }
+        blueprint = Blueprint(resources=[res.UserKeyPair(name="my_key", user="some_user", public_key=OTHER_PUBLIC_KEY)])
+        plan = diff(remote, blueprint.generate_manifest(session_ctx))
+        with caplog.at_level(logging.WARNING, logger="snowcap"):
+            blueprint._warning_for_nonconforming_plan(session_ctx, plan)
+        assert "will be rotated" in caplog.text
+        assert "24 hours" in caplog.text
+
+    def test_the_plan_says_when_the_prior_key_is_revoked_immediately(self, session_ctx, caplog):
+        remote = {
+            parse_URN("urn::ABCD123:account/ACCOUNT"): {},
+            KEY_PAIR_URN: remote_key_pair(),
+        }
+        blueprint = Blueprint(
+            resources=[
+                res.UserKeyPair(
+                    name="my_key",
+                    user="some_user",
+                    public_key=OTHER_PUBLIC_KEY,
+                    expire_rotated_key_pair_after_hours=0,
+                )
+            ]
+        )
+        plan = diff(remote, blueprint.generate_manifest(session_ctx))
+        with caplog.at_level(logging.WARNING, logger="snowcap"):
+            blueprint._warning_for_nonconforming_plan(session_ctx, plan)
+        assert "revoked immediately" in caplog.text
+
+
+class TestLegacyKeyRotation:
+    """The rsa_public_key / rsa_public_key_2 properties, which pre-date named key pairs."""
+
+    def _remote_user(self, **overrides):
+        fetched = {
+            "name": "SVC",
+            "login_name": None,
+            "display_name": None,
+            "first_name": None,
+            "middle_name": None,
+            "last_name": None,
+            "email": None,
+            "comment": None,
+            "disabled": False,
+            "must_change_password": None,
+            "default_warehouse": None,
+            "default_namespace": None,
+            "default_role": None,
+            "default_secondary_roles": None,
+            "type": "SERVICE",
+            "rsa_public_key": PUBLIC_KEY,
+            "rsa_public_key_2": None,
+            "network_policy": None,
+            "owner": "USERADMIN",
+        }
+        fetched.update(overrides)
+        return res.User.spec(**fetched).to_dict(AccountEdition.ENTERPRISE)
+
+    def test_the_second_key_is_compared_not_re_applied_every_plan(self, session_ctx):
+        # Staging a second key is the first half of a legacy rotation. It has to settle:
+        # once applied, the next plan must be empty.
+        remote = {
+            parse_URN("urn::ABCD123:account/ACCOUNT"): {},
+            parse_URN("urn::ABCD123:user/SVC"): self._remote_user(rsa_public_key_2=OTHER_PUBLIC_KEY),
+        }
+        user = res.User(name="svc", type="SERVICE", rsa_public_key=PUBLIC_KEY, rsa_public_key_2=OTHER_PUBLIC_KEY)
+        assert diff(remote, Blueprint(resources=[user]).generate_manifest(session_ctx)) == []
+
+    def test_staging_a_second_key_plans_one_update(self, session_ctx):
+        remote = {
+            parse_URN("urn::ABCD123:account/ACCOUNT"): {},
+            parse_URN("urn::ABCD123:user/SVC"): self._remote_user(),
+        }
+        user = res.User(name="svc", type="SERVICE", rsa_public_key=PUBLIC_KEY, rsa_public_key_2=OTHER_PUBLIC_KEY)
+        changes = diff(remote, Blueprint(resources=[user]).generate_manifest(session_ctx))
+        assert len(changes) == 1
+        assert changes[0].delta == {"rsa_public_key_2": OTHER_PUBLIC_KEY}
+
+    def test_a_pem_wrapped_key_matches_what_snowflake_reports(self, session_ctx):
+        # DESC USER reports keys without delimiters, and Snowflake's SQL wants them that
+        # way, so a key pasted out of a .pub file must not read as drift.
+        pem = (
+            "-----BEGIN PUBLIC KEY-----\n"
+            + "\n".join(PUBLIC_KEY[i : i + 64] for i in range(0, len(PUBLIC_KEY), 64))
+            + "\n-----END PUBLIC KEY-----\n"
+        )
+        remote = {
+            parse_URN("urn::ABCD123:account/ACCOUNT"): {},
+            parse_URN("urn::ABCD123:user/SVC"): self._remote_user(),
+        }
+        user = res.User(name="svc", type="SERVICE", rsa_public_key=pem)
+        assert diff(remote, Blueprint(resources=[user]).generate_manifest(session_ctx)) == []
+        assert f"RSA_PUBLIC_KEY = $${PUBLIC_KEY}$$" in user.create_sql()

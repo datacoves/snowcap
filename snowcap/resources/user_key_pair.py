@@ -1,6 +1,3 @@
-import base64
-import binascii
-import hashlib
 import re
 from dataclasses import dataclass, field
 from typing import Optional
@@ -8,76 +5,43 @@ from typing import Optional
 from ..enums import AccountEdition, ResourceType
 from ..identifiers import FQN
 from ..props import IntProp, Props, StringProp
+from ..public_key import (
+    FINGERPRINT_PREFIX,
+    normalize_fingerprint,
+    normalize_public_key,
+    public_key_fingerprint,
+)
 from ..resource_name import ResourceName
 from ..scope import AccountScope
 from .resource import NamedResource, Resource, ResourceSpec
 from .role import Role
 from .user import User
 
-FINGERPRINT_PREFIX = "SHA256:"
-
-_PEM_DELIMITER = re.compile(r"-{2,}[A-Z ]*-{2,}")
+__all__ = [
+    "FINGERPRINT_PREFIX",
+    "RESERVED_KEY_PAIR_NAMES",
+    "UserKeyPair",
+    "key_pair_is_rotated_out",
+    "normalize_fingerprint",
+    "normalize_public_key",
+    "public_key_fingerprint",
+    "user_key_pair_fqn",
+]
 
 # Snowflake reserves these names for the keys set through the legacy RSA_PUBLIC_KEY and
 # RSA_PUBLIC_KEY_2 user properties. They can't be added, modified, rotated, or removed
 # with the KEY PAIR commands.
 RESERVED_KEY_PAIR_NAMES = (ResourceName("PUBLIC_KEY_1"), ResourceName("PUBLIC_KEY_2"))
 
-# Snowflake keeps the prior key of a rotation under a generated name of this shape until
-# it expires. Those tombstones are not resources anyone declares.
+# The shape of the name Snowflake generates for the prior key of a rotation. It is a
+# naming convention, not a guarantee -- a fetched key pair is identified as rotated-out by
+# the `rotated_to` column, never by its name -- so this is only used to keep a config from
+# claiming a name in the namespace Snowflake generates into.
 ROTATED_KEY_PAIR_NAME = re.compile(r"_ROTATED_\d+$")
 
 
-def normalize_public_key(public_key: str) -> str:
-    """
-    The single-line, delimiter-free form of a public key that Snowflake's SQL expects.
-
-    Snowflake's docs are explicit that the public key delimiters are excluded from the
-    SQL statement, so a key pasted straight out of a .pub file is accepted here and the
-    `-----BEGIN PUBLIC KEY-----` wrapper and newlines are removed.
-    """
-    return "".join(_PEM_DELIMITER.sub("", public_key).split())
-
-
-def public_key_fingerprint(public_key: str) -> str:
-    """
-    The SHA-256 fingerprint Snowflake reports for a public key.
-
-    Snowflake never echoes a named key pair's public key back -- SHOW USER KEY PAIRS
-    returns a fingerprint and nothing else -- so drift on the key itself is detected by
-    computing the same fingerprint locally. The fingerprint is the base64-encoded SHA-256
-    digest of the key's DER (SubjectPublicKeyInfo) bytes, which is exactly what the
-    base64 body of a PEM public key decodes to. It matches:
-
-        openssl rsa -pubin -in rsa_key.pub -outform DER | openssl dgst -sha256 -binary | openssl enc -base64
-
-    https://docs.snowflake.com/en/user-guide/key-pair-auth
-    """
-    key = normalize_public_key(public_key)
-    if not key:
-        raise ValueError("public_key is empty")
-    try:
-        der = base64.b64decode(key, validate=True)
-    except (binascii.Error, ValueError) as err:
-        raise ValueError(f"public_key is not valid base64-encoded key material: {err}") from err
-    if not der:
-        raise ValueError("public_key is empty")
-    return FINGERPRINT_PREFIX + base64.b64encode(hashlib.sha256(der).digest()).decode("utf-8")
-
-
-def normalize_fingerprint(fingerprint: str) -> str:
-    """
-    A fingerprint in the `SHA256:<base64>` form snowcap compares on, whether or not
-    Snowflake included the prefix.
-    """
-    fingerprint = fingerprint.strip()
-    if fingerprint.upper().startswith(FINGERPRINT_PREFIX):
-        fingerprint = fingerprint[len(FINGERPRINT_PREFIX) :]
-    return FINGERPRINT_PREFIX + fingerprint
-
-
 def key_pair_is_rotated_out(name: str) -> bool:
-    """True for the `<name>_ROTATED_<epoch_ms>` tombstone a rotation leaves behind."""
+    """True for a name shaped like the `<name>_ROTATED_<epoch_ms>` a rotation generates."""
     return ROTATED_KEY_PAIR_NAME.search(name) is not None
 
 
@@ -104,8 +68,23 @@ class _UserKeyPair(ResourceSpec):
         },
     )
     # Snowflake reports an absolute expires_at rather than the relative value that was
-    # registered, so comparing the two would report drift on every plan. Config wins.
+    # registered, so the duration itself can't be compared without reporting drift on
+    # every plan. Config wins, and has_expiration catches the case that matters: an
+    # expiration added to, or dropped from, a key pair that already exists.
     days_to_expiry: int = field(default=None, metadata={"fetchable": False})
+    has_expiration: bool = field(
+        default=None,
+        metadata={
+            "triggers_replacement": True,
+            "replacement_message": (
+                "Snowflake cannot add or remove the expiration of an existing key pair. "
+                "Remove the key pair from config, apply, then add it back with the new days_to_expiry."
+            ),
+        },
+    )
+    # How long the prior key stays valid after a rotation. Not a property of the key pair
+    # -- Snowflake never reports it -- but a directive for the next ROTATE KEY PAIR.
+    expire_rotated_key_pair_after_hours: int = field(default=None, metadata={"fetchable": False})
     disabled: bool = False
     comment: str = None
 
@@ -120,10 +99,17 @@ class _UserKeyPair(ResourceSpec):
         if key_pair_is_rotated_out(str(self.name)):
             raise ValueError(
                 f"{self.name} names a rotated-out key pair. Snowflake generates those names "
-                "during rotation and they cannot be managed directly."
+                "during rotation, so declaring one would collide with a name Snowflake owns."
             )
         if self.days_to_expiry is not None and self.days_to_expiry < 1:
             raise ValueError("days_to_expiry must be 1 or greater")
+        if self.expire_rotated_key_pair_after_hours is not None and self.expire_rotated_key_pair_after_hours < 0:
+            raise ValueError("expire_rotated_key_pair_after_hours must be 0 or greater")
+
+        # A key pair fetched from Snowflake reports whether it expires; config says so by
+        # declaring a duration. Leave the fetched value alone when there is no duration.
+        if self.days_to_expiry is not None:
+            self.has_expiration = True
 
         # Vars are resolved after the resource is constructed, so a public key that is
         # still a template is left alone here and normalized in to_dict instead.
@@ -155,7 +141,8 @@ class UserKeyPair(NamedResource, Resource):
         snowcap compares the fingerprint of the configured key against the one Snowflake
         reports. Changing public_key plans a key rotation (ALTER USER ... ROTATE KEY PAIR),
         which keeps the prior key valid for a grace period so clients can pick up the new
-        one without downtime.
+        one without downtime. Set expire_rotated_key_pair_after_hours to control that grace
+        period, or to 0 to revoke the prior key immediately when responding to a leak.
 
     Snowflake Docs:
         https://docs.snowflake.com/en/sql-reference/sql/alter-user-add-key-pair
@@ -168,6 +155,8 @@ class UserKeyPair(NamedResource, Resource):
         role_restriction (string or Role): The role a session authenticated with this key pair
             is restricted to. The role must already be granted to the user.
         days_to_expiry (int): The number of days the key pair can be used for authentication.
+        expire_rotated_key_pair_after_hours (int): How many hours the prior key stays valid
+            after a rotation. 0 revokes it immediately. Defaults to Snowflake's 24 hours.
         disabled (bool): Whether the key pair is disabled. Defaults to False.
         comment (string): A comment for the key pair.
 
@@ -212,6 +201,7 @@ class UserKeyPair(NamedResource, Resource):
         owner: str = "USERADMIN",
         role_restriction: str = None,
         days_to_expiry: int = None,
+        expire_rotated_key_pair_after_hours: int = None,
         disabled: bool = False,
         comment: str = None,
         **kwargs,
@@ -226,6 +216,7 @@ class UserKeyPair(NamedResource, Resource):
             public_key=public_key,
             role_restriction=role_restriction,
             days_to_expiry=days_to_expiry,
+            expire_rotated_key_pair_after_hours=expire_rotated_key_pair_after_hours,
             disabled=disabled,
             comment=comment,
         )

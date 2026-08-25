@@ -11,7 +11,9 @@ A user in Snowflake.
 
 **Note:** `RSA_PUBLIC_KEY_FP` and `RSA_PUBLIC_KEY_2_FP` are read-only fingerprint fields computed by Snowflake and cannot be managed through Snowcap.
 
-**Note:** `rsa_public_key` and `rsa_public_key_2` are Snowflake's legacy key-pair properties. Named key pairs, which support role restriction and expiration, are declared with a `key_pairs:` list on the user or as standalone [UserKeyPair](user_key_pair.md) resources.
+**Note:** `rsa_public_key` and `rsa_public_key_2` are Snowflake's legacy key-pair properties. Named key pairs, which support role restriction, expiration, and rotation with a grace period, are declared with a `key_pairs:` list on the user or as standalone [UserKeyPair](user_key_pair.md) resources.
+
+Rotating on the legacy properties is the two-step flow Snowflake documents: set `rsa_public_key_2` to the new key and apply, move clients over, then set `rsa_public_key` to the new key and clear `rsa_public_key_2`. Both keys are read back from Snowflake, so each step settles to an empty plan. Keys may be given with or without their PEM delimiters.
 
 
 ## Examples

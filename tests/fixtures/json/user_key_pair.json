@@ -5,6 +5,7 @@
     "public_key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2xf9PFIebEGMIDbvUCFp5g1bqJpbQ3Ew3K1VfdAXRln7dZb05SSPmOnZzNr8iDJZO7uMbpin0nY8crY9MpSxfJIwElqQPOn2vf92ELQ8NNYDDAqJL2UpREweSZV3MaLURba7YNI36QlCrAPrQRYT+o+4yEP02j0NUz4KAjSwrVna+CbhGTpJil3lzQsTCRoE93HWcdQcT/gVTmW+lYtgbS1Qy8AbiC+2EKeK4+VBjl5sxgqZshwc68tw3BTemJ2h3K2vSzD0eQXOgovgv5qzrOYz3Geh0nIBISebvNgVqiugEwo06EyTwhnu1F//waPcdP5/9QTSM0nJvuvhb+Sp7QIDAQAB",
     "role_restriction": null,
     "days_to_expiry": null,
+    "expire_rotated_key_pair_after_hours": null,
     "disabled": false,
     "comment": "Key pair for integration tests"
 }

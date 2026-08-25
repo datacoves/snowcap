@@ -6,7 +6,7 @@ from inflection import pluralize
 from .builder import tidy_sql
 from .enums import GrantType, ResourceType
 from .identifiers import FQN, URN
-from .props import BoolProp, Props, StringProp
+from .props import BoolProp, IntProp, Props, StringProp
 from .resource_name import ResourceName
 
 __this__ = sys.modules[__name__]
@@ -631,8 +631,10 @@ def update_user_key_pair(urn: URN, data: dict, props: Props, after: dict) -> lis
         public_key = after.get("public_key")
         if not public_key:
             raise NotImplementedError(f"Cannot rotate key pair {urn}: the new public key is missing from the plan")
-        # The prior key stays valid for a grace period (24 hours by default) so clients
-        # that haven't picked up the new key yet keep authenticating.
+        # The prior key stays valid for a grace period so clients that haven't picked up
+        # the new key yet keep authenticating. Snowflake's default is 24 hours;
+        # expire_rotated_key_pair_after_hours overrides it, and 0 revokes it immediately.
+        expire_after_hours = after.get("expire_rotated_key_pair_after_hours")
         statements.append(
             tidy_sql(
                 "ALTER USER",
@@ -640,6 +642,11 @@ def update_user_key_pair(urn: URN, data: dict, props: Props, after: dict) -> lis
                 "ROTATE KEY PAIR",
                 key_pair,
                 StringProp("public_key").render(public_key),
+                (
+                    IntProp("expire_rotated_key_pair_after_hours").render(expire_after_hours)
+                    if expire_after_hours is not None
+                    else ""
+                ),
             )
         )
 

@@ -1,7 +1,7 @@
 import logging
 from dataclasses import dataclass, field
 
-from ..enums import ParseableEnum, ResourceType
+from ..enums import AccountEdition, ParseableEnum, ResourceType
 from ..props import (
     BoolProp,
     EnumProp,
@@ -16,6 +16,10 @@ from ..scope import AccountScope
 from .resource import NamedResource, Resource, ResourceSpec
 from .role import Role
 from .tag import TaggableResource
+
+# Imported from the module that owns key material handling; user.py cannot import
+# user_key_pair.py, which imports this module.
+from ..public_key import normalize_public_key
 
 logger = logging.getLogger("snowcap")
 
@@ -58,6 +62,15 @@ class _User(ResourceSpec):
     def __post_init__(self):
         super().__post_init__()
 
+        # Snowflake's SQL takes a public key without its PEM delimiters, and DESC USER
+        # reports it that way, so a key pasted straight out of a .pub file would otherwise
+        # be rejected on apply and read back as drift. Vars are resolved after this runs,
+        # so a key that is still a template is normalized in to_dict instead.
+        for legacy_key_field in ("rsa_public_key", "rsa_public_key_2"):
+            value = getattr(self, legacy_key_field)
+            if isinstance(value, str):
+                setattr(self, legacy_key_field, normalize_public_key(value))
+
         if self.type is None:
             self.type = UserType.NULL
 
@@ -83,6 +96,14 @@ class _User(ResourceSpec):
                 self.display_name = self.name._name.upper()
             if self.must_change_password is None:
                 self.must_change_password = False
+
+    def to_dict(self, account_edition: AccountEdition):
+        serialized = super().to_dict(account_edition)
+        for legacy_key_field in ("rsa_public_key", "rsa_public_key_2"):
+            value = serialized.get(legacy_key_field)
+            if isinstance(value, str):
+                serialized[legacy_key_field] = normalize_public_key(value)
+        return serialized
 
 
 class User(NamedResource, TaggableResource, Resource):
