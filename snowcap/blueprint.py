@@ -82,7 +82,7 @@ from .scope import (
 )
 
 T = TypeVar("T")
-ResourceRef = Union[tuple[ResourceType, str], str]
+ResourceRef = Union[tuple[ResourceType, str, tuple[tuple[str, str], ...]], str]
 
 
 logger = logging.getLogger("snowcap")
@@ -1373,6 +1373,12 @@ def _merge_pointers(resources: Sequence[Resource]) -> list[Resource]:
             resource_id = (
                 resource_or_pointer.resource_type,
                 str(resource_or_pointer.name),
+                # Some resources are named within a parent rather than the account: two
+                # users can each have a key pair named MY_KEY. Those report the parent as
+                # an fqn param, and without it here the second one reads as a duplicate of
+                # the first. Every other resource has no params, so this leaves their
+                # identity unchanged.
+                tuple(sorted((k, str(v)) for k, v in resource_or_pointer.fqn_params.items())),
             )
         else:
             resource_id = str(resource_or_pointer.urn)
@@ -2585,8 +2591,18 @@ def execution_strategy_for_change(
         # MODIFY PROGRAMMATIC AUTHENTICATION METHODS on it. Key pairs have no owner of
         # their own in Snowflake, so `owner` names the role that manages the user
         # (USERADMIN by default, matching the User resource) and is never transferred.
-        if change_owner and change_owner in available_roles:
-            return change_owner, False
+        #
+        # That also means `owner` is not fetchable, so remote state carries the default
+        # rather than what config declared. change_owner reads the before-owner on an
+        # update, which would quietly downgrade a declared owner to USERADMIN on every
+        # change after the first -- read the declared owner directly instead.
+        declared_owner = None
+        if isinstance(change, (CreateResource, UpdateResource)):
+            declared_owner = change.after.get("owner")
+        elif isinstance(change, DropResource):
+            declared_owner = change.before.get("owner")
+        if declared_owner and ResourceName(declared_owner) in available_roles:
+            return ResourceName(declared_owner), False
         if "USERADMIN" in available_roles:
             return ResourceName("USERADMIN"), False
         return default_role, False

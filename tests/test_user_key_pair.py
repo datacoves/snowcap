@@ -13,9 +13,9 @@ from snowcap.blueprint import (
     diff,
     execution_strategy_for_change,
 )
-from snowcap.data_provider import _user_key_pair_to_dict
+from snowcap.data_provider import _key_pair_is_declarable, _user_key_pair_to_dict
 from snowcap.enums import AccountEdition, ResourceType
-from snowcap.exceptions import MarkedForReplacementException
+from snowcap.exceptions import DuplicateResourceException, MarkedForReplacementException
 from snowcap.gitops import collect_blueprint_config
 from snowcap.identifiers import parse_URN
 from snowcap.resource_name import ResourceName
@@ -389,8 +389,18 @@ class TestUserKeyPairFetch:
 
     def test_expired_is_not_disabled(self):
         # Expiration is fixed when the key pair is registered, so an expired key pair is
-        # not the `disabled` field drifting.
+        # not the `disabled` field drifting. Snowflake reports DISABLED when a key pair is
+        # both disabled and expired, so a disabled key never reads back as enabled.
         assert _user_key_pair_to_dict(self._show_row(status="EXPIRED"))["disabled"] is False
+
+    def test_rotated_out_and_reserved_key_pairs_are_not_declarable(self):
+        assert _key_pair_is_declarable(self._show_row())
+        assert not _key_pair_is_declarable(self._show_row(name="MY_KEY_ROTATED_1755000000000"))
+        assert not _key_pair_is_declarable(self._show_row(rotated_to="MY_KEY"))
+        # The legacy rsa_public_key / rsa_public_key_2 properties show up under these
+        # names; they are managed on the user resource, not as key pairs.
+        assert not _key_pair_is_declarable(self._show_row(name="PUBLIC_KEY_1"))
+        assert not _key_pair_is_declarable(self._show_row(name="PUBLIC_KEY_2"))
 
     def test_fetched_state_round_trips_through_the_spec(self):
         data = _user_key_pair_to_dict(self._show_row())
@@ -420,3 +430,43 @@ class TestUserKeyPairConfig:
         key_pairs = {str(r.fqn): r for r in resources if isinstance(r, res.UserKeyPair)}
         assert set(key_pairs) == {"MY_KEY?user=SVC_USER", "OTHER_KEY?user=SVC_USER"}
         assert key_pairs["OTHER_KEY?user=SVC_USER"]._data.days_to_expiry == 90
+
+
+class TestUserKeyPairIdentity:
+    def test_the_same_key_pair_name_on_two_users(self, session_ctx):
+        # A key pair is named within its user, so two users can each have a MY_KEY.
+        blueprint = Blueprint(
+            resources=[
+                res.UserKeyPair(name="my_key", user="user_a", public_key=PUBLIC_KEY),
+                res.UserKeyPair(name="my_key", user="user_b", public_key=OTHER_PUBLIC_KEY),
+            ]
+        )
+        manifest = blueprint.generate_manifest(session_ctx)
+        assert parse_URN("urn::ABCD123:user_key_pair/MY_KEY?user=USER_A") in manifest.urns
+        assert parse_URN("urn::ABCD123:user_key_pair/MY_KEY?user=USER_B") in manifest.urns
+
+    def test_a_genuine_duplicate_is_still_rejected(self, session_ctx):
+        blueprint = Blueprint(
+            resources=[
+                res.UserKeyPair(name="my_key", user="user_a", public_key=PUBLIC_KEY),
+                res.UserKeyPair(name="my_key", user="user_a", public_key=OTHER_PUBLIC_KEY),
+            ]
+        )
+        with pytest.raises(DuplicateResourceException):
+            blueprint.generate_manifest(session_ctx)
+
+    def test_a_declared_owner_survives_an_update(self, session_ctx):
+        remote = {
+            parse_URN("urn::ABCD123:account/ACCOUNT"): {},
+            KEY_PAIR_URN: remote_key_pair(),
+        }
+        key_pair = res.UserKeyPair(name="my_key", user="some_user", public_key=OTHER_PUBLIC_KEY, owner="SECURITYADMIN")
+        change = diff(remote, Blueprint(resources=[key_pair]).generate_manifest(session_ctx))[0]
+
+        # `owner` isn't fetchable, so remote state carries the default -- the role that
+        # runs the rotation has to come from what config declares.
+        role, transfer_ownership = execution_strategy_for_change(
+            change, session_ctx["available_roles"], ResourceName("SYSADMIN")
+        )
+        assert role == ResourceName("SECURITYADMIN")
+        assert transfer_ownership is False

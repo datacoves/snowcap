@@ -243,6 +243,11 @@ class UserKeyPair(NamedResource, Resource):
         return user_key_pair_fqn(self._data)
 
     @property
+    def fqn_params(self) -> dict:
+        # A key pair is named within its user, so the user is part of its identity.
+        return {"user": self._data.user.name}
+
+    @property
     def user(self) -> User:
         return self._data.user
 

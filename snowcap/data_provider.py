@@ -51,7 +51,11 @@ from .resource_name import (
 )
 from .resources.authentication_policy import _PAT_POLICY_DEFAULT
 from .resources.security_integration import _canonicalize_role_name
-from .resources.user_key_pair import key_pair_is_rotated_out, normalize_fingerprint
+from .resources.user_key_pair import (
+    RESERVED_KEY_PAIR_NAMES,
+    key_pair_is_rotated_out,
+    normalize_fingerprint,
+)
 from .resources.warehouse import ADAPTIVE_UNSUPPORTED_FIELDS
 
 __this__ = sys.modules[__name__]
@@ -3780,6 +3784,20 @@ def _show_user_key_pairs(session: SnowflakeConnection, user: ResourceName) -> li
     return execute(session, f"SHOW USER KEY PAIRS FOR USER {user}", cacheable=True)
 
 
+def _key_pair_is_declarable(row: dict) -> bool:
+    """
+    Whether a SHOW USER KEY PAIRS row is a key pair a config can declare.
+
+    Two kinds of row are not: the prior key of a rotation, which lives on under a
+    generated name until it expires, and the reserved PUBLIC_KEY_1 / PUBLIC_KEY_2 names
+    Snowflake reports for the legacy rsa_public_key and rsa_public_key_2 user properties,
+    which are managed on the user resource instead.
+    """
+    if row.get("rotated_to") or key_pair_is_rotated_out(row["name"]):
+        return False
+    return ResourceName(row["name"]) not in RESERVED_KEY_PAIR_NAMES
+
+
 def _user_key_pair_to_dict(data: dict) -> dict:
     status = (data["status"] or "").upper()
     role_scope = data.get("role_scope")
@@ -3790,8 +3808,11 @@ def _user_key_pair_to_dict(data: dict) -> dict:
         # snowcap compares against the fingerprint of the configured key.
         "fingerprint": normalize_fingerprint(data["fingerprint"]),
         "role_restriction": _quote_snowflake_identifier(role_scope) if role_scope else None,
-        # A key pair past its expiration reports EXPIRED rather than DISABLED, and that
-        # isn't the disabled flag drifting -- expiration is set when the key is registered.
+        # status is ACTIVE, EXPIRED, or DISABLED. A key pair past its expiration reports
+        # EXPIRED, and that isn't the disabled flag drifting -- expiration is fixed when
+        # the key is registered. Snowflake reports DISABLED for a key pair that is both
+        # disabled and expired, so a disabled key never reads back as enabled.
+        # https://docs.snowflake.com/en/sql-reference/sql/show-user-key-pairs
         "disabled": status == "DISABLED",
         "comment": data["comment"] or None,
     }
@@ -3819,9 +3840,7 @@ def fetch_user_key_pair(session: SnowflakeConnection, fqn: FQN) -> Optional[dict
 
     data = key_pairs[0]
 
-    # The prior key of a rotation lives on under a generated name until it expires. It is
-    # not a resource anyone declares, and snowcap must not offer to remove it early.
-    if data.get("rotated_to") or key_pair_is_rotated_out(data["name"]):
+    if not _key_pair_is_declarable(data):
         return None
 
     return _user_key_pair_to_dict(data)
@@ -5091,8 +5110,9 @@ def list_user_key_pairs(session: SnowflakeConnection) -> list[FQN]:
         cacheable=True,
     ):
         for row in result:
-            # Rotated-out keys expire on their own; they are not declarable resources.
-            if row.get("rotated_to") or key_pair_is_rotated_out(row["name"]):
+            # A sync sweep proposes dropping whatever config doesn't declare, so rows that
+            # config cannot declare have to stay out of it.
+            if not _key_pair_is_declarable(row):
                 continue
             key_pairs.append(
                 FQN(
