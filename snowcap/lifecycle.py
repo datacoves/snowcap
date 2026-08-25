@@ -642,11 +642,7 @@ def update_user_key_pair(urn: URN, data: dict, props: Props, after: dict) -> lis
                 "ROTATE KEY PAIR",
                 key_pair,
                 StringProp("public_key").render(public_key),
-                (
-                    IntProp("expire_rotated_key_pair_after_hours").render(expire_after_hours)
-                    if expire_after_hours is not None
-                    else ""
-                ),
+                IntProp("expire_rotated_key_pair_after_hours").render(expire_after_hours),
             )
         )
 
@@ -656,25 +652,12 @@ def update_user_key_pair(urn: URN, data: dict, props: Props, after: dict) -> lis
         # Anything after the rename has to address the key pair by its new name.
         key_pair = new_name
 
-    modify_props = Props(disabled=BoolProp("disabled"), comment=StringProp("comment"))
-    set_data = {}
-    unset_attrs = []
-    for attr in ("disabled", "comment"):
-        if attr not in data:
-            continue
-        value = data.pop(attr)
-        if value is None:
-            unset_attrs.append(attr.upper())
-        else:
-            set_data[attr] = value
-
+    set_data = {attr: data.pop(attr) for attr in ("disabled", "comment") if attr in data}
     if set_data:
+        modify_props = Props(disabled=BoolProp("disabled"), comment=StringProp("comment"))
         statements.append(
             tidy_sql("ALTER USER", user, "MODIFY KEY PAIR", key_pair, "SET", modify_props.render(set_data))
         )
-    if unset_attrs:
-        # Snowflake rejects mixing SET and UNSET in one ALTER.
-        statements.append(tidy_sql("ALTER USER", user, "MODIFY KEY PAIR", key_pair, "UNSET", ", ".join(unset_attrs)))
 
     if data:
         # Everything else about a key pair is fixed at registration. Fail loudly rather

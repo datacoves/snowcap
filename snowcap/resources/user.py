@@ -62,15 +62,6 @@ class _User(ResourceSpec):
     def __post_init__(self):
         super().__post_init__()
 
-        # Snowflake's SQL takes a public key without its PEM delimiters, and DESC USER
-        # reports it that way, so a key pasted straight out of a .pub file would otherwise
-        # be rejected on apply and read back as drift. Vars are resolved after this runs,
-        # so a key that is still a template is normalized in to_dict instead.
-        for legacy_key_field in ("rsa_public_key", "rsa_public_key_2"):
-            value = getattr(self, legacy_key_field)
-            if isinstance(value, str):
-                setattr(self, legacy_key_field, normalize_public_key(value))
-
         if self.type is None:
             self.type = UserType.NULL
 
@@ -98,6 +89,11 @@ class _User(ResourceSpec):
                 self.must_change_password = False
 
     def to_dict(self, account_edition: AccountEdition):
+        # Snowflake's SQL takes a public key without its PEM delimiters, and DESC USER
+        # reports it that way, so a key pasted straight out of a .pub file would otherwise
+        # be rejected on apply and read back as drift. Normalized here rather than in
+        # __post_init__ because a key given as a var is still a template until vars
+        # resolve, which happens after the resource is constructed.
         serialized = super().to_dict(account_edition)
         for legacy_key_field in ("rsa_public_key", "rsa_public_key_2"):
             value = serialized.get(legacy_key_field)

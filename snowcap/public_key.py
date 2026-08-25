@@ -49,8 +49,6 @@ def public_key_fingerprint(public_key: str) -> str:
         der = base64.b64decode(key, validate=True)
     except (binascii.Error, ValueError) as err:
         raise ValueError(f"public_key is not valid base64-encoded key material: {err}") from err
-    if not der:
-        raise ValueError("public_key is empty")
     return FINGERPRINT_PREFIX + base64.b64encode(hashlib.sha256(der).digest()).decode("utf-8")
 
 

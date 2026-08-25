@@ -241,15 +241,6 @@ class TestUserKeyPairLifecycle:
         )
         assert sql == ["ALTER USER SOME_USER MODIFY KEY PAIR MY_KEY SET DISABLED = TRUE COMMENT = $$retired$$"]
 
-    def test_update_unsets_properties(self):
-        sql = lifecycle.update_resource(
-            KEY_PAIR_URN,
-            {"comment": None},
-            res.UserKeyPair.props,
-            after=remote_key_pair(),
-        )
-        assert sql == ["ALTER USER SOME_USER MODIFY KEY PAIR MY_KEY UNSET COMMENT"]
-
     def test_update_combines_a_rotation_with_property_changes(self):
         after = res.UserKeyPair(
             name="my_key", user="some_user", public_key=OTHER_PUBLIC_KEY, comment="rotated"
