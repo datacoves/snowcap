@@ -644,9 +644,10 @@ def update_user_key_pair(urn: URN, data: dict, props: Props, after: dict) -> lis
         )
 
     if "name" in data:
-        statements.append(
-            tidy_sql("ALTER USER", user, "MODIFY KEY PAIR", key_pair, "RENAME TO", ResourceName(data.pop("name")))
-        )
+        new_name = ResourceName(data.pop("name"))
+        statements.append(tidy_sql("ALTER USER", user, "MODIFY KEY PAIR", key_pair, "RENAME TO", new_name))
+        # Anything after the rename has to address the key pair by its new name.
+        key_pair = new_name
 
     modify_props = Props(disabled=BoolProp("disabled"), comment=StringProp("comment"))
     set_data = {}

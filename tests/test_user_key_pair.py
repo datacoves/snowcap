@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import json
 
 import pytest
 
@@ -11,7 +12,9 @@ from snowcap.blueprint import (
     UpdateResource,
     compile_plan_to_sql,
     diff,
+    dump_plan,
     execution_strategy_for_change,
+    plan_from_dict,
 )
 from snowcap.data_provider import _key_pair_is_declarable, _user_key_pair_to_dict
 from snowcap.enums import AccountEdition, ResourceType
@@ -470,3 +473,33 @@ class TestUserKeyPairIdentity:
         )
         assert role == ResourceName("SECURITYADMIN")
         assert transfer_ownership is False
+
+
+class TestUserKeyPairPlanFile:
+    def test_a_rotation_survives_the_two_step_plan_workflow(self, session_ctx):
+        # `snowcap plan --out plan.json` then `snowcap apply --plan plan.json` rebuilds
+        # the change from JSON, and the rotation SQL needs the public key from `after`.
+        remote = {
+            parse_URN("urn::ABCD123:account/ACCOUNT"): {},
+            KEY_PAIR_URN: remote_key_pair(),
+        }
+        key_pair = res.UserKeyPair(name="my_key", user="some_user", public_key=OTHER_PUBLIC_KEY)
+        plan = diff(remote, Blueprint(resources=[key_pair]).generate_manifest(session_ctx))
+
+        reloaded = plan_from_dict(json.loads(dump_plan(plan, format="json")))
+        commands = flatten_sql_commands(compile_plan_to_sql(session_ctx, reloaded))
+        assert f"ALTER USER SOME_USER ROTATE KEY PAIR MY_KEY PUBLIC_KEY = $${OTHER_PUBLIC_KEY}$$" in commands
+
+
+class TestUserKeyPairRename:
+    def test_statements_after_a_rename_use_the_new_name(self):
+        sql = lifecycle.update_resource(
+            KEY_PAIR_URN,
+            {"name": "new_key", "comment": "renamed"},
+            res.UserKeyPair.props,
+            after=remote_key_pair(name="NEW_KEY", comment="renamed"),
+        )
+        assert sql == [
+            "ALTER USER SOME_USER MODIFY KEY PAIR MY_KEY RENAME TO NEW_KEY",
+            "ALTER USER SOME_USER MODIFY KEY PAIR NEW_KEY SET COMMENT = $$renamed$$",
+        ]
