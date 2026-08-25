@@ -13,7 +13,9 @@ A user in Snowflake.
 
 **Note:** `rsa_public_key` and `rsa_public_key_2` are Snowflake's legacy key-pair properties. Named key pairs, which support role restriction, expiration, and rotation with a grace period, are declared with a `key_pairs:` list on the user or as standalone [UserKeyPair](user_key_pair.md) resources.
 
-Rotating on the legacy properties is the two-step flow Snowflake documents: set `rsa_public_key_2` to the new key and apply, move clients over, then set `rsa_public_key` to the new key and clear `rsa_public_key_2`. Both keys are read back from Snowflake, so each step settles to an empty plan. Keys may be given with or without their PEM delimiters.
+Rotating on the legacy properties is the two-step flow Snowflake documents: set `rsa_public_key_2` to the new key and apply, move clients over, then set `rsa_public_key` to the new key and apply again. Both keys are read back from Snowflake, so each step settles to an empty plan. Keys may be given with or without their PEM delimiters.
+
+Removing the retired key is the one step Snowcap cannot do for you: an empty or absent value means "not managed" everywhere in Snowcap, so deleting `rsa_public_key_2` from your config plans nothing and leaves the old key live. Retire it with `ALTER USER someuser UNSET RSA_PUBLIC_KEY_2`. [Named key pairs](user_key_pair.md) have no such gap — rotation retires the prior key on a timer you set.
 
 
 ## Examples

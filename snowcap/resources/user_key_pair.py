@@ -91,16 +91,9 @@ class _UserKeyPair(ResourceSpec):
     def __post_init__(self):
         super().__post_init__()
 
-        if self.name in RESERVED_KEY_PAIR_NAMES:
-            raise ValueError(
-                f"{self.name} is reserved by Snowflake for the legacy rsa_public_key and "
-                "rsa_public_key_2 user properties. Set those on the user resource instead."
-            )
-        if key_pair_is_rotated_out(str(self.name)):
-            raise ValueError(
-                f"{self.name} names a rotated-out key pair. Snowflake generates those names "
-                "during rotation, so declaring one would collide with a name Snowflake owns."
-            )
+        # Name guardrails live on the resource constructor, not here: this spec is also
+        # how remote state is deserialized, so it has to accept every name Snowflake can
+        # report -- including a live key pair someone named to look rotated-out.
         if self.days_to_expiry is not None and self.days_to_expiry < 1:
             raise ValueError("days_to_expiry must be 1 or greater")
         if self.expire_rotated_key_pair_after_hours is not None and self.expire_rotated_key_pair_after_hours < 0:
@@ -209,6 +202,19 @@ class UserKeyPair(NamedResource, Resource):
         super().__init__(name, **kwargs)
         if public_key is None:
             raise ValueError(f"public_key is required for user key pair {name}")
+        # A name given as a var is still a template here and is not re-checked once vars
+        # resolve; Snowflake refuses the reserved names itself, so the cost is a worse
+        # error message rather than a wrong apply.
+        if self._name in RESERVED_KEY_PAIR_NAMES:
+            raise ValueError(
+                f"{self._name} is reserved by Snowflake for the legacy rsa_public_key and "
+                "rsa_public_key_2 user properties. Set those on the user resource instead."
+            )
+        if key_pair_is_rotated_out(str(self._name)):
+            raise ValueError(
+                f"{self._name} names a rotated-out key pair. Snowflake generates those names "
+                "during rotation, so declaring one would collide with a name Snowflake owns."
+            )
         self._data: _UserKeyPair = _UserKeyPair(
             name=self._name,
             user=user,

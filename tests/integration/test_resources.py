@@ -206,17 +206,33 @@ def test_user_key_pair_lifecycle(cursor, suffix, marked_for_cleanup):
 
 
 def test_user_key_pair_blueprint(cursor, suffix, marked_for_cleanup):
+    # A role restriction and an expiry, because Snowflake documents rotation as inheriting
+    # both and snowcap refuses a plan where either changed -- if that inheritance did not
+    # hold, the plan right after a rotation would fail instead of being empty.
+    role = res.Role(name=f"USER_KEY_PAIR_BP_ROLE_{suffix}")
+    cursor.execute(role.create_sql())
+    marked_for_cleanup.append(role)
+
     user = res.User(
         name=f"USER_KEY_PAIR_BP_{suffix}",
         type="SERVICE",
-        key_pairs=[{"name": "MY_KEY", "public_key": TEST_PUBLIC_KEY}],
+        roles=[role.name],
+        key_pairs=[
+            {
+                "name": "MY_KEY",
+                "public_key": TEST_PUBLIC_KEY,
+                "role_restriction": role.name,
+                "days_to_expiry": 90,
+            }
+        ],
     )
     marked_for_cleanup.append(user)
 
     resources = [user] + user.process_shortcuts()
     blueprint = Blueprint(resources=resources)
     plan = blueprint.plan(cursor.connection)
-    assert len(plan) == 2
+    # user + role grant + key pair
+    assert len(plan) == 3
     blueprint.apply(cursor.connection, plan)
 
     key_pair_urn = parse_URN(f"urn:::user_key_pair/MY_KEY?user={str(user.name).upper()}")
@@ -232,7 +248,15 @@ def test_user_key_pair_blueprint(cursor, suffix, marked_for_cleanup):
     rotated_user = res.User(
         name=user.name,
         type="SERVICE",
-        key_pairs=[{"name": "MY_KEY", "public_key": TEST_PUBLIC_KEY_2}],
+        roles=[role.name],
+        key_pairs=[
+            {
+                "name": "MY_KEY",
+                "public_key": TEST_PUBLIC_KEY_2,
+                "role_restriction": role.name,
+                "days_to_expiry": 90,
+            }
+        ],
     )
     blueprint = Blueprint(resources=[rotated_user] + rotated_user.process_shortcuts())
     plan = blueprint.plan(cursor.connection)
@@ -242,3 +266,7 @@ def test_user_key_pair_blueprint(cursor, suffix, marked_for_cleanup):
     data = safe_fetch(cursor, key_pair_urn)
     assert data is not None
     assert data["fingerprint"] == TEST_PUBLIC_KEY_2_FINGERPRINT
+    # The rotation kept the role restriction and the expiry, so the config still matches.
+    assert data["role_restriction"] == str(role.name).upper()
+    assert data["has_expiration"] is True
+    assert len(blueprint.plan(cursor.connection)) == 0

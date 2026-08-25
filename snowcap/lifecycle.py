@@ -646,12 +646,6 @@ def update_user_key_pair(urn: URN, data: dict, props: Props, after: dict) -> lis
             )
         )
 
-    if "name" in data:
-        new_name = ResourceName(data.pop("name"))
-        statements.append(tidy_sql("ALTER USER", user, "MODIFY KEY PAIR", key_pair, "RENAME TO", new_name))
-        # Anything after the rename has to address the key pair by its new name.
-        key_pair = new_name
-
     set_data = {attr: data.pop(attr) for attr in ("disabled", "comment") if attr in data}
     if set_data:
         modify_props = Props(disabled=BoolProp("disabled"), comment=StringProp("comment"))

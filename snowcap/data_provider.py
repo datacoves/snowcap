@@ -51,7 +51,8 @@ from .resource_name import (
 )
 from .resources.authentication_policy import _PAT_POLICY_DEFAULT
 from .resources.security_integration import _canonicalize_role_name
-from .resources.user_key_pair import RESERVED_KEY_PAIR_NAMES, normalize_fingerprint
+from .public_key import normalize_fingerprint
+from .resources.user_key_pair import RESERVED_KEY_PAIR_NAMES
 from .resources.warehouse import ADAPTIVE_UNSUPPORTED_FIELDS
 
 __this__ = sys.modules[__name__]
@@ -3781,8 +3782,14 @@ def fetch_user(
     }
 
 
+def _show_user_key_pairs_sql(user: ResourceName) -> str:
+    # The sweep issues this per user and a fetch issues it again for one of them. Same
+    # text means the execution cache serves the second from the first.
+    return f"SHOW USER KEY PAIRS FOR USER {user}"
+
+
 def _show_user_key_pairs(session: SnowflakeConnection, user: ResourceName) -> list[dict]:
-    return execute(session, f"SHOW USER KEY PAIRS FOR USER {user}", cacheable=True)
+    return execute(session, _show_user_key_pairs_sql(user), cacheable=True)
 
 
 def _key_pair_is_declarable(row: dict) -> bool:
@@ -5115,7 +5122,7 @@ def list_user_key_pairs(session: SnowflakeConnection) -> list[FQN]:
     key_pairs = []
     for user, result in execute_in_parallel(
         session,
-        [(f"SHOW USER KEY PAIRS FOR USER {user.name}", user.name) for user in list_users(session)],
+        [(_show_user_key_pairs_sql(user.name), user.name) for user in list_users(session)],
         error_handler=error_handler,
         cacheable=True,
     ):

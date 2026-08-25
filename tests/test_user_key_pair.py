@@ -22,6 +22,7 @@ from snowcap.enums import AccountEdition, ResourceType
 from snowcap.exceptions import DuplicateResourceException, MarkedForReplacementException
 from snowcap.gitops import collect_blueprint_config
 from snowcap.identifiers import parse_URN
+from snowcap.operations.export import EXPORT_ONLY_WHEN_ASKED_FOR, _format_resource_config
 from snowcap.resource_name import ResourceName
 from snowcap.resources.user_key_pair import (
     key_pair_is_rotated_out,
@@ -255,15 +256,6 @@ class TestUserKeyPairLifecycle:
             f"ALTER USER SOME_USER ROTATE KEY PAIR MY_KEY PUBLIC_KEY = $${OTHER_PUBLIC_KEY}$$",
             "ALTER USER SOME_USER MODIFY KEY PAIR MY_KEY SET COMMENT = $$rotated$$",
         ]
-
-    def test_update_renames(self):
-        sql = lifecycle.update_resource(
-            KEY_PAIR_URN,
-            {"name": "new_key"},
-            res.UserKeyPair.props,
-            after=remote_key_pair(name="NEW_KEY"),
-        )
-        assert sql == ["ALTER USER SOME_USER MODIFY KEY PAIR MY_KEY RENAME TO NEW_KEY"]
 
     def test_update_without_the_new_public_key_fails_loudly(self):
         with pytest.raises(NotImplementedError, match="public key is missing"):
@@ -519,20 +511,6 @@ class TestUserKeyPairPlanFile:
         assert f"ALTER USER SOME_USER ROTATE KEY PAIR MY_KEY PUBLIC_KEY = $${OTHER_PUBLIC_KEY}$$" in commands
 
 
-class TestUserKeyPairRename:
-    def test_statements_after_a_rename_use_the_new_name(self):
-        sql = lifecycle.update_resource(
-            KEY_PAIR_URN,
-            {"name": "new_key", "comment": "renamed"},
-            res.UserKeyPair.props,
-            after=remote_key_pair(name="NEW_KEY", comment="renamed"),
-        )
-        assert sql == [
-            "ALTER USER SOME_USER MODIFY KEY PAIR MY_KEY RENAME TO NEW_KEY",
-            "ALTER USER SOME_USER MODIFY KEY PAIR NEW_KEY SET COMMENT = $$renamed$$",
-        ]
-
-
 class TestUserKeyPairRotation:
     def test_rotation_uses_snowflakes_default_grace_period(self):
         after = res.UserKeyPair(name="my_key", user="some_user", public_key=OTHER_PUBLIC_KEY).to_dict()
@@ -690,3 +668,72 @@ class TestLegacyKeyRotation:
         user = res.User(name="svc", type="SERVICE", rsa_public_key=pem)
         assert diff(remote, Blueprint(resources=[user]).generate_manifest(session_ctx)) == []
         assert f"RSA_PUBLIC_KEY = $${PUBLIC_KEY}$$" in user.create_sql()
+
+
+class TestUserKeyPairExport:
+    def _show_row(self, **overrides):
+        row = {
+            "name": "MY_KEY",
+            "user_name": "SOME_USER",
+            "fingerprint": PUBLIC_KEY_FINGERPRINT,
+            "role_scope": None,
+            "status": "ACTIVE",
+            "comment": "primary workload key",
+            "created_on": "2026-08-01 00:00:00",
+            "created_by": "SNOWCAP_SVC",
+            "last_used_on": None,
+            "expires_at": None,
+            "rotated_to": None,
+        }
+        row.update(overrides)
+        return row
+
+    def test_an_exported_key_pair_loads_once_the_key_is_filled_in(self):
+        # Snowflake never returns the key, so the derived fields have to be dropped or the
+        # export produces a block the loader refuses outright.
+        block = _format_resource_config(
+            KEY_PAIR_URN,
+            _user_key_pair_to_dict(self._show_row()),
+            ResourceType.USER_KEY_PAIR,
+        )
+        assert "fingerprint" not in block
+        assert "has_expiration" not in block
+        assert block["public_key"] is None
+
+        with pytest.raises(ValueError, match="public_key is required"):
+            res.UserKeyPair(**block)
+
+        key_pair = res.UserKeyPair(**{**block, "public_key": PUBLIC_KEY})
+        assert key_pair.fqn == KEY_PAIR_URN.fqn
+        assert key_pair._data.comment == "primary workload key"
+
+    def test_a_sweep_export_leaves_key_pairs_out(self):
+        assert ResourceType.USER_KEY_PAIR in EXPORT_ONLY_WHEN_ASKED_FOR
+
+
+class TestUserKeyPairRemoteState:
+    def test_the_spec_accepts_every_name_snowflake_can_report(self):
+        # The spec deserializes remote state as well as config, so a live key pair named
+        # to look rotated-out must round-trip. Refusing it here aborts the whole plan.
+        data = _user_key_pair_to_dict(
+            {
+                "name": "MY_KEY_ROTATED_1755000000000",
+                "user_name": "SOME_USER",
+                "fingerprint": PUBLIC_KEY_FINGERPRINT,
+                "role_scope": None,
+                "status": "ACTIVE",
+                "comment": None,
+                "created_on": "",
+                "created_by": "",
+                "last_used_on": None,
+                "expires_at": None,
+                "rotated_to": None,
+            }
+        )
+        assert res.UserKeyPair.spec(**data).name == "MY_KEY_ROTATED_1755000000000"
+
+    def test_config_still_refuses_those_names(self):
+        with pytest.raises(ValueError, match="rotated-out key pair"):
+            res.UserKeyPair(name="my_key_rotated_1755000000000", user="some_user", public_key=PUBLIC_KEY)
+        with pytest.raises(ValueError, match="reserved by Snowflake"):
+            res.UserKeyPair(name="public_key_1", user="some_user", public_key=PUBLIC_KEY)
