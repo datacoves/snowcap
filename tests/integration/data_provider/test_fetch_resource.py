@@ -4,6 +4,8 @@ import pytest
 import snowflake.connector.errors
 
 from tests.helpers import (
+    TEST_PUBLIC_KEY,
+    TEST_PUBLIC_KEY_FINGERPRINT,
     assert_resource_dicts_eq_ignore_nulls,
     assert_resource_dicts_eq_ignore_nulls_and_unfetchable,
     clean_resource_data,
@@ -729,4 +731,26 @@ def test_fetch_grant_of_database_role_multiple_grantees(cursor, suffix, marked_f
     )
     assert clean_resource_data(res.DatabaseRoleGrant.spec, result_b) == clean_resource_data(
         res.DatabaseRoleGrant.spec, grant_b.to_dict()
+    )
+
+
+def test_fetch_user_key_pair(cursor, suffix, marked_for_cleanup):
+    user = res.User(name=f"TEST_FETCH_KEY_PAIR_USER_{suffix}", type="SERVICE")
+    create(cursor, user)
+    marked_for_cleanup.append(user)
+
+    key_pair = res.UserKeyPair(
+        name="MY_KEY",
+        user=user,
+        public_key=TEST_PUBLIC_KEY,
+        comment="Key pair for testing",
+    )
+    create(cursor, key_pair)
+
+    result = safe_fetch(cursor, key_pair.urn)
+    assert result is not None
+    # Snowflake reports the fingerprint of the key, never the key itself.
+    assert result["fingerprint"] == TEST_PUBLIC_KEY_FINGERPRINT
+    assert clean_resource_data(res.UserKeyPair.spec, result) == clean_resource_data(
+        res.UserKeyPair.spec, key_pair.to_dict()
     )

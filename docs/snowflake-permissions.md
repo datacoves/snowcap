@@ -65,6 +65,13 @@ Unlike the account-level privileges above, `CREATE SEMANTIC VIEW` is schema-scop
 ```sql
 GRANT CREATE SEMANTIC VIEW ON SCHEMA somedb.someschema TO ROLE SNOWCAP_ADMIN;
 ```
+
+Named key pairs ([UserKeyPair](resources/user_key_pair.md)) are managed with `ALTER USER`, which the owner of the user can already do. Grant this only for key pairs on users that Snowcap doesn't own:
+
+```sql
+GRANT MODIFY PROGRAMMATIC AUTHENTICATION METHODS ON USER someuser TO ROLE SNOWCAP_ADMIN;
+```
+
 `CREATE COMPUTE POOL` above only covers creating new compute pools. Snowcap can also manage object-level grants on existing SPCS resources (see [Grant](resources/grant.md)):
 
 | Resource | Grantable privileges |

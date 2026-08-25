@@ -11,6 +11,8 @@ A user in Snowflake.
 
 **Note:** `RSA_PUBLIC_KEY_FP` and `RSA_PUBLIC_KEY_2_FP` are read-only fingerprint fields computed by Snowflake and cannot be managed through Snowcap.
 
+**Note:** `rsa_public_key` and `rsa_public_key_2` are Snowflake's legacy key-pair properties. Named key pairs, which support role restriction and expiration, are declared with a `key_pairs:` list on the user or as standalone [UserKeyPair](user_key_pair.md) resources.
+
 
 ## Examples
 

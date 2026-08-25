@@ -70,6 +70,7 @@
 * [TagMaskingPolicyReference](resources/tag-masking-policy-reference.md)
 * [Task](resources/task.md)
 * [User](resources/user.md)
+* [UserKeyPair](resources/user_key_pair.md)
 * [View](resources/view.md)
 * [ViewStream](resources/view_stream.md)
 * [Warehouse](resources/warehouse.md)

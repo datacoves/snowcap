@@ -73,6 +73,7 @@ from .table import Table  # , CreateTableAsSelect
 from .tag import Tag, TagMaskingPolicyReference, TagReference
 from .task import Task
 from .user import User
+from .user_key_pair import UserKeyPair
 from .view import View
 from .warehouse import Warehouse, WarehouseGeneration, WarehouseResourceConstraint
 
@@ -158,6 +159,7 @@ __all__ = [
     "TagReference",
     "Task",
     "User",
+    "UserKeyPair",
     "View",
     "ViewStream",
     "Warehouse",

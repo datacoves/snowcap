@@ -173,7 +173,7 @@ class User(NamedResource, TaggableResource, Resource):
     )
     scope = AccountScope()
     spec = _User
-    shortcut_keys = ["roles"]
+    shortcut_keys = ["roles", "key_pairs"]
 
     def __init__(
         self,
@@ -250,14 +250,24 @@ class User(NamedResource, TaggableResource, Resource):
 
     def process_shortcuts(self):
         from .grant import RoleGrant
+        from .user_key_pair import UserKeyPair
 
-        role_grants = []
+        resources: list = []
         for role in self.shortcuts["roles"] or []:
-            role_grants.append(
+            resources.append(
                 RoleGrant(
                     role=role,
                     to_user=self,
                 )
             )
 
-        return role_grants
+        for key_pair in self.shortcuts["key_pairs"] or []:
+            if not isinstance(key_pair, dict):
+                raise ValueError(f"Expected a mapping of key pair fields for user {self.name}, got {key_pair!r}")
+            if "user" in key_pair:
+                raise ValueError(
+                    f"Key pair {key_pair.get('name')} is declared under user {self.name} and cannot also set 'user'"
+                )
+            resources.append(UserKeyPair(user=self, **key_pair))
+
+        return resources

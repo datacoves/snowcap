@@ -111,6 +111,7 @@ class ResourceType(ParseableEnum):
     TAG_REFERENCE = "TAG REFERENCE"
     TASK = "TASK"
     USER = "USER"
+    USER_KEY_PAIR = "USER KEY PAIR"
     VIEW = "VIEW"
     WAREHOUSE = "WAREHOUSE"
 

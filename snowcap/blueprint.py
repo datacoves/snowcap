@@ -2580,6 +2580,17 @@ def execution_strategy_for_change(
             "  Grant ACCOUNTADMIN to your user or use a different connection."
         )
 
+    elif change.urn.resource_type == ResourceType.USER_KEY_PAIR:
+        # Every key pair operation is an ALTER USER, which needs OWNERSHIP of the user or
+        # MODIFY PROGRAMMATIC AUTHENTICATION METHODS on it. Key pairs have no owner of
+        # their own in Snowflake, so `owner` names the role that manages the user
+        # (USERADMIN by default, matching the User resource) and is never transferred.
+        if change_owner and change_owner in available_roles:
+            return change_owner, False
+        if "USERADMIN" in available_roles:
+            return ResourceName("USERADMIN"), False
+        return default_role, False
+
     elif change.urn.resource_type == ResourceType.SCANNER_PACKAGE:
         if "ACCOUNTADMIN" in available_roles:
             return ResourceName("ACCOUNTADMIN"), False
@@ -2651,6 +2662,19 @@ def execution_strategy_for_change(
     raise RuntimeError(f"Unhandled change type: {change}")
 
 
+def _as_command_list(cmd: Union[None, str, list[str]]) -> list[str]:
+    """
+    Lifecycle functions return a single statement for most changes, and a list when the
+    change genuinely needs more than one (a key pair rotation that also sets a comment,
+    for example -- Snowflake has no syntax that combines them).
+    """
+    if cmd is None:
+        return []
+    if isinstance(cmd, list):
+        return cmd
+    return [cmd]
+
+
 def sql_commands_for_change(
     change: ResourceChange,
     available_roles: list[ResourceName],
@@ -2680,9 +2704,9 @@ def sql_commands_for_change(
     The exception is when creating new resources
     """
 
-    before_change_cmd = []
-    change_cmd = None
-    after_change_cmd = []
+    before_change_cmd: list[str] = []
+    change_cmd: Union[None, str, list[str]] = None
+    after_change_cmd: list[str] = []
 
     execution_role, transfer_owner = execution_strategy_for_change(
         change,
@@ -2718,10 +2742,26 @@ def sql_commands_for_change(
                 )
 
             if change.urn.resource_type == ResourceType.SCANNER_PACKAGE:
-                after_change_cmd.append(lifecycle.update_resource(change.urn, {}, change.resource_cls.props))
+                after_change_cmd.extend(
+                    _as_command_list(lifecycle.update_resource(change.urn, {}, change.resource_cls.props))
+                )
+        # ALTER USER ... ADD KEY PAIR has no DISABLED option, so a key pair declared
+        # disabled is registered and then disabled. Without this the key would be live
+        # until the next apply, and the plan right after would show drift.
+        if change.urn.resource_type == ResourceType.USER_KEY_PAIR and change.after.get("disabled"):
+            after_change_cmd.extend(
+                _as_command_list(
+                    lifecycle.update_resource(
+                        change.urn,
+                        {"disabled": True},
+                        change.resource_cls.props,
+                        after=change.after,
+                    )
+                )
+            )
     elif isinstance(change, UpdateResource):
         props = Resource.props_for_resource_type(change.urn.resource_type, change.after)
-        change_cmd = lifecycle.update_resource(change.urn, change.delta, props)
+        change_cmd = lifecycle.update_resource(change.urn, change.delta, props, after=change.after)
         if change.urn.resource_type == ResourceType.TAG_MASKING_POLICY_REFERENCE:
             after_change_cmd.append(lifecycle.create_tag_masking_policy_reference(change.urn, change.after, props))
     elif isinstance(change, DropResource):
@@ -2751,7 +2791,7 @@ def sql_commands_for_change(
             copy_current_grants=True,
         )
 
-    all_cmds = before_change_cmd + [change_cmd] + after_change_cmd
+    all_cmds = before_change_cmd + _as_command_list(change_cmd) + after_change_cmd
     return execution_role, [cmd for cmd in all_cmds if cmd is not None]
 
 

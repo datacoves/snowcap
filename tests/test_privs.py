@@ -63,6 +63,7 @@ PSEUDO_RESOURCE_TYPES = {
     ResourceType.MASKING_POLICY,  # Not grantable directly, applied to columns
     ResourceType.ROW_ACCESS_POLICY,  # Not grantable directly, applied to tables
     ResourceType.SCANNER_PACKAGE,  # Internal service resource
+    ResourceType.USER_KEY_PAIR,  # Subresource of a user, managed with ALTER USER
 }
 
 

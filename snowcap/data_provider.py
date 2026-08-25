@@ -51,6 +51,7 @@ from .resource_name import (
 )
 from .resources.authentication_policy import _PAT_POLICY_DEFAULT
 from .resources.security_integration import _canonicalize_role_name
+from .resources.user_key_pair import key_pair_is_rotated_out, normalize_fingerprint
 from .resources.warehouse import ADAPTIVE_UNSUPPORTED_FIELDS
 
 __this__ = sys.modules[__name__]
@@ -3775,6 +3776,57 @@ def fetch_user(
     }
 
 
+def _show_user_key_pairs(session: SnowflakeConnection, user: ResourceName) -> list[dict]:
+    return execute(session, f"SHOW USER KEY PAIRS FOR USER {user}", cacheable=True)
+
+
+def _user_key_pair_to_dict(data: dict) -> dict:
+    status = (data["status"] or "").upper()
+    role_scope = data.get("role_scope")
+    return {
+        "name": _quote_snowflake_identifier(data["name"]),
+        "user": _quote_snowflake_identifier(data["user_name"]),
+        # Snowflake never returns the public key itself, so the fingerprint is what
+        # snowcap compares against the fingerprint of the configured key.
+        "fingerprint": normalize_fingerprint(data["fingerprint"]),
+        "role_restriction": _quote_snowflake_identifier(role_scope) if role_scope else None,
+        # A key pair past its expiration reports EXPIRED rather than DISABLED, and that
+        # isn't the disabled flag drifting -- expiration is set when the key is registered.
+        "disabled": status == "DISABLED",
+        "comment": data["comment"] or None,
+    }
+
+
+def fetch_user_key_pair(session: SnowflakeConnection, fqn: FQN) -> Optional[dict]:
+    user = fqn.params.get("user")
+    if not user:
+        raise Exception(f"User key pair fqn must specify a user {fqn}")
+
+    try:
+        show_result = _show_user_key_pairs(session, ResourceName(user))
+    except ProgrammingError as err:
+        # No user, no key pairs. Snowflake reports the missing user rather than an empty list.
+        if err.errno in (DOES_NOT_EXIST_ERR, OBJECT_DOES_NOT_EXIST_ERR):
+            return None
+        raise
+
+    key_pairs = _filter_result(show_result, name=fqn.name)
+
+    if len(key_pairs) == 0:
+        return None
+    if len(key_pairs) > 1:
+        raise Exception(f"Found multiple user key pairs matching {fqn}")
+
+    data = key_pairs[0]
+
+    # The prior key of a rotation lives on under a generated name until it expires. It is
+    # not a resource anyone declares, and snowcap must not offer to remove it early.
+    if data.get("rotated_to") or key_pair_is_rotated_out(data["name"]):
+        return None
+
+    return _user_key_pair_to_dict(data)
+
+
 def fetch_view(session: SnowflakeConnection, fqn: FQN):
     if fqn.schema is None:
         raise Exception(f"View fqn must have a schema {fqn}")
@@ -5019,6 +5071,36 @@ def list_users(session: SnowflakeConnection) -> list[FQN]:
             continue
         users.append(FQN(name=resource_name_from_snowflake_metadata(row["name"])))
     return users
+
+
+def list_user_key_pairs(session: SnowflakeConnection) -> list[FQN]:
+    # SHOW USER KEY PAIRS lists one user's key pairs, so the account-wide sweep is one
+    # query per user.
+    def error_handler(err: Exception, sql: str):
+        # A user dropped between SHOW USERS and this query, or one whose key pairs this
+        # role can't read, shouldn't fail the whole sweep.
+        if isinstance(err, ProgrammingError) and err.errno in (DOES_NOT_EXIST_ERR, ACCESS_CONTROL_ERR):
+            return
+        raise err
+
+    key_pairs = []
+    for user, result in execute_in_parallel(
+        session,
+        [(f"SHOW USER KEY PAIRS FOR USER {user.name}", user.name) for user in list_users(session)],
+        error_handler=error_handler,
+        cacheable=True,
+    ):
+        for row in result:
+            # Rotated-out keys expire on their own; they are not declarable resources.
+            if row.get("rotated_to") or key_pair_is_rotated_out(row["name"]):
+                continue
+            key_pairs.append(
+                FQN(
+                    name=resource_name_from_snowflake_metadata(row["name"]),
+                    params={"user": str(user)},
+                )
+            )
+    return key_pairs
 
 
 def list_views(session: SnowflakeConnection) -> list[FQN]:
