@@ -27,6 +27,14 @@ __this__ = sys.modules[__name__]
 def quote_value(value: str):
     if value is None or value == "":
         return "''"
+    # Dollar-quoting stays the default -- it needs no escaping for the apostrophes and
+    # backslashes that turn up in free-text comments -- but it is unusable when the value
+    # itself contains the $$ delimiter. Fall back to a single-quoted literal there, with
+    # ' and backslash doubled, so a value carrying $$ cannot break out of the literal
+    # either.
+    if "$$" in str(value):
+        escaped = str(value).replace("\\", "\\\\").replace("'", "''")
+        return f"'{escaped}'"
     return f"$${value}$$"
 
 
