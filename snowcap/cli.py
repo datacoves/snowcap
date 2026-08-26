@@ -358,7 +358,15 @@ def apply(
 )
 @click.option("--out", type=str, help="Write exported config to a file", metavar="<filename>")
 @click.option("--format", type=click.Choice(["json", "yml"]), default="yml", help="Output format")
-def export(resources, export_all, exclude_resources, out, format) -> None:
+@click.option(
+    "--use-account-usage/--no-use-account-usage",
+    default=True,
+    help=(
+        "Read from SNOWFLAKE.ACCOUNT_USAGE instead of SHOW. Required past the 10,000-row "
+        "SHOW cap, but lags live state by up to ~2 hours"
+    ),
+)
+def export(resources, export_all, exclude_resources, out, format, use_account_usage) -> None:
     """
     Generate a resource config for existing Snowflake resources
 
@@ -388,9 +396,9 @@ def export(resources, export_all, exclude_resources, out, format) -> None:
 
     resource_config: dict[str, Any] = {}
     if resources:
-        resource_config = export_resources(include=resources)
+        resource_config = export_resources(include=resources, use_account_usage=use_account_usage)
     elif export_all:
-        resource_config = export_resources(exclude=exclude_resources)
+        resource_config = export_resources(exclude=exclude_resources, use_account_usage=use_account_usage)
     else:
         raise
 

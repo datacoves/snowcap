@@ -10,6 +10,13 @@ from unittest.mock import MagicMock, patch, PropertyMock
 
 from snowcap.data_provider import (
     # Helper functions
+    _ACCOUNT_USAGE_GRANTS_CACHE,
+    _fetch_grant_to_role,
+    _grant_name_key,
+    _grants_by_role_index,
+    _list_schema_scoped_from_account_usage,
+    _show_all_grants_to_role,
+    reset_account_usage_caches,
     _quote_snowflake_identifier,
     _get_owner_identifier,
     _desc_result_to_dict,
@@ -46,6 +53,9 @@ from snowcap.data_provider import (
     list_resource,
     list_account_scoped_resource,
     list_schema_scoped_resource,
+    list_stages,
+    list_tables,
+    list_views,
     # Session functions
     fetch_account_locator,
     fetch_region,
@@ -58,6 +68,7 @@ from snowcap.resources.warehouse import ADAPTIVE_UNSUPPORTED_FIELDS
 
 import datetime
 import json
+import logging
 import pytz
 
 
@@ -2892,3 +2903,429 @@ class TestFetchGrant:
 
         assert grants[0]["granted_on"] == "DATABASE"
         assert grants[1]["granted_on"] == "SCHEMA"
+
+
+def _reset_grant_indexes():
+    """Both grant indexes are process-wide, so a test must not inherit another's."""
+    from snowcap.data_provider import reset_account_usage_caches
+
+    reset_account_usage_caches()
+
+
+class TestGrantNameKey:
+    """Tests for _grant_name_key, the dict key standing in for ResourceName equality."""
+
+    def test_resource_name_is_unsafe_as_a_dict_key(self):
+        # The reason the helper exists at all: __eq__ calls these the same name but
+        # __hash__ disagrees, so a plain {ResourceName: grant} dict misses the lookup.
+        assert ResourceName('"FOO"') == ResourceName("FOO")
+        assert hash(ResourceName('"FOO"')) != hash(ResourceName("FOO"))
+        assert _grant_name_key('"FOO"') == _grant_name_key("FOO")
+
+    @pytest.mark.parametrize(
+        "left,right",
+        [
+            ("FOO", "FOO"),
+            ("FOO", "foo"),
+            ('"FOO"', "FOO"),
+            ('"FOO"', "foo"),
+            ('"Foo"', '"Foo"'),
+            # A name that has to be quoted to be legal is the same name either way.
+            ("my-name", '"my-name"'),
+        ],
+    )
+    def test_key_is_shared_by_names_resource_name_calls_equal(self, left, right):
+        assert ResourceName(left) == ResourceName(right)
+        assert _grant_name_key(left) == _grant_name_key(right)
+
+    @pytest.mark.parametrize(
+        "left,right",
+        [
+            ('"Foo"', "Foo"),
+            ('"foo"', "FOO"),
+            ('"Foo"', '"foo"'),
+            ("FOO", "BAR"),
+        ],
+    )
+    def test_key_differs_for_names_resource_name_calls_different(self, left, right):
+        assert ResourceName(left) != ResourceName(right)
+        assert _grant_name_key(left) != _grant_name_key(right)
+
+
+class TestGrantLookupIndex:
+    """Tests for _grant_lookup_index and _fetch_grant_to_role, which reads through it."""
+
+    @pytest.fixture(autouse=True)
+    def _clean_indexes(self):
+        _reset_grant_indexes()
+        yield
+        _reset_grant_indexes()
+
+    def _fetch(self, session, granted_on, on_name, privilege="SELECT", role="SOME_ROLE"):
+        return _fetch_grant_to_role(
+            session,
+            GrantType.OBJECT,
+            ResourceName(role),
+            granted_on,
+            on_name,
+            privilege,
+        )
+
+    @patch("snowcap.data_provider._show_grants_to_role")
+    def test_finds_a_grant_by_type_privilege_and_name(self, mock_show_grants):
+        mock_show_grants.return_value = [
+            _grant_to_role_row(privilege="SELECT", granted_on="TABLE", name="MY_DB.MY_SCHEMA.MY_TABLE"),
+        ]
+
+        result = self._fetch(MagicMock(), "TABLE", "MY_DB.MY_SCHEMA.MY_TABLE")
+
+        assert result is not None
+        assert result["privilege"] == "SELECT"
+
+    @pytest.mark.parametrize(
+        "reported_name,requested_name",
+        [
+            ("MY_TABLE", '"MY_TABLE"'),
+            ('"MY_TABLE"', "MY_TABLE"),
+            ("MY_TABLE", "my_table"),
+            ('"MixedCase"', '"MixedCase"'),
+        ],
+    )
+    @patch("snowcap.data_provider._show_grants_to_role")
+    def test_quoting_does_not_change_the_match(self, mock_show_grants, reported_name, requested_name):
+        # The scan this replaced compared with ResourceName, so quoted and unquoted
+        # spellings of one name matched. The index has to keep that true.
+        mock_show_grants.return_value = [_grant_to_role_row(granted_on="TABLE", name=reported_name)]
+
+        assert self._fetch(MagicMock(), "TABLE", requested_name, privilege="USAGE") is not None
+
+    @patch("snowcap.data_provider._show_grants_to_role")
+    def test_a_genuinely_different_name_does_not_match(self, mock_show_grants):
+        mock_show_grants.return_value = [_grant_to_role_row(granted_on="TABLE", name='"MixedCase"')]
+
+        assert self._fetch(MagicMock(), "TABLE", "MIXEDCASE", privilege="USAGE") is None
+
+    @patch("snowcap.data_provider._show_grants_to_role")
+    def test_wrong_privilege_does_not_match(self, mock_show_grants):
+        mock_show_grants.return_value = [_grant_to_role_row(privilege="USAGE", granted_on="TABLE", name="MY_TABLE")]
+
+        assert self._fetch(MagicMock(), "TABLE", "MY_TABLE", privilege="SELECT") is None
+
+    @patch("snowcap.data_provider._show_grants_to_role")
+    def test_account_grants_match_on_the_account_keyword(self, mock_show_grants):
+        mock_show_grants.return_value = [
+            _grant_to_role_row(privilege="AUDIT", granted_on="ACCOUNT", name="SOME_ACCOUNT_LOCATOR"),
+        ]
+
+        assert self._fetch(MagicMock(), "ACCOUNT", "ACCOUNT", privilege="AUDIT") is not None
+
+    @patch("snowcap.data_provider._show_grants_to_role")
+    def test_object_type_synonyms_still_match(self, mock_show_grants):
+        # Snowflake reports the type with an underscore where the DDL spells it with a
+        # space. Both sides go through _granted_on_label, so the index has to as well.
+        mock_show_grants.return_value = [
+            _grant_to_role_row(privilege="READ", granted_on="GIT_REPOSITORY", name="MY_DB.PUBLIC.MY_REPO"),
+        ]
+
+        result = self._fetch(MagicMock(), "GIT REPOSITORY", "MY_DB.PUBLIC.MY_REPO", privilege="READ")
+
+        assert result is not None
+
+    @patch("snowcap.data_provider._show_grants_to_role")
+    def test_duplicate_grants_resolve_to_the_first_one(self, mock_show_grants):
+        # Two roles can grant the same privilege on the same object. The linear scan
+        # returned the first row; the index has to agree.
+        mock_show_grants.return_value = [
+            _grant_to_role_row(granted_on="TABLE", name="MY_TABLE", granted_by="ROLE_A"),
+            _grant_to_role_row(granted_on="TABLE", name="MY_TABLE", granted_by="ROLE_B"),
+        ]
+
+        result = self._fetch(MagicMock(), "TABLE", "MY_TABLE", privilege="USAGE")
+
+        assert result is not None
+        assert result["granted_by"] == "ROLE_A"
+
+    @patch("snowcap.data_provider._show_grants_to_role")
+    def test_a_role_is_read_once_however_many_grants_are_looked_up(self, mock_show_grants):
+        # The point of the index: 90k grant lookups must not re-read a role 90k times.
+        mock_show_grants.return_value = [_grant_to_role_row(granted_on="TABLE", name=f"MY_TABLE_{i}") for i in range(5)]
+        session = MagicMock()
+
+        for i in range(5):
+            assert self._fetch(session, "TABLE", f"MY_TABLE_{i}", privilege="USAGE") is not None
+
+        assert mock_show_grants.call_count == 1
+
+    @patch("snowcap.data_provider._show_grants_to_role")
+    def test_each_role_gets_its_own_index(self, mock_show_grants):
+        mock_show_grants.side_effect = [
+            [_grant_to_role_row(granted_on="TABLE", name="TABLE_A")],
+            [_grant_to_role_row(granted_on="TABLE", name="TABLE_B")],
+        ]
+        session = MagicMock()
+
+        assert self._fetch(session, "TABLE", "TABLE_A", privilege="USAGE", role="ROLE_A") is not None
+        assert self._fetch(session, "TABLE", "TABLE_A", privilege="USAGE", role="ROLE_B") is None
+        assert self._fetch(session, "TABLE", "TABLE_B", privilege="USAGE", role="ROLE_B") is not None
+
+    @patch("snowcap.data_provider._show_future_grants_to_role")
+    @patch("snowcap.data_provider._show_grants_to_role")
+    def test_future_grants_are_indexed_from_the_future_grant_source(self, mock_show_grants, mock_show_future):
+        mock_show_future.return_value = [_grant_to_role_row(privilege="SELECT", granted_on="SCHEMA", name="MY_DB.SCH")]
+
+        result = _fetch_grant_to_role(
+            MagicMock(), GrantType.FUTURE, ResourceName("SOME_ROLE"), "SCHEMA", "MY_DB.SCH", "SELECT"
+        )
+
+        assert result is not None
+        mock_show_grants.assert_not_called()
+
+    @patch("snowcap.data_provider._show_grants_to_role")
+    def test_resetting_the_caches_rebuilds_the_index(self, mock_show_grants):
+        # The index is derived state. Leaving it behind would hide grants that an apply
+        # created after it was built.
+        mock_show_grants.side_effect = [
+            [],
+            [_grant_to_role_row(granted_on="TABLE", name="MY_TABLE")],
+        ]
+        session = MagicMock()
+
+        assert self._fetch(session, "TABLE", "MY_TABLE", privilege="USAGE") is None
+        _reset_grant_indexes()
+
+        assert self._fetch(session, "TABLE", "MY_TABLE", privilege="USAGE") is not None
+
+
+class TestGrantsByRoleIndex:
+    """Tests for _grants_by_role_index, the role index over the ACCOUNT_USAGE grant cache."""
+
+    @pytest.fixture(autouse=True)
+    def _clean_indexes(self):
+        _reset_grant_indexes()
+        yield
+        _reset_grant_indexes()
+
+    def _populate(self, session, grants):
+        _ACCOUNT_USAGE_GRANTS_CACHE[id(session)] = grants
+
+    def test_groups_grants_by_grantee(self):
+        session = MagicMock()
+        self._populate(
+            session,
+            [
+                _grant_to_role_row(name="DB_A", grantee_name="ROLE_A"),
+                _grant_to_role_row(name="DB_B", grantee_name="ROLE_B"),
+                _grant_to_role_row(name="DB_C", grantee_name="ROLE_A"),
+            ],
+        )
+
+        index = _grants_by_role_index(id(session))
+
+        assert sorted(index) == ["ROLE_A", "ROLE_B"]
+        assert [grant["name"] for grant in index["ROLE_A"]] == ["DB_A", "DB_C"]
+
+    def test_grantee_names_are_matched_case_insensitively(self):
+        # ACCOUNT_USAGE reports the grantee as stored; the caller looks it up by the
+        # upper-cased role name, which is what the scan this replaced compared.
+        session = MagicMock()
+        self._populate(session, [_grant_to_role_row(grantee_name="role_a")])
+
+        assert _grants_by_role_index(id(session))["ROLE_A"]
+
+    def test_grants_to_anything_other_than_a_role_are_left_out(self):
+        session = MagicMock()
+        self._populate(
+            session,
+            [
+                _grant_to_role_row(grantee_name="ROLE_A", granted_to="ROLE"),
+                _grant_to_role_row(grantee_name="ROLE_A", granted_to="DATABASE_ROLE"),
+            ],
+        )
+
+        assert len(_grants_by_role_index(id(session))["ROLE_A"]) == 1
+
+    @patch("snowcap.data_provider.execute")
+    def test_show_grants_reads_the_index_instead_of_the_database(self, mock_execute):
+        session = MagicMock()
+        self._populate(
+            session,
+            [
+                _grant_to_role_row(name="DB_A", grantee_name="ROLE_A"),
+                _grant_to_role_row(name="DB_B", grantee_name="ROLE_B"),
+            ],
+        )
+
+        grants = _show_all_grants_to_role(session, ResourceName("ROLE_A"))
+
+        assert [grant["name"] for grant in grants] == ["DB_A"]
+        mock_execute.assert_not_called()
+
+    @patch("snowcap.data_provider.execute")
+    def test_a_role_with_no_grants_reads_as_empty(self, mock_execute):
+        session = MagicMock()
+        self._populate(session, [_grant_to_role_row(grantee_name="ROLE_A")])
+
+        assert _show_all_grants_to_role(session, ResourceName("ROLE_B")) == []
+        mock_execute.assert_not_called()
+
+    def test_the_index_is_built_once_per_session(self):
+        session = MagicMock()
+        self._populate(session, [_grant_to_role_row(grantee_name="ROLE_A")])
+
+        first = _grants_by_role_index(id(session))
+        second = _grants_by_role_index(id(session))
+
+        assert first is second
+
+    def test_resetting_the_caches_drops_the_index(self):
+        session = MagicMock()
+        self._populate(session, [_grant_to_role_row(grantee_name="ROLE_A")])
+        _grants_by_role_index(id(session))
+
+        _reset_grant_indexes()
+
+        assert _grants_by_role_index(id(session)) == {}
+
+
+def _account_usage_row(database_name="MY_DB", schema_name="PUBLIC", name="MY_TABLE"):
+    """A row shaped the way the ACCOUNT_USAGE listing queries alias their columns."""
+    return {"database_name": database_name, "schema_name": schema_name, "name": name}
+
+
+class TestListSchemaScopedFromAccountUsage:
+    """Tests for _list_schema_scoped_from_account_usage, the SHOW-cap workaround."""
+
+    @pytest.fixture(autouse=True)
+    def _clean_caches(self):
+        reset_account_usage_caches()
+        yield
+        reset_account_usage_caches()
+
+    @patch("snowcap.data_provider._has_account_usage_access", return_value=True)
+    @patch("snowcap.data_provider._list_databases")
+    @patch("snowcap.data_provider.execute")
+    def test_a_quoted_database_is_kept(self, mock_execute, mock_list_databases, _mock_access):
+        # ACCOUNT_USAGE returns the bare name (MyDb) while str(ResourceName) renders it with
+        # quotes ('"MyDb"'), so comparing rendered strings drops every database that is not
+        # plain upper case. The comparison has to happen in ResourceName space.
+        mock_list_databases.return_value = [ResourceName('"MyDb"')]
+        mock_execute.return_value = [_account_usage_row(database_name="MyDb")]
+
+        result = _list_schema_scoped_from_account_usage(MagicMock(), "SELECT 1")
+
+        assert [str(fqn.database) for fqn in result] == ['"MyDb"']
+
+    @patch("snowcap.data_provider._has_account_usage_access", return_value=True)
+    @patch("snowcap.data_provider._list_databases")
+    @patch("snowcap.data_provider.execute")
+    def test_an_uppercase_database_is_kept(self, mock_execute, mock_list_databases, _mock_access):
+        mock_list_databases.return_value = [ResourceName("MY_DB")]
+        mock_execute.return_value = [_account_usage_row()]
+
+        result = _list_schema_scoped_from_account_usage(MagicMock(), "SELECT 1")
+
+        assert [str(fqn) for fqn in result] == ["MY_DB.PUBLIC.MY_TABLE"]
+
+    @patch("snowcap.data_provider._has_account_usage_access", return_value=True)
+    @patch("snowcap.data_provider._list_databases")
+    @patch("snowcap.data_provider.execute")
+    def test_a_database_snowcap_does_not_manage_is_dropped(self, mock_execute, mock_list_databases, _mock_access):
+        # Shares and imported databases are not in _list_databases, and exporting objects
+        # out of them would produce config that cannot be applied.
+        mock_list_databases.return_value = [ResourceName("MY_DB")]
+        mock_execute.return_value = [_account_usage_row(database_name="SOME_SHARE")]
+
+        assert _list_schema_scoped_from_account_usage(MagicMock(), "SELECT 1") == []
+
+    @patch("snowcap.data_provider._has_account_usage_access", return_value=True)
+    @patch("snowcap.data_provider._list_databases")
+    @patch("snowcap.data_provider.execute")
+    def test_system_databases_and_information_schema_are_dropped(self, mock_execute, mock_list_databases, _mock_access):
+        mock_list_databases.return_value = [ResourceName("MY_DB")]
+        mock_execute.return_value = [
+            _account_usage_row(database_name="SNOWFLAKE"),
+            _account_usage_row(schema_name="INFORMATION_SCHEMA"),
+            _account_usage_row(),
+        ]
+
+        result = _list_schema_scoped_from_account_usage(MagicMock(), "SELECT 1")
+
+        assert [str(fqn) for fqn in result] == ["MY_DB.PUBLIC.MY_TABLE"]
+
+    @patch("snowcap.data_provider._has_account_usage_access", return_value=True)
+    @patch("snowcap.data_provider.execute")
+    def test_opting_out_returns_none_without_querying(self, mock_execute, _mock_access):
+        # --no-use-account-usage has to reach all the way down, not just skip the warning.
+        assert _list_schema_scoped_from_account_usage(MagicMock(), "SELECT 1", use_account_usage=False) is None
+        mock_execute.assert_not_called()
+
+    @patch("snowcap.data_provider._has_account_usage_access", return_value=False)
+    @patch("snowcap.data_provider.execute")
+    def test_no_account_usage_access_returns_none_so_the_caller_can_show(self, mock_execute, _mock_access):
+        assert _list_schema_scoped_from_account_usage(MagicMock(), "SELECT 1") is None
+        mock_execute.assert_not_called()
+
+    @patch("snowcap.data_provider._has_account_usage_access", return_value=True)
+    @patch("snowcap.data_provider.execute", side_effect=Exception("boom"))
+    def test_a_failed_query_returns_none_and_stops_retrying(self, mock_execute, _mock_access):
+        session = MagicMock()
+
+        assert _list_schema_scoped_from_account_usage(session, "SELECT 1") is None
+        # The session is marked as fallen back, so the next listing does not pay for the
+        # same failure again.
+        assert _list_schema_scoped_from_account_usage(session, "SELECT 2") is None
+        assert mock_execute.call_count == 1
+
+    @patch("snowcap.data_provider._has_account_usage_access", return_value=True)
+    @patch("snowcap.data_provider._list_databases")
+    @patch("snowcap.data_provider.execute")
+    def test_staleness_is_warned_about_once_per_session(self, mock_execute, mock_list_databases, _mock_access, caplog):
+        # ACCOUNT_USAGE lags live state by up to ~2 hours. That is worth saying once a run,
+        # not once per resource type.
+        mock_list_databases.return_value = [ResourceName("MY_DB")]
+        mock_execute.return_value = [_account_usage_row()]
+        session = MagicMock()
+
+        with caplog.at_level(logging.WARNING, logger="snowcap"):
+            _list_schema_scoped_from_account_usage(session, "SELECT 1")
+            _list_schema_scoped_from_account_usage(session, "SELECT 2")
+
+        warnings = [record for record in caplog.records if "--no-use-account-usage" in record.message]
+        assert len(warnings) == 1
+
+
+class TestSchemaScopedListersUseAccountUsage:
+    """list_tables / list_views / list_stages read ACCOUNT_USAGE, then fall back to SHOW."""
+
+    @pytest.fixture(autouse=True)
+    def _clean_caches(self):
+        reset_account_usage_caches()
+        yield
+        reset_account_usage_caches()
+
+    @pytest.mark.parametrize("lister", [list_tables, list_views, list_stages])
+    @patch("snowcap.data_provider._list_schema_scoped_from_account_usage")
+    @patch("snowcap.data_provider.execute")
+    def test_account_usage_answers_without_a_show(self, mock_execute, mock_from_account_usage, lister):
+        # SHOW ... IN ACCOUNT is capped at 10,000 rows, so on a large account it is not an
+        # option at all -- it fails outright and takes the export with it.
+        listed = [FQN(database=ResourceName("MY_DB"), schema=ResourceName("PUBLIC"), name=ResourceName("MY_OBJECT"))]
+        mock_from_account_usage.return_value = listed
+
+        assert lister(MagicMock()) == listed
+        mock_execute.assert_not_called()
+
+    @pytest.mark.parametrize("lister", [list_tables, list_views, list_stages])
+    @patch("snowcap.data_provider._list_schema_scoped_from_account_usage", return_value=None)
+    @patch("snowcap.data_provider.execute", return_value=[])
+    def test_show_still_runs_when_account_usage_is_unavailable(self, mock_execute, _mock_from_account_usage, lister):
+        assert lister(MagicMock()) == []
+        assert "SHOW" in mock_execute.call_args[0][1]
+
+    @pytest.mark.parametrize("lister", [list_tables, list_views, list_stages])
+    @patch("snowcap.data_provider._list_schema_scoped_from_account_usage", return_value=None)
+    @patch("snowcap.data_provider.execute", return_value=[])
+    def test_the_opt_out_reaches_the_listing_helper(self, _mock_execute, mock_from_account_usage, lister):
+        lister(MagicMock(), use_account_usage=False)
+
+        assert mock_from_account_usage.call_args.kwargs["use_account_usage"] is False
