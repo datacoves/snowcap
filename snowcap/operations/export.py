@@ -16,6 +16,12 @@ logger = logging.getLogger("snowcap")
 
 DEFAULT_EXPORT_THREADS = 4
 
+# Snowflake never returns a key pair's public key, only its fingerprint, so an exported
+# key pair can't be applied without the operator pasting the key material back in. A
+# sweep export is meant to produce config you can plan with, so these are left out of it
+# unless they are asked for by name.
+EXPORT_ONLY_WHEN_ASKED_FOR = (ResourceType.USER_KEY_PAIR,)
+
 
 def export_resources(
     session=None,
@@ -39,6 +45,12 @@ def export_resources(
         if include and resource_type not in include:
             continue
         if exclude and resource_type in exclude:
+            continue
+        if not include and resource_type in EXPORT_ONLY_WHEN_ASKED_FOR:
+            logger.warning(
+                f"Skipping {resource_type} because Snowflake does not return the key material an export would need. "
+                f"Export them on their own with --resource {resource_label_for_type(resource_type)}."
+            )
             continue
         try:
             config.update(export_resource(session, resource_type, threads=threads))
@@ -127,6 +139,12 @@ def export_resource(session, resource_type: ResourceType, threads: int = DEFAULT
 def _format_resource_config(urn: URN, resource: dict, resource_type: ResourceType) -> dict:
     if resource_type == ResourceType.GRANT:
         return grant_yaml(resource)
+    if resource_type == ResourceType.USER_KEY_PAIR:
+        # fingerprint and has_expiration are derived from key material and a duration that
+        # only config has. Emitting them would produce a block the loader rejects; what an
+        # operator has to supply is the public key itself.
+        resource = {k: v for k, v in resource.items() if k not in ("fingerprint", "has_expiration")}
+        resource["public_key"] = None
     # Sort dict based on key name
     resource = {k: resource[k] for k in sorted(resource)}
     # Put name field at the top of the dict

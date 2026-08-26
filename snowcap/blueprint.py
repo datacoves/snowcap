@@ -82,7 +82,7 @@ from .scope import (
 )
 
 T = TypeVar("T")
-ResourceRef = Union[tuple[ResourceType, str], str]
+ResourceRef = Union[tuple[ResourceType, str, tuple[tuple[str, str], ...]], str]
 
 
 logger = logging.getLogger("snowcap")
@@ -1373,6 +1373,12 @@ def _merge_pointers(resources: Sequence[Resource]) -> list[Resource]:
             resource_id = (
                 resource_or_pointer.resource_type,
                 str(resource_or_pointer.name),
+                # Some resources are named within a parent rather than the account: two
+                # users can each have a key pair named MY_KEY. Those report the parent as
+                # an fqn param, and without it here the second one reads as a duplicate of
+                # the first. Every other resource has no params, so this leaves their
+                # identity unchanged.
+                tuple(sorted((k, str(v)) for k, v in resource_or_pointer.fqn_params.items())),
             )
         else:
             resource_id = str(resource_or_pointer.urn)
@@ -1591,6 +1597,27 @@ class Blueprint:
             if isinstance(change, CreateResource) and change.resource_cls.resource_type == ResourceType.ROLE_GRANT:
                 if change.after["role"] in SYSTEM_ROLES:
                     role_grant_to_system = True
+
+            # A key pair rotation leaves the prior key valid for a grace period, under a
+            # name Snowflake generates. Snowcap doesn't manage that key -- it expires on
+            # its own -- so the plan has to say it will still be there.
+            if (
+                isinstance(change, UpdateResource)
+                and change.urn.resource_type == ResourceType.USER_KEY_PAIR
+                and "fingerprint" in change.delta
+            ):
+                expire_after_hours = change.after.get("expire_rotated_key_pair_after_hours")
+                if expire_after_hours == 0:
+                    grace_period = "revoked immediately"
+                elif expire_after_hours is None:
+                    grace_period = "valid for 24 hours (Snowflake's default)"
+                else:
+                    grace_period = f"valid for {expire_after_hours} hours"
+                warnings.append(
+                    f"Key pair {change.urn} will be rotated. The prior key is kept as "
+                    f"<name>_ROTATED_<epoch_ms> and stays {grace_period}; set "
+                    "expire_rotated_key_pair_after_hours to change that."
+                )
 
             # MCP server specification changes are applied via CREATE OR REPLACE, which
             # drops all grants on the server (see lifecycle.update_mcp_server).
@@ -2580,6 +2607,27 @@ def execution_strategy_for_change(
             "  Grant ACCOUNTADMIN to your user or use a different connection."
         )
 
+    elif change.urn.resource_type == ResourceType.USER_KEY_PAIR:
+        # Every key pair operation is an ALTER USER, which needs OWNERSHIP of the user or
+        # MODIFY PROGRAMMATIC AUTHENTICATION METHODS on it. Key pairs have no owner of
+        # their own in Snowflake, so `owner` names the role that manages the user
+        # (USERADMIN by default, matching the User resource) and is never transferred.
+        #
+        # That also means `owner` is not fetchable, so remote state carries the default
+        # rather than what config declared. change_owner reads the before-owner on an
+        # update, which would quietly downgrade a declared owner to USERADMIN on every
+        # change after the first -- read the declared owner directly instead.
+        declared_owner = None
+        if isinstance(change, (CreateResource, UpdateResource)):
+            declared_owner = change.after.get("owner")
+        elif isinstance(change, DropResource):
+            declared_owner = change.before.get("owner")
+        if declared_owner and ResourceName(declared_owner) in available_roles:
+            return ResourceName(declared_owner), False
+        if "USERADMIN" in available_roles:
+            return ResourceName("USERADMIN"), False
+        return default_role, False
+
     elif change.urn.resource_type == ResourceType.SCANNER_PACKAGE:
         if "ACCOUNTADMIN" in available_roles:
             return ResourceName("ACCOUNTADMIN"), False
@@ -2651,6 +2699,19 @@ def execution_strategy_for_change(
     raise RuntimeError(f"Unhandled change type: {change}")
 
 
+def _as_command_list(cmd: Union[None, str, list[str]]) -> list[str]:
+    """
+    Lifecycle functions return a single statement for most changes, and a list when the
+    change genuinely needs more than one (a key pair rotation that also sets a comment,
+    for example -- Snowflake has no syntax that combines them).
+    """
+    if cmd is None:
+        return []
+    if isinstance(cmd, list):
+        return cmd
+    return [cmd]
+
+
 def sql_commands_for_change(
     change: ResourceChange,
     available_roles: list[ResourceName],
@@ -2680,9 +2741,9 @@ def sql_commands_for_change(
     The exception is when creating new resources
     """
 
-    before_change_cmd = []
-    change_cmd = None
-    after_change_cmd = []
+    before_change_cmd: list[str] = []
+    change_cmd: Union[None, str, list[str]] = None
+    after_change_cmd: list[str] = []
 
     execution_role, transfer_owner = execution_strategy_for_change(
         change,
@@ -2718,10 +2779,26 @@ def sql_commands_for_change(
                 )
 
             if change.urn.resource_type == ResourceType.SCANNER_PACKAGE:
-                after_change_cmd.append(lifecycle.update_resource(change.urn, {}, change.resource_cls.props))
+                after_change_cmd.extend(
+                    _as_command_list(lifecycle.update_resource(change.urn, {}, change.resource_cls.props))
+                )
+        # ALTER USER ... ADD KEY PAIR has no DISABLED option, so a key pair declared
+        # disabled is registered and then disabled. Without this the key would be live
+        # until the next apply, and the plan right after would show drift.
+        if change.urn.resource_type == ResourceType.USER_KEY_PAIR and change.after.get("disabled"):
+            after_change_cmd.extend(
+                _as_command_list(
+                    lifecycle.update_resource(
+                        change.urn,
+                        {"disabled": True},
+                        change.resource_cls.props,
+                        after=change.after,
+                    )
+                )
+            )
     elif isinstance(change, UpdateResource):
         props = Resource.props_for_resource_type(change.urn.resource_type, change.after)
-        change_cmd = lifecycle.update_resource(change.urn, change.delta, props)
+        change_cmd = lifecycle.update_resource(change.urn, change.delta, props, after=change.after)
         if change.urn.resource_type == ResourceType.TAG_MASKING_POLICY_REFERENCE:
             after_change_cmd.append(lifecycle.create_tag_masking_policy_reference(change.urn, change.after, props))
     elif isinstance(change, DropResource):
@@ -2751,7 +2828,7 @@ def sql_commands_for_change(
             copy_current_grants=True,
         )
 
-    all_cmds = before_change_cmd + [change_cmd] + after_change_cmd
+    all_cmds = before_change_cmd + _as_command_list(change_cmd) + after_change_cmd
     return execution_role, [cmd for cmd in all_cmds if cmd is not None]
 
 

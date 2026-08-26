@@ -1,11 +1,12 @@
 import sys
+from typing import Optional, Union
 
 from inflection import pluralize
 
 from .builder import tidy_sql
 from .enums import GrantType, ResourceType
 from .identifiers import FQN, URN
-from .props import Props
+from .props import BoolProp, IntProp, Props, StringProp
 from .resource_name import ResourceName
 
 __this__ = sys.modules[__name__]
@@ -16,6 +17,17 @@ def fqn_to_sql(fqn: FQN):
     schema = f"{ResourceName(fqn.schema)}." if fqn.schema else ""
     name = ResourceName(fqn.name)
     return f"{database}{schema}{name}"
+
+
+def _key_pair_user(urn: URN) -> ResourceName:
+    """
+    The user a key pair belongs to. Key pairs are addressed as `<name>?user=<username>`
+    because Snowflake scopes them to a user rather than making them standalone objects.
+    """
+    user = urn.fqn.params.get("user")
+    if not user:
+        raise RuntimeError(f"Key pair urn is missing its user: {urn}")
+    return ResourceName(user)
 
 
 ################ Create functions
@@ -336,6 +348,18 @@ def create_tag_masking_policy_reference(urn: URN, data: dict, props: Props, if_n
     )
 
 
+def create_user_key_pair(urn: URN, data: dict, props: Props, if_not_exists: bool = False) -> str:
+    # A named key pair isn't a standalone object: it is registered on a user with
+    # ALTER USER ... ADD KEY PAIR. There is no IF NOT EXISTS form.
+    return tidy_sql(
+        "ALTER USER",
+        _key_pair_user(urn),
+        "ADD KEY PAIR",
+        ResourceName(urn.fqn.name),
+        props.render(data),
+    )
+
+
 def create_view(urn: URN, data: dict, props: Props, if_not_exists: bool = False) -> str:
     data = data.copy()
     secure = data.pop("secure", None)
@@ -356,8 +380,19 @@ def create_view(urn: URN, data: dict, props: Props, if_not_exists: bool = False)
 ################ Update functions
 
 
-def update_resource(urn: URN, data: dict, props: Props) -> str:
-    return getattr(__this__, f"update_{urn.resource_label}", update__default)(urn, data, props)
+def update_resource(urn: URN, data: dict, props: Props, after: Optional[dict] = None) -> Union[str, list[str]]:
+    """
+    The SQL for an update. Most handlers return a single ALTER statement; a handler is
+    free to return a list when the change genuinely needs more than one statement.
+
+    `after` is the full desired state of the resource. Handlers listed in
+    UPDATE_HANDLERS_NEEDING_FULL_STATE receive it because their delta alone doesn't
+    carry everything the SQL needs.
+    """
+    handler = getattr(__this__, f"update_{urn.resource_label}", update__default)
+    if handler in UPDATE_HANDLERS_NEEDING_FULL_STATE:
+        return handler(urn, data, props, after or {})
+    return handler(urn, data, props)
 
 
 def update__default(urn: URN, data: dict, props: Props) -> str:
@@ -577,6 +612,60 @@ def update_iceberg_table(urn: URN, data: dict, props: Props) -> str:
         return update__default(urn, {attr: new_value}, props)
 
 
+def update_user_key_pair(urn: URN, data: dict, props: Props, after: dict) -> list[str]:
+    """
+    Key pair changes don't fit the single ALTER ... SET shape: rotating the key, renaming
+    the key pair, and setting its properties are three different Snowflake commands. This
+    returns the statements the change needs, in the order they have to run.
+
+    A new public key reaches this function as a fingerprint change -- Snowflake only ever
+    reports a key pair's fingerprint, so that is what drift is detected on -- and the key
+    the fingerprint was computed from is read from the desired state.
+    """
+    user = _key_pair_user(urn)
+    key_pair = ResourceName(urn.fqn.name)
+    data = data.copy()
+    statements = []
+
+    if data.pop("fingerprint", None) is not None:
+        public_key = after.get("public_key")
+        if not public_key:
+            raise NotImplementedError(f"Cannot rotate key pair {urn}: the new public key is missing from the plan")
+        # The prior key stays valid for a grace period so clients that haven't picked up
+        # the new key yet keep authenticating. Snowflake's default is 24 hours;
+        # expire_rotated_key_pair_after_hours overrides it, and 0 revokes it immediately.
+        expire_after_hours = after.get("expire_rotated_key_pair_after_hours")
+        statements.append(
+            tidy_sql(
+                "ALTER USER",
+                user,
+                "ROTATE KEY PAIR",
+                key_pair,
+                StringProp("public_key").render(public_key),
+                IntProp("expire_rotated_key_pair_after_hours").render(expire_after_hours),
+            )
+        )
+
+    set_data = {attr: data.pop(attr) for attr in ("disabled", "comment") if attr in data}
+    if set_data:
+        modify_props = Props(disabled=BoolProp("disabled"), comment=StringProp("comment"))
+        statements.append(
+            tidy_sql("ALTER USER", user, "MODIFY KEY PAIR", key_pair, "SET", modify_props.render(set_data))
+        )
+
+    if data:
+        # Everything else about a key pair is fixed at registration. Fail loudly rather
+        # than emit SQL that silently drops the change.
+        raise NotImplementedError(f"Cannot update {sorted(data.keys())} on {urn}")
+
+    return statements
+
+
+# Handlers whose delta doesn't carry everything their SQL needs, so update_resource hands
+# them the full desired state as well.
+UPDATE_HANDLERS_NEEDING_FULL_STATE = (update_user_key_pair,)
+
+
 ################ Drop functions
 
 
@@ -753,6 +842,18 @@ def drop_tag_masking_policy_reference(urn: URN, data: dict, **kwargs) -> str:
         data["tag_name"],
         "UNSET MASKING POLICY",
         data["masking_policy_name"],
+    )
+
+
+def drop_user_key_pair(urn: URN, data: dict, if_exists: bool = False, **kwargs) -> str:
+    # IF EXISTS guards the user, which is the object being altered. A removed key pair
+    # cannot be recovered; to keep the metadata, disable it instead.
+    return tidy_sql(
+        "ALTER USER",
+        "IF EXISTS" if if_exists else "",
+        _key_pair_user(urn),
+        "REMOVE KEY PAIR",
+        ResourceName(urn.fqn.name),
     )
 
 

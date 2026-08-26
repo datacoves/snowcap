@@ -51,6 +51,8 @@ from .resource_name import (
 )
 from .resources.authentication_policy import _PAT_POLICY_DEFAULT
 from .resources.security_integration import _canonicalize_role_name
+from .public_key import normalize_fingerprint
+from .resources.user_key_pair import RESERVED_KEY_PAIR_NAMES
 from .resources.warehouse import ADAPTIVE_UNSUPPORTED_FIELDS
 
 __this__ = sys.modules[__name__]
@@ -3749,6 +3751,10 @@ def fetch_user(
         must_change_password = data["must_change_password"] == "true"
 
     rsa_public_key = properties["rsa_public_key"] if properties["rsa_public_key"] != "null" else None
+    # The second legacy key is what a key rotation on the legacy properties runs through.
+    # Without reading it back, a config that sets it re-applies it on every plan.
+    rsa_public_key_2 = properties.get("rsa_public_key_2")
+    rsa_public_key_2 = rsa_public_key_2 if rsa_public_key_2 not in (None, "null") else None
     middle_name = properties["middle_name"] if properties["middle_name"] != "null" else None
 
     default_secondary_roles = json.loads(data["default_secondary_roles"]) if data["default_secondary_roles"] else None
@@ -3770,9 +3776,91 @@ def fetch_user(
         "default_secondary_roles": default_secondary_roles,
         "type": user_type,
         "rsa_public_key": rsa_public_key,
+        "rsa_public_key_2": rsa_public_key_2,
         "network_policy": network_policy,
         "owner": _get_owner_identifier(data),
     }
+
+
+def _show_user_key_pairs_sql(user: ResourceName) -> str:
+    # The sweep issues this per user and a fetch issues it again for one of them. Same
+    # text means the execution cache serves the second from the first.
+    return f"SHOW USER KEY PAIRS FOR USER {user}"
+
+
+def _show_user_key_pairs(session: SnowflakeConnection, user: ResourceName) -> list[dict]:
+    return execute(session, _show_user_key_pairs_sql(user), cacheable=True)
+
+
+def _key_pair_is_declarable(row: dict) -> bool:
+    """
+    Whether a SHOW USER KEY PAIRS row is a key pair a config can declare.
+
+    Two kinds of row are not: the prior key of a rotation, which lives on under a
+    generated name until it expires, and the reserved PUBLIC_KEY_1 / PUBLIC_KEY_2 names
+    Snowflake reports for the legacy rsa_public_key and rsa_public_key_2 user properties,
+    which are managed on the user resource instead.
+
+    A rotated-out key is identified by `rotated_to`, the column Snowflake sets, and never
+    by its name. The generated name is a naming convention, not a guarantee: anyone who
+    can register a key pair can name one `<anything>_ROTATED_<digits>`, and treating that
+    as a tombstone would hide a live key from drift detection and from the sync sweep that
+    removes what config does not declare.
+    """
+    if row.get("rotated_to"):
+        return False
+    return ResourceName(row["name"]) not in RESERVED_KEY_PAIR_NAMES
+
+
+def _user_key_pair_to_dict(data: dict) -> dict:
+    status = (data["status"] or "").upper()
+    role_scope = data.get("role_scope")
+    return {
+        "name": _quote_snowflake_identifier(data["name"]),
+        "user": _quote_snowflake_identifier(data["user_name"]),
+        # Snowflake never returns the public key itself, so the fingerprint is what
+        # snowcap compares against the fingerprint of the configured key.
+        "fingerprint": normalize_fingerprint(data["fingerprint"]),
+        "role_restriction": _quote_snowflake_identifier(role_scope) if role_scope else None,
+        # status is ACTIVE, EXPIRED, or DISABLED. A key pair past its expiration reports
+        # EXPIRED, and that isn't the disabled flag drifting -- expiration is fixed when
+        # the key is registered. Snowflake reports DISABLED for a key pair that is both
+        # disabled and expired, so a disabled key never reads back as enabled.
+        # https://docs.snowflake.com/en/sql-reference/sql/show-user-key-pairs
+        "disabled": status == "DISABLED",
+        # The duration a key pair was registered with is not reported, only the absolute
+        # time it expires. Whether it expires at all is comparable; the duration is not.
+        "has_expiration": data.get("expires_at") is not None,
+        "comment": data["comment"] or None,
+    }
+
+
+def fetch_user_key_pair(session: SnowflakeConnection, fqn: FQN) -> Optional[dict]:
+    user = fqn.params.get("user")
+    if not user:
+        raise Exception(f"User key pair fqn must specify a user {fqn}")
+
+    try:
+        show_result = _show_user_key_pairs(session, ResourceName(user))
+    except ProgrammingError as err:
+        # No user, no key pairs. Snowflake reports the missing user rather than an empty list.
+        if err.errno in (DOES_NOT_EXIST_ERR, OBJECT_DOES_NOT_EXIST_ERR):
+            return None
+        raise
+
+    key_pairs = _filter_result(show_result, name=fqn.name)
+
+    if len(key_pairs) == 0:
+        return None
+    if len(key_pairs) > 1:
+        raise Exception(f"Found multiple user key pairs matching {fqn}")
+
+    data = key_pairs[0]
+
+    if not _key_pair_is_declarable(data):
+        return None
+
+    return _user_key_pair_to_dict(data)
 
 
 def fetch_view(session: SnowflakeConnection, fqn: FQN):
@@ -5019,6 +5107,37 @@ def list_users(session: SnowflakeConnection) -> list[FQN]:
             continue
         users.append(FQN(name=resource_name_from_snowflake_metadata(row["name"])))
     return users
+
+
+def list_user_key_pairs(session: SnowflakeConnection) -> list[FQN]:
+    # SHOW USER KEY PAIRS lists one user's key pairs, so the account-wide sweep is one
+    # query per user.
+    def error_handler(err: Exception, sql: str):
+        # A user dropped between SHOW USERS and this query, or one whose key pairs this
+        # role can't read, shouldn't fail the whole sweep.
+        if isinstance(err, ProgrammingError) and err.errno in (DOES_NOT_EXIST_ERR, ACCESS_CONTROL_ERR):
+            return
+        raise err
+
+    key_pairs = []
+    for user, result in execute_in_parallel(
+        session,
+        [(_show_user_key_pairs_sql(user.name), user.name) for user in list_users(session)],
+        error_handler=error_handler,
+        cacheable=True,
+    ):
+        for row in result:
+            # A sync sweep proposes dropping whatever config doesn't declare, so rows that
+            # config cannot declare have to stay out of it.
+            if not _key_pair_is_declarable(row):
+                continue
+            key_pairs.append(
+                FQN(
+                    name=resource_name_from_snowflake_metadata(row["name"]),
+                    params={"user": str(user)},
+                )
+            )
+    return key_pairs
 
 
 def list_views(session: SnowflakeConnection) -> list[FQN]:

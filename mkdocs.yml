@@ -115,6 +115,7 @@ nav:
       - Role: resources/role.md
       - RoleGrant: resources/role_grant.md
       - User: resources/user.md
+      - UserKeyPair: resources/user_key_pair.md
     - AI:
       - CortexSearchService: resources/cortex_search_service.md
       - SemanticView: resources/semantic_view.md

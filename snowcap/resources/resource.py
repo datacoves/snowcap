@@ -635,6 +635,18 @@ class Resource(metaclass=_Resource):
     def fqn(self) -> FQN:
         raise NotImplementedError("Subclasses must implement fqn")
 
+    @property
+    def fqn_params(self) -> dict:
+        """
+        The fqn params that are part of this resource's identity, if any.
+
+        Most resources are identified by name within their container and have none. A
+        resource named within a parent that isn't its container -- a key pair, which is
+        named within a user -- reports the parent here. Unlike `fqn`, this is safe to
+        read before vars are resolved.
+        """
+        return {}
+
     def process_shortcuts(self) -> list:
         """
         Process the shortcuts for this resource. This is a no-op for most resources, but

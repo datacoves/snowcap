@@ -1,7 +1,7 @@
 import logging
 from dataclasses import dataclass, field
 
-from ..enums import ParseableEnum, ResourceType
+from ..enums import AccountEdition, ParseableEnum, ResourceType
 from ..props import (
     BoolProp,
     EnumProp,
@@ -16,6 +16,10 @@ from ..scope import AccountScope
 from .resource import NamedResource, Resource, ResourceSpec
 from .role import Role
 from .tag import TaggableResource
+
+# Imported from the module that owns key material handling; user.py cannot import
+# user_key_pair.py, which imports this module.
+from ..public_key import normalize_public_key
 
 logger = logging.getLogger("snowcap")
 
@@ -83,6 +87,19 @@ class _User(ResourceSpec):
                 self.display_name = self.name._name.upper()
             if self.must_change_password is None:
                 self.must_change_password = False
+
+    def to_dict(self, account_edition: AccountEdition):
+        # Snowflake's SQL takes a public key without its PEM delimiters, and DESC USER
+        # reports it that way, so a key pasted straight out of a .pub file would otherwise
+        # be rejected on apply and read back as drift. Normalized here rather than in
+        # __post_init__ because a key given as a var is still a template until vars
+        # resolve, which happens after the resource is constructed.
+        serialized = super().to_dict(account_edition)
+        for legacy_key_field in ("rsa_public_key", "rsa_public_key_2"):
+            value = serialized.get(legacy_key_field)
+            if isinstance(value, str):
+                serialized[legacy_key_field] = normalize_public_key(value)
+        return serialized
 
 
 class User(NamedResource, TaggableResource, Resource):
@@ -173,7 +190,7 @@ class User(NamedResource, TaggableResource, Resource):
     )
     scope = AccountScope()
     spec = _User
-    shortcut_keys = ["roles"]
+    shortcut_keys = ["roles", "key_pairs"]
 
     def __init__(
         self,
@@ -250,14 +267,24 @@ class User(NamedResource, TaggableResource, Resource):
 
     def process_shortcuts(self):
         from .grant import RoleGrant
+        from .user_key_pair import UserKeyPair
 
-        role_grants = []
+        resources: list = []
         for role in self.shortcuts["roles"] or []:
-            role_grants.append(
+            resources.append(
                 RoleGrant(
                     role=role,
                     to_user=self,
                 )
             )
 
-        return role_grants
+        for key_pair in self.shortcuts["key_pairs"] or []:
+            if not isinstance(key_pair, dict):
+                raise ValueError(f"Expected a mapping of key pair fields for user {self.name}, got {key_pair!r}")
+            if "user" in key_pair:
+                raise ValueError(
+                    f"Key pair {key_pair.get('name')} is declared under user {self.name} and cannot also set 'user'"
+                )
+            resources.append(UserKeyPair(user=self, **key_pair))
+
+        return resources

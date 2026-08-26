@@ -18,6 +18,25 @@ from snowcap.resources.resource import ResourceSpec
 
 logger = logging.getLogger("snowcap")
 
+# Real RSA-2048 public keys for key-pair tests. Only the public half, so they are safe
+# to check in, and Snowflake rejects key material it can't parse, so tests that talk to
+# an account need genuine keys.
+TEST_PUBLIC_KEY = (
+    "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2xf9PFIebEGMIDbvUCFp5g1bqJpbQ3Ew3K1VfdAXRln7dZb05SSPmOnZzNr8"
+    "iDJZO7uMbpin0nY8crY9MpSxfJIwElqQPOn2vf92ELQ8NNYDDAqJL2UpREweSZV3MaLURba7YNI36QlCrAPrQRYT+o+4yEP02j0NUz4K"
+    "AjSwrVna+CbhGTpJil3lzQsTCRoE93HWcdQcT/gVTmW+lYtgbS1Qy8AbiC+2EKeK4+VBjl5sxgqZshwc68tw3BTemJ2h3K2vSzD0eQXO"
+    "govgv5qzrOYz3Geh0nIBISebvNgVqiugEwo06EyTwhnu1F//waPcdP5/9QTSM0nJvuvhb+Sp7QIDAQAB"
+)
+TEST_PUBLIC_KEY_FINGERPRINT = "SHA256:wX178b99Nw5LQcMoiREuFn4pdqdJkSbRz9WSSGOm8oU="
+
+TEST_PUBLIC_KEY_2 = (
+    "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkkPNYJdgj3/S1R7peek2T3i9Y4LQv0Hrw3e9xgch4eysnmikVAtRHks11v2b"
+    "/iZptvujgHU4YlZVQ/C+U8jgZZziJT9U2SuMIwhLSmWKhkwOIBXDD2UJcuNKV3D/GPZakXPLODPVX5bvsLVhfXptmMzNpB7zs8nmavzz"
+    "Y9Gj0LhnBRnM1IfNuaAA1JUr+Laa3SMtUppTXzQs96wlolNQSyIdwIz+m/YpjbJvCqctecEreJpiwU3TtW9/qZRhqlxpDkS53E5lCgkT"
+    "Toc29DPGb0lWS/OufhCDGB95xTDl+eC1LWuYLFjTktjoxj5OYe3XzDwJx5qbAgBkRhmnN+08SwIDAQAB"
+)
+TEST_PUBLIC_KEY_2_FINGERPRINT = "SHA256:aZ6V/Bw5b3tKB45HPkGQ/SN91TfLspTzgxYoDH/Sthg="
+
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
 EXAMPLES_DIR = os.path.join(os.path.dirname(__file__), "../examples")
 
