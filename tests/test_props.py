@@ -147,6 +147,15 @@ class TestQuoteValue:
         result = quote_value("line1\nline2")
         assert result == "$$line1\nline2$$"
 
+    def test_quote_value_containing_dollar_quote(self):
+        # Dollar-quoting cannot carry a value that holds the delimiter itself.
+        result = quote_value("costs $$ and it's dear")
+        assert result == "'costs $$ and it''s dear'"
+
+    def test_quote_value_containing_dollar_quote_and_backslash(self):
+        result = quote_value("$$ path C:\\tmp")
+        assert result == "'$$ path C:\\\\tmp'"
+
 
 class TestBoolPropExtended:
     """Extended tests for BoolProp class."""

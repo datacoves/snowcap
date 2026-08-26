@@ -6,7 +6,7 @@ from inflection import pluralize
 from .builder import tidy_sql
 from .enums import GrantType, ResourceType
 from .identifiers import FQN, URN
-from .props import BoolProp, IntProp, Props, StringProp
+from .props import BoolProp, IntProp, Props, StringProp, quote_value
 from .resource_name import ResourceName
 
 __this__ = sys.modules[__name__]
@@ -541,7 +541,11 @@ def update_schema(urn: URN, data: dict, props: Props) -> str:
     elif attr == "managed_access":
         return tidy_sql("ALTER SCHEMA", urn.fqn, "ENABLE" if new_value else "DISABLE", "MANAGED ACCESS")
     else:
-        new_value = f"'{new_value}'" if isinstance(new_value, str) else new_value
+        # quote_value, not an f-string. A raw f"'{new_value}'" ends the string literal at
+        # the first apostrophe in the value, so a comment containing one reaches Snowflake
+        # as a syntax error instead of being set. Every other property renderer already
+        # goes through quote_value; this branch was the one that hand-rolled its quoting.
+        new_value = quote_value(new_value) if isinstance(new_value, str) else new_value
         return tidy_sql("ALTER SCHEMA", urn.fqn, "SET", attr, "=", new_value)
 
 
