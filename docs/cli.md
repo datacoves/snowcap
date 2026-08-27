@@ -105,6 +105,7 @@ snowcap export --all
 | `--exclude <types>` | Exclude resource types (used with --all) |
 | `--out <file>` | Write exported config to a file |
 | `--format [json\|yml]` | Output format (default: yml) |
+| `--use-account-usage / --no-use-account-usage` | Read from `SNOWFLAKE.ACCOUNT_USAGE` instead of `SHOW` (default: on). `SHOW ... IN ACCOUNT` is capped at 10,000 rows; `ACCOUNT_USAGE` lags live state by up to ~2 hours |
 
 **Examples:**
 

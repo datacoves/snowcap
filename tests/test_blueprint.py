@@ -2796,6 +2796,59 @@ class TestSyncReadsFutureGrantsRegardless:
         assert "future_grant_database_roles" not in kwargs
 
 
+class TestSyncListingHonoursUseAccountUsage:
+    """Sync mode drops whatever remote state omits, so a listing read from ACCOUNT_USAGE --
+    which lags live state by up to ~2 hours -- proposes dropping objects that exist."""
+
+    @pytest.fixture(autouse=True)
+    def _ctx(self, session_ctx):
+        type(self).SESSION_CTX = session_ctx
+        from snowcap.data_provider import reset_account_usage_caches
+
+        reset_account_usage_caches()
+        yield
+        reset_account_usage_caches()
+
+    def _listing_sql(self, use_account_usage):
+        """SQL issued while sync mode lists tables. The later failure is mock plumbing for
+        reference resolution, not the behaviour under test."""
+        from snowcap.blueprint_config import BlueprintConfig
+
+        bp = Blueprint(resources=[res.Role(name="SOME_ROLE")])
+        bp._config = BlueprintConfig(
+            sync_resources={ResourceType.TABLE},
+            use_account_usage=use_account_usage,
+        )
+
+        with (
+            patch("snowcap.blueprint.data_provider.fetch_session") as mock_session,
+            patch("snowcap.blueprint.data_provider.use_secondary_roles"),
+            patch("snowcap.blueprint.data_provider.populate_account_usage_caches"),
+            patch("snowcap.data_provider._has_account_usage_access", return_value=True),
+            patch("snowcap.data_provider._list_databases", return_value=[]),
+            patch("snowcap.data_provider.execute", return_value=[]) as mock_execute,
+        ):
+            mock_session.return_value = self.SESSION_CTX
+            manifest = bp.generate_manifest(self.SESSION_CTX)
+            try:
+                bp.fetch_remote_state(MagicMock(), manifest)
+            except Exception:
+                pass
+            return [call.args[1] for call in mock_execute.call_args_list if len(call.args) > 1]
+
+    def test_tables_are_listed_with_show_when_account_usage_is_off(self):
+        sql = self._listing_sql(use_account_usage=False)
+
+        assert any("SHOW TABLES IN ACCOUNT" in statement for statement in sql)
+        assert not any("ACCOUNT_USAGE.TABLES" in statement for statement in sql)
+
+    def test_tables_are_listed_from_account_usage_when_it_is_on(self):
+        sql = self._listing_sql(use_account_usage=True)
+
+        assert any("ACCOUNT_USAGE.TABLES" in statement for statement in sql)
+        assert not any("SHOW TABLES IN ACCOUNT" in statement for statement in sql)
+
+
 class TestSummarizePlanValue:
     """The plan table must not dump a multiline SQL body (alert THEN, task body)."""
 

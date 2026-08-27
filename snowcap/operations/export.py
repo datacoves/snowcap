@@ -28,13 +28,14 @@ def export_resources(
     include: Optional[list[ResourceType]] = None,
     exclude: Optional[list[ResourceType]] = None,
     threads: int = DEFAULT_EXPORT_THREADS,
+    use_account_usage: bool = True,
 ) -> dict[str, list]:
     if session is None:
         session = connect()
 
     # Pre-populate ACCOUNT_USAGE caches before parallel fetching to avoid
     # multiple threads hitting the slow ACCOUNT_USAGE access check simultaneously
-    if threads > 1:
+    if threads > 1 and use_account_usage:
         try:
             populate_account_usage_caches(session)
         except Exception as e:
@@ -53,7 +54,7 @@ def export_resources(
             )
             continue
         try:
-            config.update(export_resource(session, resource_type, threads=threads))
+            config.update(export_resource(session, resource_type, threads=threads, use_account_usage=use_account_usage))
         # No list method for resource
         except AttributeError:
             logger.warning(f"Skipping {resource_type} because it has no list method")
@@ -84,9 +85,16 @@ def _fetch_resource_safe(session, urn: URN):
     return None
 
 
-def export_resource(session, resource_type: ResourceType, threads: int = DEFAULT_EXPORT_THREADS) -> dict[str, list]:
+def export_resource(
+    session,
+    resource_type: ResourceType,
+    threads: int = DEFAULT_EXPORT_THREADS,
+    use_account_usage: bool = True,
+) -> dict[str, list]:
     resource_label = resource_label_for_type(resource_type)
-    resource_names = list_resource(session, resource_label)
+    # list_resource forwards only the kwargs a given list_* function declares, so this is a
+    # no-op for listers that do not take it.
+    resource_names = list_resource(session, resource_label, use_account_usage=use_account_usage)
     if len(resource_names) == 0:
         return {}
 

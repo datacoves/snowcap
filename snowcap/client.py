@@ -35,10 +35,18 @@ _EXECUTION_CACHE_LOCK = threading.Lock()
 # Track queries currently being executed to prevent duplicate execution
 _PENDING_QUERIES: dict[tuple[str, str], threading.Event] = {}
 
+# Invalidation callbacks for caches derived from _EXECUTION_CACHE, registered by the modules
+# that index cached rows -- this module cannot import them, they import it.
+_CACHE_RESET_HOOKS: list[Callable[[], None]] = []
+
+
+def register_cache_reset_hook(hook: Callable[[], None]) -> None:
+    _CACHE_RESET_HOOKS.append(hook)
+
 
 def reset_cache():
     """
-    Reset the SQL execution cache.
+    Reset the SQL execution cache and every cache derived from it.
 
     This clears cached query results so subsequent queries will re-execute.
     Note: This does NOT clear ACCOUNT_USAGE caches, which are designed to persist
@@ -47,6 +55,8 @@ def reset_cache():
     """
     global _EXECUTION_CACHE
     _EXECUTION_CACHE = {}
+    for hook in _CACHE_RESET_HOOKS:
+        hook()
 
 
 def execute(
