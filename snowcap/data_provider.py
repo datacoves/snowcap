@@ -27,6 +27,7 @@ from .client import (
     UNSUPPORTED_FEATURE,
     execute,
     execute_in_parallel,
+    register_cache_reset_hook,
 )
 from .enums import (
     INHERITED_GRANTS_FEATURE_FLAG,
@@ -398,25 +399,27 @@ def _drop_inherited_grants(rows: list[dict[str, Any]], context: str) -> list[dic
     return kept
 
 
-# Lookup index over a single role's grants, keyed by
-# (session id, role, role type, grant type) -> {(granted_on label, privilege, name key): grant}.
-#
-# Without it _fetch_grant_to_role scans the role's entire grant list and builds two
-# ResourceName objects per candidate. Exporting an account with ~90k grants therefore does
-# tens of millions of scans and hundreds of millions of ResourceName constructions -- pure
-# CPU, GIL-bound, so more threads cannot help. Indexing makes each lookup O(1).
+# (session id, role, role type, grant type) -> {(granted_on label, privilege, name): grant}.
 _GRANT_LOOKUP_INDEX_CACHE: dict[tuple, dict[tuple, dict[str, Any]]] = {}
 _GRANT_LOOKUP_INDEX_LOCK = threading.Lock()
+
+
+def _reset_grant_lookup_index() -> None:
+    with _GRANT_LOOKUP_INDEX_LOCK:
+        _GRANT_LOOKUP_INDEX_CACHE.clear()
+
+
+# Built from cacheable SHOW GRANTS rows, so it expires with the SQL execution cache.
+register_cache_reset_hook(_reset_grant_lookup_index)
 
 
 def _grant_name_key(name: str) -> str:
     """
     Canonical key for a grant target name, matching ResourceName equality semantics.
 
-    ResourceName.__hash__ is hash(str(self)), but str() keeps the quotes for quoted names
-    while __eq__ treats quoted "FOO" and unquoted FOO as equal -- so ResourceName is unsafe
-    as a dict key here. Normalizing to "exact if quoted, upper-cased if not" reproduces
-    __eq__ exactly across all four quoted/unquoted combinations.
+    ResourceName is unsafe as a dict key: __hash__ is hash(str(self)), which keeps the
+    quotes, while __eq__ treats quoted "FOO" and unquoted FOO as equal. "Exact if quoted,
+    upper-cased if not" reproduces __eq__ across all four combinations.
     """
     rendered = str(ResourceName(name))
     return rendered[1:-1] if rendered.startswith('"') else rendered
@@ -451,17 +454,12 @@ def _grant_lookup_index(
                 is_account = grant["granted_on"] == "ACCOUNT"
                 name = "ACCOUNT" if is_account else grant["name"]
                 key = (
-                    # Index object types the way list_grants compares them. Snowflake
-                    # sometimes reports a grant against a different name than the one its
-                    # DDL uses -- CORTEX_AGENT_SERVER for what GRANT calls an MCP SERVER --
-                    # so a raw string comparison never matches the declared grant, and the
-                    # plan proposes creating it on every run.
+                    # Snowflake reports type synonyms (CORTEX_AGENT_SERVER for MCP SERVER).
                     _granted_on_label(grant["granted_on"]),
                     grant["privilege"],
                     name if is_account else _grant_name_key(name),
                 )
-                # First match wins, preserving the original linear scan's behaviour when
-                # duplicate grants exist (e.g. granted by two different roles).
+                # First match wins, as the linear scan did, when a grant is duplicated.
                 index.setdefault(key, grant)
             _GRANT_LOOKUP_INDEX_CACHE[cache_key] = index
     return index
@@ -888,8 +886,6 @@ def _show_all_grants_to_role(
     if role_type == ResourceType.ROLE:
         session_id = id(session)
         if session_id in _ACCOUNT_USAGE_GRANTS_CACHE:
-            # O(1) lookup by role name (case-insensitive) -- see _grants_by_role_index for
-            # why filtering the whole cache here is not viable on large accounts.
             filtered_grants = _grants_by_role_index(session_id).get(str(role).upper(), [])
             logger.debug(f"Using ACCOUNT_USAGE cache for grants to role {role} ({len(filtered_grants)} grants)")
             return filtered_grants
@@ -1254,11 +1250,7 @@ _ACCOUNT_USAGE_GRANTS_CACHE: dict[int, list[dict[str, Any]]] = {}
 # Stores the normalized grant list from GRANTS_TO_USERS
 _ACCOUNT_USAGE_USER_GRANTS_CACHE: dict[int, list[dict[str, Any]]] = {}
 
-# Role-name index over _ACCOUNT_USAGE_GRANTS_CACHE (keyed by session id, then upper-cased
-# grantee name). Without it every grant lookup rescans the whole grant list: on an account
-# with ~90k grants a 300-grant profile spent 32.7M str.upper() calls filtering the cache,
-# minutes of pure Python with no database activity at all. Built once per session, on
-# first use.
+# Role-name index over _ACCOUNT_USAGE_GRANTS_CACHE: session id, then upper-cased grantee.
 _ACCOUNT_USAGE_GRANTS_BY_ROLE_CACHE: dict[int, dict[str, list[dict[str, Any]]]] = {}
 _ACCOUNT_USAGE_GRANTS_INDEX_LOCK = threading.Lock()
 
@@ -1290,8 +1282,7 @@ _ACCOUNT_USAGE_INHERITED_COLUMN: dict[int, bool] = {}
 # parameter could not be read.
 _INHERITED_GRANTS_ENABLED_CACHE: dict[int, Optional[bool]] = {}
 
-# Sessions that have already been warned that ACCOUNT_USAGE listing lags live state. The
-# warning is worth saying once per run, not once per resource type.
+# Sessions already warned that ACCOUNT_USAGE listing lags live state.
 _ACCOUNT_USAGE_STALENESS_WARNED: set[int] = set()
 
 
@@ -1315,10 +1306,9 @@ def reset_account_usage_caches() -> None:
     _ACCOUNT_USAGE_INHERITED_COLUMN.clear()
     _INHERITED_GRANTS_ENABLED_CACHE.clear()
     _ACCOUNT_USAGE_STALENESS_WARNED.clear()
-    # Both are derived from the caches above, so they have to be invalidated alongside
-    # them -- otherwise a stale index outlives the data it was built from.
+    # Derived indexes must not outlive the rows they were built from.
     _ACCOUNT_USAGE_GRANTS_BY_ROLE_CACHE.clear()
-    _GRANT_LOOKUP_INDEX_CACHE.clear()
+    _reset_grant_lookup_index()
 
 
 def _mark_account_usage_fallback(session: SnowflakeConnection) -> None:
@@ -4961,25 +4951,15 @@ def _warn_account_usage_staleness(session: SnowflakeConnection) -> None:
 
 
 def _list_schema_scoped_from_account_usage(
-    session: SnowflakeConnection, sql: str, use_account_usage: bool = True
+    session: SnowflakeConnection, sql: str, use_account_usage: bool = False
 ) -> Optional[list[FQN]]:
     """
-    List schema-scoped objects from SNOWFLAKE.ACCOUNT_USAGE instead of SHOW ... IN ACCOUNT.
+    List schema-scoped objects from ACCOUNT_USAGE, which SHOW ... IN ACCOUNT cannot past
+    its 10,000-row cap (error 090153).
 
-    Snowflake caps SHOW output at 10,000 rows (error 090153), which makes SHOW ... IN ACCOUNT
-    unusable on large accounts -- listing simply fails and takes the whole export or plan
-    with it. ACCOUNT_USAGE has no such cap and answers in one query.
-
-    The query must alias its columns to the lowercase names SHOW uses ("database_name",
-    "schema_name", "name") so callers can share row-handling code, and must exclude dropped
-    objects, which ACCOUNT_USAGE keeps for a year after the drop.
-
-    Returns None when ACCOUNT_USAGE is turned off for the caller, is unavailable, or the
-    query fails, so callers fall back to SHOW.
-
-    CAVEAT: ACCOUNT_USAGE lags live state (commonly up to ~2 hours, occasionally more), so
-    objects created very recently may be missing. SHOW is real-time, hence the warning and
-    the --no-use-account-usage escape hatch.
+    `sql` must alias its columns to the names SHOW uses ("database_name", "schema_name",
+    "name") and exclude dropped objects. Returns None when ACCOUNT_USAGE is off,
+    unavailable, or the query fails, so the caller falls back to SHOW.
     """
     if not _should_use_account_usage(session, use_account_usage):
         return None
@@ -4991,9 +4971,8 @@ def _list_schema_scoped_from_account_usage(
         return None
 
     _warn_account_usage_staleness(session)
-    # Compare in ResourceName space, the way the SHOW path does. str(ResourceName) renders a
-    # quoted name with its quotes ('"MyDb"') while ACCOUNT_USAGE returns the bare MyDb, so
-    # comparing rendered strings silently drops every quoted or mixed-case database.
+    # Compare in ResourceName space: str() renders '"MyDb"' where ACCOUNT_USAGE returns
+    # MyDb, so comparing rendered strings drops every quoted or mixed-case database.
     user_databases = _list_databases(session)
     results = []
     for row in rows:
@@ -5012,10 +4991,8 @@ def _list_schema_scoped_from_account_usage(
     return results
 
 
-def list_stages(session: SnowflakeConnection, use_account_usage: bool = True) -> list[FQN]:
-    # Named stages only. SHOW STAGES IN ACCOUNT also returns one implicit stage per table,
-    # so on a large account it returns thousands of rows to discard; ACCOUNT_USAGE.STAGES
-    # holds named stages only.
+def list_stages(session: SnowflakeConnection, use_account_usage: bool = False) -> list[FQN]:
+    # Named stages only, matching the SHOW path's type filter below.
     from_account_usage = _list_schema_scoped_from_account_usage(
         session,
         """
@@ -5056,10 +5033,9 @@ def list_streams(session: SnowflakeConnection) -> list[FQN]:
     return list_schema_scoped_resource(session, "STREAMS")
 
 
-def list_tables(session: SnowflakeConnection, use_account_usage: bool = True) -> list[FQN]:
-    # ACCOUNT_USAGE.TABLES covers every table type, so the exclusions the SHOW path applies
-    # below (external, hybrid, iceberg, dynamic, event) map onto table_type plus the is_*
-    # flags, which older accounts may not have at all -- hence the COALESCE.
+def list_tables(session: SnowflakeConnection, use_account_usage: bool = False) -> list[FQN]:
+    # The SHOW path's exclusions map onto table_type plus the is_* flags, which older
+    # accounts may lack -- hence COALESCE.
     from_account_usage = _list_schema_scoped_from_account_usage(
         session,
         """
@@ -5333,9 +5309,8 @@ def list_user_key_pairs(session: SnowflakeConnection) -> list[FQN]:
     return key_pairs
 
 
-def list_views(session: SnowflakeConnection, use_account_usage: bool = True) -> list[FQN]:
-    # Read from ACCOUNT_USAGE.TABLES rather than .VIEWS: table_type distinguishes plain
-    # views from materialized ones, which is the exclusion the SHOW path applies below.
+def list_views(session: SnowflakeConnection, use_account_usage: bool = False) -> list[FQN]:
+    # .TABLES, not .VIEWS: table_type excludes materialized views, as the SHOW path does.
     from_account_usage = _list_schema_scoped_from_account_usage(
         session,
         """

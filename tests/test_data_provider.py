@@ -8,6 +8,7 @@ All functions are tested with mocked execute() results.
 import pytest
 from unittest.mock import MagicMock, patch, PropertyMock
 
+from snowcap.client import reset_cache
 from snowcap.data_provider import (
     # Helper functions
     _ACCOUNT_USAGE_GRANTS_CACHE,
@@ -2910,6 +2911,7 @@ def _reset_grant_indexes():
     from snowcap.data_provider import reset_account_usage_caches
 
     reset_account_usage_caches()
+    reset_cache()
 
 
 class TestGrantNameKey:
@@ -3095,6 +3097,33 @@ class TestGrantLookupIndex:
 
         assert self._fetch(session, "TABLE", "MY_TABLE", privilege="USAGE") is not None
 
+    @patch("snowcap.data_provider._show_grants_to_role")
+    def test_resetting_the_sql_cache_rebuilds_the_index(self, mock_show_grants):
+        # Blueprint.plan() calls reset_cache() and nothing else, so a second plan on the
+        # same session was answered from the first plan's grants.
+        mock_show_grants.side_effect = [
+            [_grant_to_role_row(granted_on="TABLE", name="MY_TABLE")],
+            [],
+        ]
+        session = MagicMock()
+
+        assert self._fetch(session, "TABLE", "MY_TABLE", privilege="USAGE") is not None
+        reset_cache()
+
+        assert self._fetch(session, "TABLE", "MY_TABLE", privilege="USAGE") is None
+        assert mock_show_grants.call_count == 2
+
+    @patch("snowcap.data_provider._show_grants_to_role")
+    def test_the_index_survives_within_one_plan(self, mock_show_grants):
+        # The counterpart: only a reset invalidates the index, or the lookup is pointless.
+        mock_show_grants.return_value = [_grant_to_role_row(granted_on="TABLE", name="MY_TABLE")]
+        session = MagicMock()
+
+        self._fetch(session, "TABLE", "MY_TABLE", privilege="USAGE")
+        self._fetch(session, "TABLE", "MY_TABLE", privilege="USAGE")
+
+        assert mock_show_grants.call_count == 1
+
 
 class TestGrantsByRoleIndex:
     """Tests for _grants_by_role_index, the role index over the ACCOUNT_USAGE grant cache."""
@@ -3211,7 +3240,7 @@ class TestListSchemaScopedFromAccountUsage:
         mock_list_databases.return_value = [ResourceName('"MyDb"')]
         mock_execute.return_value = [_account_usage_row(database_name="MyDb")]
 
-        result = _list_schema_scoped_from_account_usage(MagicMock(), "SELECT 1")
+        result = _list_schema_scoped_from_account_usage(MagicMock(), "SELECT 1", use_account_usage=True)
 
         assert [str(fqn.database) for fqn in result] == ['"MyDb"']
 
@@ -3222,7 +3251,7 @@ class TestListSchemaScopedFromAccountUsage:
         mock_list_databases.return_value = [ResourceName("MY_DB")]
         mock_execute.return_value = [_account_usage_row()]
 
-        result = _list_schema_scoped_from_account_usage(MagicMock(), "SELECT 1")
+        result = _list_schema_scoped_from_account_usage(MagicMock(), "SELECT 1", use_account_usage=True)
 
         assert [str(fqn) for fqn in result] == ["MY_DB.PUBLIC.MY_TABLE"]
 
@@ -3235,7 +3264,7 @@ class TestListSchemaScopedFromAccountUsage:
         mock_list_databases.return_value = [ResourceName("MY_DB")]
         mock_execute.return_value = [_account_usage_row(database_name="SOME_SHARE")]
 
-        assert _list_schema_scoped_from_account_usage(MagicMock(), "SELECT 1") == []
+        assert _list_schema_scoped_from_account_usage(MagicMock(), "SELECT 1", use_account_usage=True) == []
 
     @patch("snowcap.data_provider._has_account_usage_access", return_value=True)
     @patch("snowcap.data_provider._list_databases")
@@ -3248,7 +3277,7 @@ class TestListSchemaScopedFromAccountUsage:
             _account_usage_row(),
         ]
 
-        result = _list_schema_scoped_from_account_usage(MagicMock(), "SELECT 1")
+        result = _list_schema_scoped_from_account_usage(MagicMock(), "SELECT 1", use_account_usage=True)
 
         assert [str(fqn) for fqn in result] == ["MY_DB.PUBLIC.MY_TABLE"]
 
@@ -3262,7 +3291,7 @@ class TestListSchemaScopedFromAccountUsage:
     @patch("snowcap.data_provider._has_account_usage_access", return_value=False)
     @patch("snowcap.data_provider.execute")
     def test_no_account_usage_access_returns_none_so_the_caller_can_show(self, mock_execute, _mock_access):
-        assert _list_schema_scoped_from_account_usage(MagicMock(), "SELECT 1") is None
+        assert _list_schema_scoped_from_account_usage(MagicMock(), "SELECT 1", use_account_usage=True) is None
         mock_execute.assert_not_called()
 
     @patch("snowcap.data_provider._has_account_usage_access", return_value=True)
@@ -3270,10 +3299,10 @@ class TestListSchemaScopedFromAccountUsage:
     def test_a_failed_query_returns_none_and_stops_retrying(self, mock_execute, _mock_access):
         session = MagicMock()
 
-        assert _list_schema_scoped_from_account_usage(session, "SELECT 1") is None
+        assert _list_schema_scoped_from_account_usage(session, "SELECT 1", use_account_usage=True) is None
         # The session is marked as fallen back, so the next listing does not pay for the
         # same failure again.
-        assert _list_schema_scoped_from_account_usage(session, "SELECT 2") is None
+        assert _list_schema_scoped_from_account_usage(session, "SELECT 2", use_account_usage=True) is None
         assert mock_execute.call_count == 1
 
     @patch("snowcap.data_provider._has_account_usage_access", return_value=True)
@@ -3287,8 +3316,8 @@ class TestListSchemaScopedFromAccountUsage:
         session = MagicMock()
 
         with caplog.at_level(logging.WARNING, logger="snowcap"):
-            _list_schema_scoped_from_account_usage(session, "SELECT 1")
-            _list_schema_scoped_from_account_usage(session, "SELECT 2")
+            _list_schema_scoped_from_account_usage(session, "SELECT 1", use_account_usage=True)
+            _list_schema_scoped_from_account_usage(session, "SELECT 2", use_account_usage=True)
 
         warnings = [record for record in caplog.records if "--no-use-account-usage" in record.message]
         assert len(warnings) == 1
@@ -3312,8 +3341,18 @@ class TestSchemaScopedListersUseAccountUsage:
         listed = [FQN(database=ResourceName("MY_DB"), schema=ResourceName("PUBLIC"), name=ResourceName("MY_OBJECT"))]
         mock_from_account_usage.return_value = listed
 
-        assert lister(MagicMock()) == listed
+        assert lister(MagicMock(), use_account_usage=True) == listed
         mock_execute.assert_not_called()
+
+    @pytest.mark.parametrize("lister", [list_tables, list_views, list_stages])
+    @patch("snowcap.data_provider._has_account_usage_access", return_value=True)
+    @patch("snowcap.data_provider._list_databases", return_value=[])
+    @patch("snowcap.data_provider.execute", return_value=[])
+    def test_the_default_is_show(self, mock_execute, _mock_databases, _mock_access, lister):
+        # A caller that says nothing keeps real-time SHOW; the lagging view is opt-in.
+        lister(MagicMock())
+
+        assert "SHOW" in mock_execute.call_args_list[0].args[1]
 
     @pytest.mark.parametrize("lister", [list_tables, list_views, list_stages])
     @patch("snowcap.data_provider._list_schema_scoped_from_account_usage", return_value=None)
