@@ -27,7 +27,6 @@ __this__ = sys.modules[__name__]
 def quote_value(value: str):
     if value is None or value == "":
         return "''"
-    # Dollar-quoting is the default; it cannot carry a value containing the $$ delimiter.
     if "$$" in str(value):
         escaped = (
             str(value)
