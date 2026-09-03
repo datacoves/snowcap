@@ -51,9 +51,11 @@ from snowcap.data_provider import (
     fetch_task,
     fetch_warehouse,
     fetch_streamlit,
+    fetch_semantic_view,
     list_resource,
     list_account_scoped_resource,
     list_schema_scoped_resource,
+    list_semantic_views,
     list_stages,
     list_tables,
     list_views,
@@ -3368,3 +3370,136 @@ class TestSchemaScopedListersUseAccountUsage:
         lister(MagicMock(), use_account_usage=False)
 
         assert mock_from_account_usage.call_args.kwargs["use_account_usage"] is False
+
+
+def _semantic_view_show_row(**overrides):
+    # Shape of one SHOW SEMANTIC VIEWS row (created_on / name / kind / database_name /
+    # schema_name / comment / owner / owner_role_type / extension).
+    row = {
+        "created_on": "2026-09-01 10:00:00.000 -0700",
+        "name": "SV_SALES",
+        "kind": "SEMANTIC_VIEW",
+        "database_name": "DB_PROD",
+        "schema_name": "SALES_ORDER_DASHBOARD",
+        "comment": "",
+        "owner": "DBT_DEPLOYER",
+        "owner_role_type": "ROLE",
+        "extension": None,
+    }
+    row.update(overrides)
+    return row
+
+
+def _semantic_view_fqn(name="SV_SALES"):
+    return FQN(
+        database=ResourceName("DB_PROD"),
+        schema=ResourceName("SALES_ORDER_DASHBOARD"),
+        name=ResourceName(name),
+    )
+
+
+class TestFetchSemanticView:
+    """Tests for fetch_semantic_view.
+
+    SEMANTIC VIEW has no concrete resource class (the CREATE body lives in dbt/DDL), so
+    the only thing snowcap ever fetches is existence + owner + comment, the same way
+    fetch_dbt_project does for DBT PROJECT. Without this function a grant declared as
+    `on: semantic view <db>.<schema>.<sv>` fails the whole plan at reference-resolution
+    time with "Error fetching reference urn::...:semantic_view/...".
+    """
+
+    @patch("snowcap.data_provider._show_resources")
+    def test_returns_name_owner_and_comment(self, mock_show_resources):
+        mock_show_resources.return_value = [_semantic_view_show_row(comment="Sales metrics")]
+        session = MagicMock()
+
+        result = fetch_semantic_view(session, _semantic_view_fqn())
+
+        mock_show_resources.assert_called_once_with(session, "SEMANTIC VIEWS", _semantic_view_fqn())
+        assert result == {
+            "name": "SV_SALES",
+            "owner": "DBT_DEPLOYER",
+            "comment": "Sales metrics",
+        }
+
+    @patch("snowcap.data_provider._show_resources")
+    def test_empty_comment_collapses_to_none(self, mock_show_resources):
+        # SHOW reports an unset comment as "", the spec default is None; they must compare equal.
+        mock_show_resources.return_value = [_semantic_view_show_row(comment="")]
+
+        result = fetch_semantic_view(MagicMock(), _semantic_view_fqn())
+
+        assert result["comment"] is None
+
+    @patch("snowcap.data_provider._show_resources")
+    def test_missing_semantic_view_returns_none(self, mock_show_resources):
+        mock_show_resources.return_value = []
+
+        assert fetch_semantic_view(MagicMock(), _semantic_view_fqn()) is None
+
+    @patch("snowcap.data_provider._show_resources")
+    def test_multiple_matches_raise(self, mock_show_resources):
+        mock_show_resources.return_value = [_semantic_view_show_row(), _semantic_view_show_row()]
+
+        with pytest.raises(Exception, match="multiple semantic views"):
+            fetch_semantic_view(MagicMock(), _semantic_view_fqn())
+
+    @patch("snowcap.data_provider._show_resources")
+    def test_fetch_resource_dispatches_semantic_view_urn(self, mock_show_resources):
+        # This is the plan-time reference check: Blueprint._fetch_remote_state resolves a
+        # grant's `on` target through fetch_resource(..., existence_only=True), which
+        # dispatches on urn.resource_label -> fetch_semantic_view.
+        mock_show_resources.return_value = [_semantic_view_show_row()]
+        urn = URN(resource_type=ResourceType.SEMANTIC_VIEW, fqn=_semantic_view_fqn(), account_locator="ABC123")
+
+        result = fetch_resource(MagicMock(), urn, include_params=False, existence_only=True)
+
+        assert result is not None
+        assert result["name"] == "SV_SALES"
+
+    @patch("snowcap.data_provider._show_resources")
+    def test_fetch_resource_reports_missing_semantic_view_as_none(self, mock_show_resources):
+        mock_show_resources.return_value = []
+        urn = URN(resource_type=ResourceType.SEMANTIC_VIEW, fqn=_semantic_view_fqn(), account_locator="ABC123")
+
+        assert fetch_resource(MagicMock(), urn, include_params=False, existence_only=True) is None
+
+
+class TestListSemanticViews:
+    """Tests for list_semantic_views (export / sync_resources listing)."""
+
+    @patch("snowcap.data_provider.execute")
+    def test_lists_semantic_views_in_account(self, mock_execute):
+        mock_execute.return_value = [
+            _semantic_view_show_row(),
+            _semantic_view_show_row(name="EVERHOUR", database_name="DB_PROD", schema_name="TIME_TRACKING"),
+        ]
+        session = MagicMock()
+
+        result = list_semantic_views(session)
+
+        mock_execute.assert_called_once_with(session, "SHOW SEMANTIC VIEWS IN ACCOUNT", cacheable=True)
+        assert result == [
+            _semantic_view_fqn(),
+            FQN(database=ResourceName("DB_PROD"), schema=ResourceName("TIME_TRACKING"), name=ResourceName("EVERHOUR")),
+        ]
+
+    @patch("snowcap.data_provider.execute")
+    def test_filters_system_databases(self, mock_execute):
+        mock_execute.return_value = [
+            _semantic_view_show_row(),
+            _semantic_view_show_row(name="SYS_SV", database_name="SNOWFLAKE", schema_name="CORE"),
+        ]
+
+        result = list_semantic_views(MagicMock())
+
+        assert [str(r.name) for r in result] == ["SV_SALES"]
+
+    @patch("snowcap.data_provider.list_semantic_views")
+    def test_list_resource_dispatches_semantic_view_label(self, mock_list):
+        mock_list.return_value = []
+        session = MagicMock()
+
+        list_resource(session, "semantic_view")
+
+        mock_list.assert_called_once_with(session)

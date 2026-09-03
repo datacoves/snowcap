@@ -3249,6 +3249,28 @@ def fetch_security_integration(session: SnowflakeConnection, fqn: FQN):
     return None
 
 
+def fetch_semantic_view(session: SnowflakeConnection, fqn: FQN):
+    # SEMANTIC VIEW has no concrete resource class (its CREATE body -- tables,
+    # relationships, facts, dimensions, metrics -- is owned by dbt/DDL), so this
+    # exists for the same reason fetch_dbt_project does: resolving a grant that
+    # targets `semantic view <db>.<schema>.<name>`. Blueprint._fetch_remote_state
+    # calls fetch_resource(existence_only=True) on every grant target, which
+    # dispatches here by resource label; without it the whole plan aborts with
+    # "Error fetching reference urn::...:semantic_view/...".
+    semantic_views = _show_resources(session, "SEMANTIC VIEWS", fqn)
+    if len(semantic_views) == 0:
+        return None
+    if len(semantic_views) > 1:
+        raise Exception(f"Found multiple semantic views matching {fqn}")
+
+    data = semantic_views[0]
+    return {
+        "name": data["name"],
+        "owner": _get_owner_identifier(data),
+        "comment": data.get("comment") or None,
+    }
+
+
 def fetch_sequence(session: SnowflakeConnection, fqn: FQN):
     show_result = execute(session, f"SHOW SEQUENCES LIKE '{fqn.name}' IN SCHEMA {fqn.database}.{fqn.schema}")
     if len(show_result) == 0:
@@ -4921,6 +4943,10 @@ def list_security_integrations(session: SnowflakeConnection) -> list[FQN]:
             continue
         integrations.append(FQN(name=resource_name_from_snowflake_metadata(row["name"])))
     return integrations
+
+
+def list_semantic_views(session: SnowflakeConnection) -> list[FQN]:
+    return list_schema_scoped_resource(session, "SEMANTIC VIEWS")
 
 
 def list_sequences(session: SnowflakeConnection) -> list[FQN]:

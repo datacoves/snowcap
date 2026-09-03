@@ -41,6 +41,16 @@ grants:
   - priv: CREATE SEMANTIC VIEW
     on: schema somedb.someschema
     to: semantic_view_author_role
+
+  # Bulk + future grants. FUTURE is what survives a rebuild: a semantic view
+  # that dbt (or any CREATE OR REPLACE) recreates loses its object-level grants,
+  # but a future grant on the schema re-applies SELECT to the new object.
+  - priv: SELECT
+    on: all semantic views in schema somedb.someschema
+    to: analyst_role
+  - priv: SELECT
+    on: future semantic views in schema somedb.someschema
+    to: analyst_role
 ```
 
 ### Python
@@ -81,6 +91,20 @@ grant = Grant(
 The schema-scope privilege `CREATE SEMANTIC VIEW` is part of
 [Grant](grant.md) under `SchemaPriv` — see the schema-privileges example
 above.
+
+## How snowcap resolves a semantic view
+
+At plan time snowcap verifies that every grant target exists (`SHOW SEMANTIC
+VIEWS ... IN SCHEMA <db>.<schema>`) and reads back the grant itself from `SHOW
+GRANTS TO ROLE <role>` / `SHOW FUTURE GRANTS IN SCHEMA`, where Snowflake reports
+the object type as `SEMANTIC_VIEW`. A grant on a semantic view that does not
+exist yet fails the plan the same way a grant on a missing table does — create
+the view (dbt, DDL) before declaring grants on it, or use a `future semantic
+views in schema` grant, which needs only the schema to exist.
+
+`snowcap export` lists semantic views for `sync_resources` the same way it lists
+views and dynamic tables; the objects themselves are never created, altered, or
+dropped by snowcap — only their grants are managed.
 
 ## See also
 
