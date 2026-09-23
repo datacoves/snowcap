@@ -5238,8 +5238,9 @@ def list_tag_masking_policy_references(session: SnowflakeConnection) -> list[FQN
                 logger.debug(f"  Found tag masking policy reference: {fqn}")
                 references.append(fqn)
         except ProgrammingError as err:
-            if err.errno in (ACCESS_CONTROL_ERR, UNSUPPORTED_FEATURE, DOES_NOT_EXIST_ERR):
-                # Skip tags we can't access or don't exist
+            if err.errno in (ACCESS_CONTROL_ERR, UNSUPPORTED_FEATURE, DOES_NOT_EXIST_ERR, INVALID_IDENTIFIER):
+                # Skip tags we can't access, that don't exist, or whose database doesn't
+                # exist yet (Snowflake reports that as INVALID_IDENTIFIER, not DOES_NOT_EXIST_ERR).
                 logger.debug(f"  Skipping tag {tag_fqn}: {err.msg}")
                 continue
             else:
@@ -5299,7 +5300,9 @@ def fetch_tag_masking_policy_reference(session: SnowflakeConnection, fqn: FQN) -
             "masking_policy_name": f"{policy_db}.{policy_schema}.{policy_name}",
         }
     except ProgrammingError as err:
-        if err.errno in (ACCESS_CONTROL_ERR, UNSUPPORTED_FEATURE, DOES_NOT_EXIST_ERR):
+        if err.errno in (ACCESS_CONTROL_ERR, UNSUPPORTED_FEATURE, DOES_NOT_EXIST_ERR, INVALID_IDENTIFIER):
+            # INVALID_IDENTIFIER covers the tag's own database not existing yet, e.g. when
+            # the same config that declares the reference also creates that database.
             logger.debug(f"Cannot fetch tag masking policy reference {fqn}: {err.msg}")
             return None
         else:

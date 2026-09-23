@@ -49,6 +49,7 @@ from snowcap.data_provider import (
     fetch_shared_database,
     fetch_security_integration,
     fetch_task,
+    fetch_tag_masking_policy_reference,
     fetch_user,
     fetch_warehouse,
     fetch_streamlit,
@@ -57,6 +58,7 @@ from snowcap.data_provider import (
     list_schema_scoped_resource,
     list_stages,
     list_tables,
+    list_tag_masking_policy_references,
     list_views,
     # Session functions
     fetch_account_locator,
@@ -3736,3 +3738,61 @@ class TestFetchUserServiceFields:
 
         assert data["login_name"] is None
         assert data["display_name"] is None
+
+
+class TestTagMaskingPolicyReferenceMissingDatabase:
+    """A tag's own database can not exist yet when the same config also creates it.
+
+    Querying `<database>.INFORMATION_SCHEMA.POLICY_REFERENCES` for that database fails
+    with INVALID_IDENTIFIER (2004), not DOES_NOT_EXIST_ERR (2003) -- Snowflake can't even
+    resolve the qualified name. Treat it the same as a not-yet-created reference.
+    """
+
+    @patch("snowcap.data_provider.execute")
+    def test_fetch_returns_none_when_database_does_not_exist_yet(self, mock_execute):
+        from snowflake.connector.errors import ProgrammingError
+
+        mock_execute.side_effect = ProgrammingError(
+            errno=2004, msg="Invalid identifier GOVERNANCE.INFORMATION_SCHEMA.POLICY_REFERENCES"
+        )
+        fqn = FQN(
+            database=ResourceName("GOVERNANCE"),
+            schema=ResourceName("TAGS"),
+            name=ResourceName("PII"),
+            params={"masking_policy": "governance.policies.mask_pii"},
+        )
+
+        result = fetch_tag_masking_policy_reference(MagicMock(), fqn)
+
+        assert result is None
+
+    @patch("snowcap.data_provider.execute")
+    def test_fetch_raises_on_other_programming_errors(self, mock_execute):
+        from snowflake.connector.errors import ProgrammingError
+
+        mock_execute.side_effect = ProgrammingError(errno=1234)
+        fqn = FQN(
+            database=ResourceName("GOVERNANCE"),
+            schema=ResourceName("TAGS"),
+            name=ResourceName("PII"),
+            params={"masking_policy": "governance.policies.mask_pii"},
+        )
+
+        with pytest.raises(ProgrammingError):
+            fetch_tag_masking_policy_reference(MagicMock(), fqn)
+
+    @patch("snowcap.data_provider.list_tags")
+    @patch("snowcap.data_provider.execute")
+    def test_list_skips_a_tag_whose_database_does_not_exist_yet(self, mock_execute, mock_list_tags):
+        from snowflake.connector.errors import ProgrammingError
+
+        mock_list_tags.return_value = [
+            FQN(database=ResourceName("GOVERNANCE"), schema=ResourceName("TAGS"), name=ResourceName("PII"))
+        ]
+        mock_execute.side_effect = ProgrammingError(
+            errno=2004, msg="Invalid identifier GOVERNANCE.INFORMATION_SCHEMA.POLICY_REFERENCES"
+        )
+
+        result = list_tag_masking_policy_references(MagicMock())
+
+        assert result == []
