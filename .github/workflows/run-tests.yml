@@ -35,7 +35,6 @@ jobs:
       # before a release: release-package.yml uploads straight to PyPI.
       run: |
         uv build
-        uv run twine check dist/*
         uv run python - <<'EOF'
         import zipfile, glob
         wheel = zipfile.ZipFile(glob.glob("dist/snowcap-*.whl")[0])

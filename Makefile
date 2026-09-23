@@ -6,8 +6,6 @@ install:
 	uv sync --no-dev
 
 install-dev:
-	# Legacy `pip install -e .` metadata shadows the uv-managed install; drop it.
-	rm -rf *.egg-info
 	uv sync
 
 test:
@@ -67,4 +65,4 @@ package: clean
 	uv build
 
 submit: package
-	uv run twine upload dist/*
+	uv publish
