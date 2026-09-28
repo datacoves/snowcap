@@ -49,5 +49,4 @@ jobs:
         tag_name: "v${{ env.next_version }}"
         name: "v${{ env.next_version }}"
         body: ${{ steps.notes.outputs.notes }}
-      env:
-        GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+        token: ${{ steps.app-token.outputs.token }}
