@@ -124,52 +124,26 @@ class TestProps(unittest.TestCase):
 # ============================================================================
 
 
-class TestQuoteValue:
-    """Tests for the quote_value helper function."""
-
-    def test_quote_value_normal_string(self):
-        result = quote_value("hello world")
-        assert result == "$$hello world$$"
-
-    def test_quote_value_empty_string(self):
-        result = quote_value("")
-        assert result == "''"
-
-    def test_quote_value_none(self):
-        result = quote_value(None)
-        assert result == "''"
-
-    def test_quote_value_with_quotes(self):
-        result = quote_value('it\'s a "test"')
-        assert result == '$$it\'s a "test"$$'
-
-    def test_quote_value_multiline(self):
-        result = quote_value("line1\nline2")
-        assert result == "$$line1\nline2$$"
-
-    def test_quote_value_containing_dollar_quote(self):
-        result = quote_value("costs $$ and it's dear")
-        assert result == "'costs $$ and it''s dear'"
-
-    def test_quote_value_containing_dollar_quote_and_backslash(self):
-        result = quote_value("$$ path C:\\tmp")
-        assert result == "'$$ path C:\\\\tmp'"
-
-    def test_quote_value_containing_dollar_quote_and_newline(self):
-        result = quote_value("costs $$\nper line")
-        assert result == "'costs $$\\nper line'"
-
-    def test_quote_value_containing_dollar_quote_and_carriage_return_tab(self):
-        result = quote_value("$$\r\tx")
-        assert result == "'$$\\r\\tx'"
-
-    def test_quote_value_containing_dollar_quote_and_backspace_form_feed(self):
-        result = quote_value("$$\b\fx")
-        assert result == "'$$\\b\\fx'"
-
-    def test_quote_value_containing_dollar_quote_and_nul(self):
-        result = quote_value("$$\0x")
-        assert result == "'$$\\u0000x'"
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        ("hello world", "$$hello world$$"),
+        ("", "''"),
+        (None, "''"),
+        ('it\'s a "test"', '$$it\'s a "test"$$'),
+        ("line1\nline2", "$$line1\nline2$$"),
+        # $$ in the value forces the single-quoted fallback
+        ("costs $$ and it's dear", "'costs $$ and it''s dear'"),
+        ('$$ say "hi"', "'$$ say \\\"hi\\\"'"),
+        ("$$ path C:\\tmp", "'$$ path C:\\\\tmp'"),
+        ("costs $$\nper line", "'costs $$\\nper line'"),
+        ("$$\r\tx", "'$$\\r\\tx'"),
+        ("$$\b\fx", "'$$\\b\\fx'"),
+        ("$$\0x", "'$$\\u0000x'"),
+    ],
+)
+def test_quote_value(value, expected):
+    assert quote_value(value) == expected
 
 
 class TestBoolPropExtended:

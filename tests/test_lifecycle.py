@@ -874,7 +874,15 @@ class TestUpdateScannerPackage:
         props = MockProps("")
         result = update_scanner_package(urn, data, props)
         assert "'enabled'" in result
-        assert "'TRUE'" in result
+        assert "$$TRUE$$" in result
+
+    def test_update_comment_with_apostrophe(self):
+        """A value containing an apostrophe must not break out of the literal."""
+        urn = make_urn(ResourceType.SCANNER_PACKAGE, "CIS_BENCHMARKS")
+        data = {"comment": "the account's weekly scan"}
+        props = MockProps("")
+        result = update_scanner_package(urn, data, props)
+        assert "$$the account's weekly scan$$" in result
 
 
 class TestUpdateSchema:

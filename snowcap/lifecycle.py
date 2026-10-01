@@ -508,9 +508,9 @@ def update_scanner_package(urn: URN, data: dict, props: Props) -> str:
     package_name = f"'{urn.fqn.name}'"
     attr, new_value = data.popitem()
     if attr == "schedule":
-        new_value = f"'USING CRON {new_value}'"
+        new_value = quote_value(f"USING CRON {new_value}")
     else:
-        new_value = f"'{new_value}'"
+        new_value = quote_value(new_value)
     return tidy_sql(
         "CALL SNOWFLAKE.TRUST_CENTER.SET_CONFIGURATION(",
         f"'{attr}',",
