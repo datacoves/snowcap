@@ -140,6 +140,13 @@ class TestProps(unittest.TestCase):
         ("$$\r\tx", "'$$\\r\\tx'"),
         ("$$\b\fx", "'$$\\b\\fx'"),
         ("$$\0x", "'$$\\u0000x'"),
+        # Single $ not at the end uses dollar quoting
+        ("costs $5", "$$costs $5$$"),
+        ("$100", "$$$100$$"),
+        # Trailing $ combines with the closing $$ so forces single-quoted fallback
+        ("abc$", "'abc$'"),
+        ("$", "'$'"),
+        ("it's dear and ends with $", "'it''s dear and ends with $'"),
     ],
 )
 def test_quote_value(value, expected):
