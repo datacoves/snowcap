@@ -10,6 +10,7 @@ from ..enums import (
     GrantType,
     ParseableEnum,
     ResourceType,
+    resource_type_is_integration,
 )
 from ..identifiers import (
     FQN,
@@ -480,7 +481,7 @@ class Grant(Resource):
             # Hacky fix
             if on_type == ResourceType.SCHEMA and on.upper().startswith("SNOWFLAKE"):
                 owner = "ACCOUNTADMIN"
-            elif "INTEGRATION" in str(on_type):
+            elif resource_type_is_integration(on_type):
                 owner = "ACCOUNTADMIN"
             else:
                 owner = "SYSADMIN"

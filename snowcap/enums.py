@@ -397,6 +397,11 @@ def resource_type_is_grant(resource_type: ResourceType) -> bool:
     )
 
 
+def resource_type_is_integration(resource_type: str) -> bool:
+    """Return True for INTEGRATION and every integration subtype, such as SECURITY INTEGRATION."""
+    return "INTEGRATION" in str(resource_type)
+
+
 # Object types whose body or schedule runs with the privileges of their owner rather than
 # the caller. Snowflake requires stricter authorization to transfer ownership of these:
 # the receiving role must be in the caller's active role hierarchy, or the caller must hold

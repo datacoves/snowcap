@@ -4,7 +4,7 @@ from typing import Optional, Union
 from inflection import pluralize
 
 from .builder import tidy_sql
-from .enums import GrantType, ResourceType
+from .enums import GrantType, ResourceType, resource_type_is_integration
 from .identifiers import FQN, URN
 from .props import BoolProp, IntProp, Props, StringProp
 from .resource_name import ResourceName
@@ -174,7 +174,7 @@ def _grant_container_sql(data: dict) -> str:
 
 def create_grant(urn: URN, data: dict, props: Props, if_not_exists: bool):
     on_type = data["on_type"]
-    if "INTEGRATION" in str(on_type):
+    if resource_type_is_integration(on_type):
         on_type = "INTEGRATION"
     elif on_type == "ACCOUNT":
         on_type = ""
@@ -193,7 +193,7 @@ def create_grant(urn: URN, data: dict, props: Props, if_not_exists: bool):
         )
     if data["grant_type"] == GrantType.FUTURE:
         items_type = data["items_type"]
-        if "INTEGRATION" in items_type:
+        if resource_type_is_integration(items_type):
             items_type = "INTEGRATION"
         return tidy_sql(
             "GRANT",
@@ -210,7 +210,7 @@ def create_grant(urn: URN, data: dict, props: Props, if_not_exists: bool):
         )
     elif data["grant_type"] == GrantType.ALL:
         items_type = data["items_type"]
-        if "INTEGRATION" in items_type:
+        if resource_type_is_integration(items_type):
             items_type = "INTEGRATION"
         return tidy_sql(
             "GRANT",
@@ -868,6 +868,23 @@ def transfer_resource(
     )
 
 
+# GRANT OWNERSHIP names these resource types by a broader object type. Snowflake
+# rejects EXTERNAL FUNCTION and the integration subtype names, and its usage notes
+# say to use VIEW for materialized views and TABLE for hybrid tables.
+# https://docs.snowflake.com/en/sql-reference/sql/grant-ownership
+_OWNERSHIP_OBJECT_TYPES = {
+    ResourceType.EXTERNAL_FUNCTION: "FUNCTION",
+    ResourceType.HYBRID_TABLE: "TABLE",
+    ResourceType.MATERIALIZED_VIEW: "VIEW",
+}
+
+
+def _ownership_object_type(resource_type: ResourceType) -> str:
+    if resource_type_is_integration(resource_type):
+        return "INTEGRATION"
+    return _OWNERSHIP_OBJECT_TYPES.get(resource_type, str(resource_type))
+
+
 def transfer__default(
     urn: URN,
     owner: str,
@@ -877,7 +894,7 @@ def transfer__default(
 ) -> str:
     return tidy_sql(
         "GRANT OWNERSHIP ON",
-        urn.resource_type,
+        _ownership_object_type(urn.resource_type),
         urn.fqn,
         "TO",
         owner_resource_type,
