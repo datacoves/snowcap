@@ -444,6 +444,22 @@ def update_masking_policy(urn: URN, data: dict, props: Props) -> Union[str, list
         return update__default(urn, {attr: new_value}, props)
 
 
+def update_resource_monitor(urn: URN, data: dict, props: Props) -> Union[str, list[str]]:
+    # TRIGGERS is a clause of its own: it follows SET rather than appearing inside it, and it
+    # replaces every trigger on the monitor, so the delta always carries the full set.
+    if "triggers" not in data:
+        return update__default(urn, data, props)
+    set_data = {attr: value for attr, value in data.items() if attr != "triggers"}
+    return tidy_sql(
+        "ALTER",
+        urn.resource_type,
+        urn.fqn,
+        "SET" if set_data else "",
+        props.render(set_data),
+        props["triggers"].render(data["triggers"]),
+    )
+
+
 def update_mcp_server(urn: URN, data: dict, props: Props) -> str:
     # Snowflake has no ALTER MCP SERVER command. A rename is impossible regardless
     # of what else changed, so it takes precedence over a specification change.

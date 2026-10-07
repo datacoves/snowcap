@@ -2592,10 +2592,14 @@ def execution_strategy_for_change(
         return default_role, False
 
     elif change.urn.resource_type == ResourceType.RESOURCE_MONITOR:
-        # For some reason Snowflake chose to not have a priv type for resource monitors.
-        # Only ACCOUNTADMIN can create them.
+        # Snowflake has no privilege for creating resource monitors: only ACCOUNTADMIN can, and
+        # it can hand one to another role. Once it has, only that owning role can alter or drop
+        # it -- ACCOUNTADMIN is refused -- so those changes run as the owner.
+        if isinstance(change, (UpdateResource, DropResource)) and change_owner:
+            return change_owner, False
         if "ACCOUNTADMIN" in available_roles:
-            return ResourceName("ACCOUNTADMIN"), False
+            transfer_ownership = isinstance(change, CreateResource) and change_owner != "ACCOUNTADMIN"
+            return ResourceName("ACCOUNTADMIN"), transfer_ownership
         raise MissingPrivilegeException(
             "ACCOUNTADMIN role is required to manage resource monitors.\n"
             "  Grant ACCOUNTADMIN to your user or use a different connection."

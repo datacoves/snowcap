@@ -486,6 +486,37 @@ class EnumFlagProp(Prop):
         return value
 
 
+class TriggersProp(Prop):
+    """
+    TRIGGERS ON <threshold> PERCENT DO { SUSPEND | SUSPEND_IMMEDIATE | NOTIFY } [ ... ]
+
+    Parses to and renders from a list of {"threshold": int, "action": <action>} dicts.
+    """
+
+    def __init__(self, label, action_enum):
+        self.action_enum = action_enum
+        action = pp.MatchFirst([Keyword(val.value) for val in action_enum])
+        trigger = pp.Group(
+            Keyword("ON").suppress()
+            + pp.Word(pp.nums)
+            + Keyword("PERCENT").suppress()
+            + Keyword("DO").suppress()
+            + action
+        )
+        super().__init__(label, value_expr=pp.OneOrMore(trigger), eq=False)
+
+    def typecheck(self, prop_value):
+        return [{"threshold": int(threshold), "action": self.action_enum(action)} for threshold, action in prop_value]
+
+    def render(self, values):
+        if values is None:
+            return ""
+        return tidy_sql(
+            self.label.upper(),
+            *[f"ON {trigger['threshold']} PERCENT DO {trigger['action']}" for trigger in values],
+        )
+
+
 class QueryProp(Prop):
     def __init__(self, label):
         value_expr = pp.Word(pp.printables + " \n")
