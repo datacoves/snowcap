@@ -890,7 +890,7 @@ class TestUpdateScannerPackage:
         data = {"enabled": "TRUE"}
         props = MockProps("")
         result = update_scanner_package(urn, data, props)
-        assert "$$\"CIS'BENCHMARKS\"$$" in result
+        assert '$$"CIS\'BENCHMARKS"$$' in result
 
 
 class TestUpdateSchema:
