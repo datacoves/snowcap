@@ -505,7 +505,7 @@ def update_role_grant(urn: URN, data: dict, props: Props) -> str:
 
 
 def update_scanner_package(urn: URN, data: dict, props: Props) -> str:
-    package_name = f"'{urn.fqn.name}'"
+    package_name = quote_value(urn.fqn.name)
     attr, new_value = data.popitem()
     if attr == "schedule":
         new_value = quote_value(f"USING CRON {new_value}")
@@ -513,7 +513,7 @@ def update_scanner_package(urn: URN, data: dict, props: Props) -> str:
         new_value = quote_value(new_value)
     return tidy_sql(
         "CALL SNOWFLAKE.TRUST_CENTER.SET_CONFIGURATION(",
-        f"'{attr}',",
+        f"{quote_value(attr)},",
         new_value,
         ",",
         package_name,

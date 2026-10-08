@@ -864,7 +864,7 @@ class TestUpdateScannerPackage:
         props = MockProps("")
         result = update_scanner_package(urn, data, props)
         assert "CALL SNOWFLAKE.TRUST_CENTER.SET_CONFIGURATION" in result
-        assert "'schedule'" in result
+        assert "$$schedule$$" in result
         assert "USING CRON" in result
 
     def test_update_other_property(self):
@@ -873,7 +873,7 @@ class TestUpdateScannerPackage:
         data = {"enabled": "TRUE"}
         props = MockProps("")
         result = update_scanner_package(urn, data, props)
-        assert "'enabled'" in result
+        assert "$$enabled$$" in result
         assert "$$TRUE$$" in result
 
     def test_update_comment_with_apostrophe(self):
@@ -883,6 +883,14 @@ class TestUpdateScannerPackage:
         props = MockProps("")
         result = update_scanner_package(urn, data, props)
         assert "$$the account's weekly scan$$" in result
+
+    def test_update_package_name_with_apostrophe(self):
+        """A package name containing an apostrophe must be escaped in the literal."""
+        urn = make_urn(ResourceType.SCANNER_PACKAGE, "CIS'BENCHMARKS")
+        data = {"enabled": "TRUE"}
+        props = MockProps("")
+        result = update_scanner_package(urn, data, props)
+        assert "$$\"CIS'BENCHMARKS\"$$" in result
 
 
 class TestUpdateSchema:
