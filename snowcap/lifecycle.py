@@ -505,7 +505,7 @@ def update_role_grant(urn: URN, data: dict, props: Props) -> str:
 
 
 def update_scanner_package(urn: URN, data: dict, props: Props) -> str:
-    package_name = quote_value(urn.fqn.name)
+    package_name = quote_value(str(urn.fqn.name))
     attr, new_value = data.popitem()
     if attr == "schedule":
         new_value = quote_value(f"USING CRON {new_value}")
