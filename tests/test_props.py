@@ -140,6 +140,7 @@ class TestProps(unittest.TestCase):
         ("$$\r\tx", "'$$\\r\\tx'"),
         ("$$\b\fx", "'$$\\b\\fx'"),
         ("$$\0x", "'$$\\u0000x'"),
+        ("$$\x01x", "'$$\\u0001x'"),
         # Single $ not at the end uses dollar quoting
         ("costs $5", "$$costs $5$$"),
         ("$100", "$$$100$$"),

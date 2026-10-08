@@ -892,6 +892,14 @@ class TestUpdateScannerPackage:
         result = update_scanner_package(urn, data, props)
         assert '$$"CIS\'BENCHMARKS"$$' in result
 
+    def test_update_schedule_ending_in_dollar(self):
+        """A trailing $ would close the dollar quote early, so the value falls back to single quotes."""
+        urn = make_urn(ResourceType.SCANNER_PACKAGE, "CIS_BENCHMARKS")
+        data = {"schedule": "0 * * * * UTC$"}
+        props = MockProps("")
+        result = update_scanner_package(urn, data, props)
+        assert "'USING CRON 0 * * * * UTC$'" in result
+
 
 class TestUpdateSchema:
     """Tests for update_schema function."""
