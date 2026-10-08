@@ -82,7 +82,6 @@ class ResourceName:
 
     @property
     def unquoted(self) -> str:
-        """The name as Snowflake stores it, for use inside a string literal."""
         return self._name if self._quoted else self._name.upper()
 
     def startswith(self, prefix: str) -> bool:
