@@ -27,6 +27,8 @@ __this__ = sys.modules[__name__]
 def quote_value(value: str):
     if value is None or value == "":
         return "''"
+    # Fail here rather than in the driver: lone surrogates cannot be encoded as UTF-8
+    str(value).encode("utf-8")
     if "$$" in str(value) or str(value).endswith("$"):
         # JSON and Snowflake share backslash escape syntax for control characters
         escaped = json.dumps(str(value), ensure_ascii=False)[1:-1].replace("'", "''")
@@ -387,7 +389,7 @@ class DictProp(Prop):
     def render(self, value: dict) -> str:
         if value is None:
             return ""
-        kv_pairs = ", ".join([f"'{key}' = '{value}'" for key, value in value.items()])
+        kv_pairs = ", ".join([f"{quote_value(key)} = {quote_value(value)}" for key, value in value.items()])
         eq = " = " if self.eq else " "
         return f"{self.label}{eq}({kv_pairs})"
 
@@ -542,7 +544,7 @@ class TimeTravelProp(Prop):
 
         key, value = values.popitem()
         if key.upper() == "STREAM":
-            value = f"'{value}'"
+            value = quote_value(value)
         time_point = f"{key} => {value}"
         return f"{self.label} ({time_point})"
 

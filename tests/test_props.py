@@ -154,6 +154,11 @@ def test_quote_value(value, expected):
     assert quote_value(value) == expected
 
 
+def test_quote_value_rejects_lone_surrogate():
+    with pytest.raises(UnicodeEncodeError):
+        quote_value("bad \ud800$")
+
+
 class TestBoolPropExtended:
     """Extended tests for BoolProp class."""
 
@@ -433,7 +438,12 @@ class TestDictPropExtended:
     def test_render_dict(self):
         prop = DictProp("HEADERS", parens=True)
         result = prop.render({"Content-Type": "application/json"})
-        assert result == "HEADERS = ('Content-Type' = 'application/json')"
+        assert result == "HEADERS = ($$Content-Type$$ = $$application/json$$)"
+
+    def test_render_dict_with_apostrophe(self):
+        prop = DictProp("HEADERS", parens=True)
+        result = prop.render({"X-Note": "it's fine"})
+        assert result == "HEADERS = ($$X-Note$$ = $$it's fine$$)"
 
     def test_render_none(self):
         prop = DictProp("HEADERS")
@@ -620,7 +630,7 @@ class TestTimeTravelPropExtended:
     def test_render_stream(self):
         prop = TimeTravelProp("AT")
         result = prop.render({"STREAM": "my_stream"})
-        assert result == "AT (STREAM => 'my_stream')"
+        assert result == "AT (STREAM => $$my_stream$$)"
 
     def test_render_none(self):
         prop = TimeTravelProp("AT")
