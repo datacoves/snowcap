@@ -4,7 +4,7 @@ from typing import Optional, Union
 from inflection import pluralize
 
 from .builder import tidy_sql
-from .enums import GrantType, ResourceType
+from .enums import GrantType, ResourceType, resource_type_is_integration
 from .identifiers import FQN, URN
 from .props import BoolProp, IntProp, Props, StringProp
 from .resource_name import ResourceName
@@ -28,6 +28,14 @@ def _key_pair_user(urn: URN) -> ResourceName:
     if not user:
         raise RuntimeError(f"Key pair urn is missing its user: {urn}")
     return ResourceName(user)
+
+
+def _as_function(urn: URN) -> URN:
+    """
+    An external function's urn retyped as FUNCTION. Snowflake accepts EXTERNAL FUNCTION only
+    in CREATE. ALTER, DROP, and GRANT name the function as FUNCTION <name>(<arg types>).
+    """
+    return URN(ResourceType.FUNCTION, urn.fqn, urn.account_locator)
 
 
 ################ Create functions
@@ -103,6 +111,19 @@ def create_database_role_grant(urn: URN, data: dict, props: Props, if_not_exists
     )
 
 
+def create_external_function(urn: URN, data: dict, props: Props, if_not_exists: bool = False) -> str:
+    data = data.copy()
+    secure = data.pop("secure", None)
+    return tidy_sql(
+        "CREATE",
+        "SECURE" if secure else "",
+        urn.resource_type,
+        "IF NOT EXISTS" if if_not_exists else "",
+        fqn_to_sql(urn.fqn),
+        props.render(data),
+    )
+
+
 def create_function(urn: URN, data: dict, props: Props, if_not_exists: bool = False) -> str:
     db = f"{urn.fqn.database}." if urn.fqn.database else ""
     schema = f"{urn.fqn.schema}." if urn.fqn.schema else ""
@@ -174,7 +195,7 @@ def _grant_container_sql(data: dict) -> str:
 
 def create_grant(urn: URN, data: dict, props: Props, if_not_exists: bool):
     on_type = data["on_type"]
-    if "INTEGRATION" in str(on_type):
+    if resource_type_is_integration(on_type):
         on_type = "INTEGRATION"
     elif on_type == "ACCOUNT":
         on_type = ""
@@ -193,7 +214,7 @@ def create_grant(urn: URN, data: dict, props: Props, if_not_exists: bool):
         )
     if data["grant_type"] == GrantType.FUTURE:
         items_type = data["items_type"]
-        if "INTEGRATION" in items_type:
+        if resource_type_is_integration(items_type):
             items_type = "INTEGRATION"
         return tidy_sql(
             "GRANT",
@@ -210,7 +231,7 @@ def create_grant(urn: URN, data: dict, props: Props, if_not_exists: bool):
         )
     elif data["grant_type"] == GrantType.ALL:
         items_type = data["items_type"]
-        if "INTEGRATION" in items_type:
+        if resource_type_is_integration(items_type):
             items_type = "INTEGRATION"
         return tidy_sql(
             "GRANT",
@@ -487,6 +508,10 @@ def update_event_table(urn: URN, data: dict, props: Props) -> Union[str, list[st
     return update__default(new_urn, data, props)
 
 
+def update_external_function(urn: URN, data: dict, props: Props) -> Union[str, list[str]]:
+    return update__default(_as_function(urn), data, props)
+
+
 def update_procedure(urn: URN, data: dict, props: Props) -> Union[str, list[str]]:
     if "execute_as" in data:
         return tidy_sql(
@@ -743,6 +768,10 @@ def drop_function(urn: URN, data: dict, if_exists: bool) -> str:
     )
 
 
+def drop_external_function(urn: URN, data: dict, if_exists: bool) -> str:
+    return drop_function(_as_function(urn), data, if_exists)
+
+
 def drop_grant(urn: URN, data: dict, **kwargs):
     if data["priv"] == "OWNERSHIP":
         raise NotImplementedError
@@ -868,6 +897,23 @@ def transfer_resource(
     )
 
 
+# GRANT OWNERSHIP names these resource types by a broader object type. Snowflake
+# rejects the integration subtype names, and its usage notes say to use VIEW for
+# materialized views and TABLE for hybrid tables. External functions are retyped by
+# transfer_external_function, because every statement except CREATE names them FUNCTION.
+# https://docs.snowflake.com/en/sql-reference/sql/grant-ownership
+_OWNERSHIP_OBJECT_TYPES = {
+    ResourceType.HYBRID_TABLE: "TABLE",
+    ResourceType.MATERIALIZED_VIEW: "VIEW",
+}
+
+
+def _ownership_object_type(resource_type: ResourceType) -> str:
+    if resource_type_is_integration(resource_type):
+        return "INTEGRATION"
+    return _OWNERSHIP_OBJECT_TYPES.get(resource_type, str(resource_type))
+
+
 def transfer__default(
     urn: URN,
     owner: str,
@@ -877,7 +923,7 @@ def transfer__default(
 ) -> str:
     return tidy_sql(
         "GRANT OWNERSHIP ON",
-        urn.resource_type,
+        _ownership_object_type(urn.resource_type),
         urn.fqn,
         "TO",
         owner_resource_type,
@@ -885,3 +931,13 @@ def transfer__default(
         "REVOKE CURRENT GRANTS" if revoke_current_grants else "",
         "COPY CURRENT GRANTS" if copy_current_grants else "",
     )
+
+
+def transfer_external_function(
+    urn: URN,
+    owner: str,
+    owner_resource_type: ResourceType,
+    copy_current_grants: bool = False,
+    revoke_current_grants: bool = False,
+) -> str:
+    return transfer__default(_as_function(urn), owner, owner_resource_type, copy_current_grants, revoke_current_grants)

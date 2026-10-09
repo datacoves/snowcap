@@ -46,6 +46,7 @@ from snowcap.data_provider import (
     fetch_grant,
     fetch_resource,
     fetch_database,
+    fetch_external_function,
     fetch_shared_database,
     fetch_security_integration,
     fetch_task,
@@ -1094,6 +1095,90 @@ class TestFetchTask:
             include_params=False,
         )
         assert result["when"] is None
+
+
+class TestFetchExternalFunction:
+    """Rows below follow a live account. DESC resolves the overload, and the
+    INFORMATION_SCHEMA row with the same signature supplies what DESC omits."""
+
+    FQN = FQN(
+        name=ResourceName("ECHO"),
+        database=ResourceName("DB"),
+        schema=ResourceName("PUBLIC"),
+        arg_types=["NUMBER", "VARCHAR"],
+    )
+
+    @staticmethod
+    def responses(language="EXTERNAL"):
+        desc = {
+            "signature": "(X NUMBER, Y VARCHAR)",
+            "returns": "VARIANT NOT NULL",
+            "language": language,
+            "null handling": "RETURNS NULL ON NULL INPUT",
+            "volatility": "IMMUTABLE",
+            "body": "https://abc123.execute-api.us-west-2.amazonaws.com/prod/echo",
+            "headers": '{"volume-measure":"liters"}',
+            "context_headers": "null",
+            "max_batch_rows": "not set",
+            "request_translator": "DB.PUBLIC.T",
+            "response_translator": "not set",
+            "compression": "AUTO",
+        }
+
+        def information_schema_row(signature, is_secure, comment, owner):
+            return {
+                "FUNCTION_SCHEMA": "PUBLIC",
+                "FUNCTION_NAME": "ECHO",
+                "ARGUMENT_SIGNATURE": signature,
+                "IS_SECURE": is_secure,
+                "COMMENT": comment,
+                "API_INTEGRATION": "MY_API",
+                "FUNCTION_OWNER": owner,
+            }
+
+        return {
+            "DESC FUNCTION": [{"property": key, "value": value} for key, value in desc.items()],
+            "SELECT * FROM DB.INFORMATION_SCHEMA.FUNCTIONS": [
+                information_schema_row("(X VARCHAR)", "NO", None, "SYSADMIN"),
+                information_schema_row("(X NUMBER, Y VARCHAR)", "YES", "echo a pair", "my role"),
+            ],
+        }
+
+    @staticmethod
+    def fake_execute(responses):
+        def execute(session, sql, **kwargs):
+            return next(rows for prefix, rows in responses.items() if sql.startswith(prefix))
+
+        return execute
+
+    @patch("snowcap.data_provider.execute")
+    def test_reads_the_overload_desc_resolved(self, mock_execute):
+        mock_execute.side_effect = self.fake_execute(self.responses())
+
+        assert fetch_external_function(MagicMock(), self.FQN) == {
+            "name": "ECHO",
+            "secure": True,
+            "args": [{"name": "X", "data_type": "NUMBER"}, {"name": "Y", "data_type": "VARCHAR"}],
+            "returns": "VARIANT",
+            "not_null": True,
+            "null_handling": "RETURNS NULL ON NULL INPUT",
+            "volatility": "IMMUTABLE",
+            "comment": "echo a pair",
+            "api_integration": "MY_API",
+            "headers": {"volume-measure": "liters"},
+            "max_batch_rows": None,
+            "compression": "AUTO",
+            "request_translator": "DB.PUBLIC.T",
+            "response_translator": None,
+            "as_": "https://abc123.execute-api.us-west-2.amazonaws.com/prod/echo",
+            "owner": '"my role"',
+        }
+
+    @patch("snowcap.data_provider.execute")
+    def test_udf_with_the_same_signature_is_not_an_external_function(self, mock_execute):
+        mock_execute.side_effect = self.fake_execute(self.responses(language="JAVASCRIPT"))
+
+        assert fetch_external_function(MagicMock(), self.FQN) is None
 
 
 class TestFetchWarehouse:

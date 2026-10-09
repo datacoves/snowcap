@@ -1316,6 +1316,84 @@ class TestTransferResource:
         # ResourceType.DATABASE_ROLE renders as "DATABASE ROLE"
         assert "TO DATABASE ROLE NEW_OWNER" in result
 
+    @pytest.mark.parametrize(
+        "resource_type,schema,object_type",
+        [
+            (ResourceType.API_INTEGRATION, None, "INTEGRATION"),
+            (ResourceType.CATALOG_INTEGRATION, None, "INTEGRATION"),
+            (ResourceType.EXTERNAL_ACCESS_INTEGRATION, None, "INTEGRATION"),
+            (ResourceType.NOTIFICATION_INTEGRATION, None, "INTEGRATION"),
+            (ResourceType.SECURITY_INTEGRATION, None, "INTEGRATION"),
+            (ResourceType.STORAGE_INTEGRATION, None, "INTEGRATION"),
+            (ResourceType.EXTERNAL_FUNCTION, "MY_SCHEMA", "FUNCTION"),
+            (ResourceType.HYBRID_TABLE, "MY_SCHEMA", "TABLE"),
+            (ResourceType.MATERIALIZED_VIEW, "MY_SCHEMA", "VIEW"),
+            # Types close to the mapped ones keep their own names.
+            (ResourceType.DYNAMIC_TABLE, "MY_SCHEMA", "DYNAMIC TABLE"),
+            (ResourceType.ICEBERG_TABLE, "MY_SCHEMA", "ICEBERG TABLE"),
+            (ResourceType.VIEW, "MY_SCHEMA", "VIEW"),
+        ],
+    )
+    def test_transfer_uses_snowflake_ownership_object_type(self, resource_type, schema, object_type):
+        """GRANT OWNERSHIP names some resource types by a broader object type.
+
+        https://docs.snowflake.com/en/sql-reference/sql/grant-ownership
+        """
+        database = "MY_DB" if schema else None
+        urn = make_urn(resource_type, "MY_OBJECT", database=database, schema=schema)
+        result = transfer_resource(urn, "NEW_OWNER", ResourceType.ROLE, copy_current_grants=True)
+        assert result.startswith(f"GRANT OWNERSHIP ON {object_type} ")
+        assert "MY_OBJECT TO ROLE NEW_OWNER COPY CURRENT GRANTS" in result
+
+
+class TestExternalFunctionStatements:
+    """Snowflake accepts EXTERNAL FUNCTION only in CREATE.
+
+    Every other statement names the function as FUNCTION <name>(<arg types>). Without the
+    argument types Snowflake rejects it with 090208, "Argument types of function must be
+    specified".
+    """
+
+    @pytest.fixture
+    def external_function(self):
+        return res.ExternalFunction(
+            name="MY_FN",
+            database="MY_DB",
+            schema="MY_SCHEMA",
+            args=[{"name": "x", "data_type": "VARCHAR"}, {"name": "y", "data_type": "NUMBER"}],
+            returns="VARIANT",
+            api_integration="MY_API",
+            as_="https://example.com/x",
+        )
+
+    @pytest.fixture
+    def urn(self, external_function):
+        return URN.from_resource(external_function, account_locator="ABC123")
+
+    def test_create_declares_arguments_once(self, external_function, urn):
+        result = create_resource(urn, external_function.to_dict(), external_function.props)
+        assert result.startswith("CREATE EXTERNAL FUNCTION MY_DB.MY_SCHEMA.MY_FN (X VARCHAR, Y NUMBER) ")
+
+    def test_create_secure_puts_secure_before_object_type(self, external_function, urn):
+        data = {**external_function.to_dict(), "secure": True}
+        result = create_resource(urn, data, external_function.props)
+        assert result.startswith("CREATE SECURE EXTERNAL FUNCTION MY_DB.MY_SCHEMA.MY_FN (X VARCHAR, Y NUMBER) ")
+
+    def test_drop(self, urn):
+        assert (
+            drop_resource(urn, {}, if_exists=True) == "DROP FUNCTION IF EXISTS MY_DB.MY_SCHEMA.MY_FN(VARCHAR, NUMBER)"
+        )
+
+    def test_update(self, external_function, urn):
+        result = update_resource(urn, {"comment": "new"}, external_function.props)
+        assert result == "ALTER FUNCTION MY_DB.MY_SCHEMA.MY_FN(VARCHAR, NUMBER) SET COMMENT = $$new$$"
+
+    def test_transfer(self, urn):
+        result = transfer_resource(urn, "NEW_OWNER", ResourceType.ROLE, copy_current_grants=True)
+        assert result == (
+            "GRANT OWNERSHIP ON FUNCTION MY_DB.MY_SCHEMA.MY_FN(VARCHAR, NUMBER) TO ROLE NEW_OWNER COPY CURRENT GRANTS"
+        )
+
 
 # ============================================================================
 # Test tag masking policy reference functions

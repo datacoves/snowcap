@@ -2130,8 +2130,7 @@ class Blueprint:
                 if (
                     self._config.exclude_resources
                     and resource.resource_type == ResourceType.GRANT
-                    and hasattr(resource, "on_type")
-                    and resource.on_type in self._config.exclude_resources
+                    and resource.target_type in self._config.exclude_resources
                 ):
                     continue
                 manifest.add(resource, session_ctx["account_edition"])

@@ -340,6 +340,54 @@ def test_blueprint_implied_container_tree(session_ctx, remote_state):
     assert plan[0].resource_cls == res.JavascriptUDF
 
 
+def test_blueprint_external_function_overloads(session_ctx, remote_state):
+    """Snowflake identifies a function by its name and argument types, so overloads are separate resources."""
+    remote_state[parse_URN("urn::ABCD123:database/STATIC_DB")] = {"owner": "SYSADMIN"}
+    remote_state[parse_URN("urn::ABCD123:schema/STATIC_DB.PUBLIC")] = {"owner": "SYSADMIN"}
+    overloads = [
+        res.ExternalFunction(
+            name="echo",
+            args=[{"name": "x", "data_type": data_type}],
+            returns="VARIANT",
+            api_integration="SOME_API",
+            as_="https://example.com/echo",
+            database="STATIC_DB",
+            schema="public",
+        )
+        for data_type in ("VARCHAR", "NUMBER")
+    ]
+    blueprint = Blueprint(name="blueprint", resources=overloads)
+    manifest = blueprint.generate_manifest(session_ctx)
+    plan = diff(remote_state, manifest)
+    assert {change.urn for change in plan} == {
+        parse_URN("urn::ABCD123:external_function/STATIC_DB.PUBLIC.ECHO(VARCHAR)"),
+        parse_URN("urn::ABCD123:external_function/STATIC_DB.PUBLIC.ECHO(NUMBER)"),
+    }
+
+
+def test_blueprint_exclude_external_function_excludes_its_grants(session_ctx):
+    """A grant names an external function as FUNCTION, but it still targets the excluded type."""
+    external_function = res.ExternalFunction(
+        name="echo",
+        args=[{"name": "x", "data_type": "VARCHAR"}],
+        returns="VARIANT",
+        api_integration="SOME_API",
+        as_="https://example.com/echo",
+        database="STATIC_DB",
+        schema="public",
+    )
+    grant = res.Grant(priv="USAGE", on=external_function, to="SOME_ROLE")
+    blueprint = Blueprint(
+        name="blueprint",
+        resources=[external_function, grant],
+        exclude_resources=[ResourceType.EXTERNAL_FUNCTION],
+    )
+    manifest = blueprint.generate_manifest(session_ctx)
+    manifest_types = {urn.resource_type for urn in manifest.urns}
+    assert ResourceType.EXTERNAL_FUNCTION not in manifest_types
+    assert ResourceType.GRANT not in manifest_types
+
+
 def test_blueprint_chained_ownership(session_ctx, remote_state):
     role = res.Role("SOME_ROLE")
     role_grant = res.RoleGrant(role=role, to_role="SYSADMIN")
