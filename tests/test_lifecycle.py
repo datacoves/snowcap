@@ -1009,11 +1009,41 @@ class TestUpdateTask:
         result = update_task(urn, {"comment": "hi"}, res.Task.props)
         assert result == "ALTER TASK MY_DB.MY_SCHEMA.MY_TASK SET COMMENT = $$hi$$"
 
-    def test_state_combined_with_other_fields_raises_rather_than_dropping(self):
-        """RESUME/SUSPEND can't be combined with a SET; the delta must not be silently truncated."""
+    @pytest.mark.parametrize(
+        "delta, expected",
+        [
+            (
+                {"comment": "hi", "as_": "SELECT 2"},
+                [
+                    "ALTER TASK MY_DB.MY_SCHEMA.MY_TASK MODIFY AS SELECT 2",
+                    "ALTER TASK MY_DB.MY_SCHEMA.MY_TASK SET COMMENT = $$hi$$",
+                ],
+            ),
+            (
+                {"state": "STARTED", "when": None, "comment": "hi", "schedule": None},
+                [
+                    "ALTER TASK MY_DB.MY_SCHEMA.MY_TASK REMOVE WHEN",
+                    "ALTER TASK MY_DB.MY_SCHEMA.MY_TASK SET COMMENT = $$hi$$",
+                    "ALTER TASK MY_DB.MY_SCHEMA.MY_TASK UNSET schedule",
+                    "ALTER TASK MY_DB.MY_SCHEMA.MY_TASK RESUME",
+                ],
+            ),
+        ],
+    )
+    def test_combined_delta_renders_one_alter_per_clause(self, delta, expected):
+        """Snowflake rejects MODIFY AS, MODIFY/REMOVE WHEN and RESUME/SUSPEND combined with any
+        other clause, so each gets its own ALTER and every field in the delta is applied. State
+        changes last, so a resumed task starts with its new definition."""
         urn = make_urn(ResourceType.TASK, "MY_TASK", database="MY_DB", schema="MY_SCHEMA")
-        with pytest.raises(NotImplementedError, match="cannot combine"):
-            update_task(urn, {"state": "STARTED", "comment": "hi"}, res.Task.props)
+        assert update_task(urn, delta, res.Task.props) == expected
+
+    @pytest.mark.parametrize("other_field", [{"state": "STARTED"}, {"as_": "SELECT 2"}, {"when": None}])
+    def test_rename_combined_with_other_fields_raises(self, other_field):
+        """Every other ALTER targets the task's current name, so any of them ordered after a
+        RENAME TO would fail. A rename must arrive on its own."""
+        urn = make_urn(ResourceType.TASK, "MY_TASK", database="MY_DB", schema="MY_SCHEMA")
+        with pytest.raises(NotImplementedError, match="cannot combine 'name'"):
+            update_task(urn, {"name": "NEW_TASK", **other_field}, res.Task.props)
 
 
 class TestUpdateIcebergTable:

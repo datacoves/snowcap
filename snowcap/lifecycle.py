@@ -555,29 +555,28 @@ def update_table(urn: URN, data: dict, props: Props) -> Union[str, list[str]]:
 # and so we can't know what value to set.
 def update_task(urn: URN, data: dict, props: Props) -> Union[str, list[str]]:
     # as_ (MODIFY AS), when (MODIFY/REMOVE WHEN), and state (RESUME/SUSPEND) each need
-    # bespoke ALTER syntax that can't be combined with a SET, so they must arrive on their
-    # own. Everything else flows through update__default, which renders multi-field deltas
-    # in one ALTER without dropping any (an arbitrary popitem() here would silently lose the
-    # rest of the delta).
-    special = [attr for attr in ("as_", "when", "state") if attr in data]
-    if not special:
+    # bespoke ALTER syntax that Snowflake rejects in the same statement as any other clause,
+    # so each gets its own ALTER. Everything else flows through update__default, which
+    # renders multi-field deltas without dropping any. State changes last, so a resumed task
+    # starts with its new definition. A rename goes to update__default whole, which refuses
+    # to combine it with other fields: any ALTER after the RENAME TO would target the old name.
+    if "name" in data:
         return update__default(urn, data, props)
-    if len(data) > 1:
-        raise NotImplementedError(
-            f"update_task cannot combine {special!r} with other fields in one ALTER for {urn}; "
-            f"got delta keys {sorted(data.keys())!r}"
-        )
-    attr = special[0]
-    new_value = data[attr]
-    if attr == "as_":
-        return tidy_sql("ALTER TASK", urn.fqn, "MODIFY", "AS", new_value)
-    if attr == "when":
-        if new_value is None:
-            return tidy_sql("ALTER TASK", urn.fqn, "REMOVE", "WHEN")
-        return tidy_sql("ALTER TASK", urn.fqn, "MODIFY", "WHEN", new_value)
-    # attr == "state"
-    change_verb = "RESUME" if new_value == "STARTED" else "SUSPEND"
-    return tidy_sql("ALTER TASK", urn.fqn, change_verb)
+    commands = []
+    if "as_" in data:
+        commands.append(tidy_sql("ALTER TASK", urn.fqn, "MODIFY", "AS", data["as_"]))
+    if "when" in data:
+        if data["when"] is None:
+            commands.append(tidy_sql("ALTER TASK", urn.fqn, "REMOVE", "WHEN"))
+        else:
+            commands.append(tidy_sql("ALTER TASK", urn.fqn, "MODIFY", "WHEN", data["when"]))
+    other_fields = {attr: value for attr, value in data.items() if attr not in ("as_", "when", "state")}
+    if other_fields:
+        default_commands = update__default(urn, other_fields, props)
+        commands.extend(default_commands if isinstance(default_commands, list) else [default_commands])
+    if "state" in data:
+        commands.append(tidy_sql("ALTER TASK", urn.fqn, "RESUME" if data["state"] == "STARTED" else "SUSPEND"))
+    return commands[0] if len(commands) == 1 else commands
 
 
 def update_alert(urn: URN, data: dict, props: Props) -> Union[str, list[str]]:
