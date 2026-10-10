@@ -11,8 +11,22 @@ from .scope import DatabaseScope, SchemaScope
 Keyword = pp.CaselessKeyword
 Literal = pp.CaselessLiteral
 
-StringLiteral = pp.QuotedString("'", multiline=False, unquote_results=True) | pp.QuotedString(
-    "$$", multiline=True, unquote_results=True
+_SQL_ESCAPES = {"b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t", "0": "\0"}
+
+
+def _unescape_sql_string(quoted: str) -> str:
+    # pyparsing 3.0's own escape handling turns an escaped backslash before t/n into a tab/newline
+    return re.sub(
+        r"\\(u[0-9a-fA-F]{4}|.)",
+        lambda m: chr(int(m[1][1:], 16)) if len(m[1]) == 5 else _SQL_ESCAPES.get(m[1], m[1]),
+        quoted[1:-1].replace("''", "'"),
+    )
+
+
+StringLiteral = pp.QuotedString(
+    "'", esc_char="\\", esc_quote="''", multiline=False, unquote_results=False
+).set_parse_action(lambda t: _unescape_sql_string(t[0])) | pp.QuotedString(
+    "$$", multiline=True, unquote_results=True, convert_whitespace_escapes=False
 )
 Numeric = pp.Word(pp.nums + ".")
 

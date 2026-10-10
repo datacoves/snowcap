@@ -214,7 +214,15 @@ class TestCreateAccountParameter:
         data = {"value": "America/New_York"}
         props = MockProps("")
         result = create_account_parameter(urn, data, props)
-        assert result == "ALTER ACCOUNT SET TIMEZONE = 'America/New_York'"
+        assert result == "ALTER ACCOUNT SET TIMEZONE = $$America/New_York$$"
+
+    def test_string_value_with_apostrophe(self):
+        """A value containing an apostrophe must not break out of the literal."""
+        urn = make_urn(ResourceType.ACCOUNT_PARAMETER, "QUERY_TAG")
+        data = {"value": "today's batch"}
+        props = MockProps("")
+        result = create_account_parameter(urn, data, props)
+        assert result == "ALTER ACCOUNT SET QUERY_TAG = $$today's batch$$"
 
     def test_numeric_value(self):
         """Test setting numeric parameter."""
@@ -576,9 +584,7 @@ class TestCreateScannerPackage:
         props = MockProps("")
         result = create_scanner_package(urn, data, props)
         assert "CALL SNOWFLAKE.TRUST_CENTER.SET_CONFIGURATION" in result
-        assert "'ENABLED'" in result
-        assert "'TRUE'" in result
-        assert "'CIS_BENCHMARKS'" in result
+        assert result == ("CALL SNOWFLAKE.TRUST_CENTER.SET_CONFIGURATION( $$ENABLED$$, $$TRUE$$ , $$CIS_BENCHMARKS$$ )")
 
 
 class TestCreateSchema:
@@ -805,7 +811,7 @@ class TestUpdateAccountParameter:
         data = {"value": "UTC"}
         props = MockProps("")
         result = update_account_parameter(urn, data, props)
-        assert "ALTER ACCOUNT SET TIMEZONE = 'UTC'" in result
+        assert "ALTER ACCOUNT SET TIMEZONE = $$UTC$$" in result
 
 
 class TestUpdateEventTable:
@@ -864,7 +870,7 @@ class TestUpdateScannerPackage:
         props = MockProps("")
         result = update_scanner_package(urn, data, props)
         assert "CALL SNOWFLAKE.TRUST_CENTER.SET_CONFIGURATION" in result
-        assert "'schedule'" in result
+        assert "$$schedule$$" in result
         assert "USING CRON" in result
 
     def test_update_other_property(self):
@@ -873,8 +879,32 @@ class TestUpdateScannerPackage:
         data = {"enabled": "TRUE"}
         props = MockProps("")
         result = update_scanner_package(urn, data, props)
-        assert "'enabled'" in result
-        assert "'TRUE'" in result
+        assert "$$enabled$$" in result
+        assert "$$TRUE$$" in result
+
+    def test_update_comment_with_apostrophe(self):
+        """A value containing an apostrophe must not break out of the literal."""
+        urn = make_urn(ResourceType.SCANNER_PACKAGE, "CIS_BENCHMARKS")
+        data = {"comment": "the account's weekly scan"}
+        props = MockProps("")
+        result = update_scanner_package(urn, data, props)
+        assert "$$the account's weekly scan$$" in result
+
+    def test_update_package_name_with_apostrophe(self):
+        """A package name containing an apostrophe must be escaped in the literal."""
+        urn = make_urn(ResourceType.SCANNER_PACKAGE, "CIS'BENCHMARKS")
+        data = {"enabled": "TRUE"}
+        props = MockProps("")
+        result = update_scanner_package(urn, data, props)
+        assert "$$CIS'BENCHMARKS$$" in result
+
+    def test_update_schedule_ending_in_dollar(self):
+        """A trailing $ would close the dollar quote early, so the value falls back to single quotes."""
+        urn = make_urn(ResourceType.SCANNER_PACKAGE, "CIS_BENCHMARKS")
+        data = {"schedule": "0 * * * * UTC$"}
+        props = MockProps("")
+        result = update_scanner_package(urn, data, props)
+        assert "'USING CRON 0 * * * * UTC$'" in result
 
 
 class TestUpdateSchema:
@@ -936,6 +966,22 @@ class TestUpdateSchema:
         props = MockProps("")
         result = update_schema(urn, data, props)
         assert "SET data_retention_time_in_days = 7" in result
+
+    def test_set_comment_with_apostrophe(self):
+        """A comment containing an apostrophe must not break out of the literal."""
+        urn = make_urn(ResourceType.SCHEMA, "MY_SCHEMA", database="MY_DB")
+        data = {"comment": "the database's two-limb test"}
+        props = MockProps("")
+        result = update_schema(urn, data, props)
+        assert result == "ALTER SCHEMA MY_DB.MY_SCHEMA SET comment = $$the database's two-limb test$$"
+
+    def test_set_comment_containing_dollar_quote(self):
+        """A comment containing $$ falls back to a single-quoted literal."""
+        urn = make_urn(ResourceType.SCHEMA, "MY_SCHEMA", database="MY_DB")
+        data = {"comment": "costs $$ and it's dear"}
+        props = MockProps("")
+        result = update_schema(urn, data, props)
+        assert result == "ALTER SCHEMA MY_DB.MY_SCHEMA SET comment = 'costs $$ and it''s dear'"
 
 
 class TestUpdateTable:
@@ -1277,8 +1323,9 @@ class TestDropScannerPackage:
         data = {}
         result = drop_scanner_package(urn, data)
         assert "CALL SNOWFLAKE.TRUST_CENTER.SET_CONFIGURATION" in result
-        assert "'ENABLED'" in result
-        assert "'FALSE'" in result
+        assert result == (
+            "CALL SNOWFLAKE.TRUST_CENTER.SET_CONFIGURATION( $$ENABLED$$, $$FALSE$$ , $$CIS_BENCHMARKS$$ )"
+        )
 
 
 # ============================================================================

@@ -6,7 +6,7 @@ from inflection import pluralize
 from .builder import tidy_sql
 from .enums import GrantType, ResourceType
 from .identifiers import FQN, URN
-from .props import BoolProp, IntProp, Props, StringProp
+from .props import BoolProp, IntProp, Props, StringProp, quote_value
 from .resource_name import ResourceName
 
 __this__ = sys.modules[__name__]
@@ -50,7 +50,7 @@ def create__default(urn: URN, data: dict, props: Props, if_not_exists: bool = Fa
 def create_account_parameter(urn: URN, data: dict, props: Props, if_not_exists: bool = False) -> str:
     value = data["value"]
     if isinstance(value, str):
-        value = f"'{value}'"
+        value = quote_value(value)
     return tidy_sql(
         "ALTER",
         "ACCOUNT",
@@ -292,14 +292,7 @@ def create_role_grant(urn: URN, data: dict, props: Props, if_not_exists: bool = 
 
 
 def create_scanner_package(urn: URN, data: dict, props: Props, if_not_exists: bool = False) -> str:
-    package_name = f"'{urn.fqn.name}'"
-    return tidy_sql(
-        "CALL SNOWFLAKE.TRUST_CENTER.SET_CONFIGURATION(",
-        "'ENABLED',",
-        "'TRUE',",
-        package_name,
-        ")",
-    )
+    return update_scanner_package(urn, {"ENABLED": "TRUE"}, props)
 
 
 def create_schema(urn: URN, data: dict, props: Props, if_not_exists: bool = False) -> str:
@@ -505,15 +498,15 @@ def update_role_grant(urn: URN, data: dict, props: Props) -> str:
 
 
 def update_scanner_package(urn: URN, data: dict, props: Props) -> str:
-    package_name = f"'{urn.fqn.name}'"
+    package_name = quote_value(urn.fqn.name.unquoted)
     attr, new_value = data.popitem()
     if attr == "schedule":
-        new_value = f"'USING CRON {new_value}'"
+        new_value = quote_value(f"USING CRON {new_value}")
     else:
-        new_value = f"'{new_value}'"
+        new_value = quote_value(new_value)
     return tidy_sql(
         "CALL SNOWFLAKE.TRUST_CENTER.SET_CONFIGURATION(",
-        f"'{attr}',",
+        f"{quote_value(attr)},",
         new_value,
         ",",
         package_name,
@@ -535,7 +528,7 @@ def update_schema(urn: URN, data: dict, props: Props) -> str:
     elif attr == "managed_access":
         return tidy_sql("ALTER SCHEMA", urn.fqn, "ENABLE" if new_value else "DISABLE", "MANAGED ACCESS")
     else:
-        new_value = f"'{new_value}'" if isinstance(new_value, str) else new_value
+        new_value = quote_value(new_value) if isinstance(new_value, str) else new_value
         return tidy_sql("ALTER SCHEMA", urn.fqn, "SET", attr, "=", new_value)
 
 
@@ -818,14 +811,7 @@ def drop_role_grant(urn: URN, data: dict, **kwargs):
 
 
 def drop_scanner_package(urn: URN, data: dict, **kwargs) -> str:
-    package_name = f"'{urn.fqn.name}'"
-    return tidy_sql(
-        "CALL SNOWFLAKE.TRUST_CENTER.SET_CONFIGURATION(",
-        "'ENABLED',",
-        "'FALSE',",
-        package_name,
-        ")",
-    )
+    return update_scanner_package(urn, {"ENABLED": "FALSE"}, Props())
 
 
 def drop_tag_masking_policy_reference(urn: URN, data: dict, **kwargs) -> str:

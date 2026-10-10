@@ -24,9 +24,20 @@ from .parse import (
 __this__ = sys.modules[__name__]
 
 
+def _single_quote(value) -> str:
+    # JSON and Snowflake share backslash escape syntax for control characters
+    escaped = json.dumps(str(value), ensure_ascii=False)[1:-1].replace("'", "''")
+    return f"'{escaped}'"
+
+
 def quote_value(value: str):
     if value is None or value == "":
         return "''"
+    text = str(value)
+    # Fail here rather than in the driver: lone surrogates cannot be encoded as UTF-8
+    text.encode("utf-8")
+    if "$$" in text or text.endswith("$"):
+        return _single_quote(text)
     return f"$${value}$$"
 
 
@@ -383,7 +394,7 @@ class DictProp(Prop):
     def render(self, value: dict) -> str:
         if value is None:
             return ""
-        kv_pairs = ", ".join([f"'{key}' = '{value}'" for key, value in value.items()])
+        kv_pairs = ", ".join([f"{quote_value(key)} = {quote_value(value)}" for key, value in value.items()])
         eq = " = " if self.eq else " "
         return f"{self.label}{eq}({kv_pairs})"
 
@@ -440,7 +451,7 @@ class EnumProp(Prop):
             value = value.value
         eq = " = " if self.eq else " "
         if self.quoted:
-            value = f"'{value}'"
+            value = _single_quote(value)
         return f"{self.label}{eq}{value}"
 
 
@@ -538,7 +549,7 @@ class TimeTravelProp(Prop):
 
         key, value = values.popitem()
         if key.upper() == "STREAM":
-            value = f"'{value}'"
+            value = quote_value(value)
         time_point = f"{key} => {value}"
         return f"{self.label} ({time_point})"
 

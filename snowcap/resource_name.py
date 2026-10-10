@@ -80,6 +80,10 @@ class ResourceName:
     def upper(self):
         return self
 
+    @property
+    def unquoted(self) -> str:
+        return self._name if self._quoted else self._name.upper()
+
     def startswith(self, prefix: str) -> bool:
         return self._name.startswith(prefix)
 
