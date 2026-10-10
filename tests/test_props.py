@@ -159,6 +159,14 @@ def test_quote_value_rejects_lone_surrogate():
         quote_value("bad \ud800$")
 
 
+def test_enum_prop_quoted_render_escapes_apostrophe():
+    class Kind(Enum):
+        APOSTROPHE = "it's"
+
+    prop = EnumProp("type", [Kind.APOSTROPHE], quoted=True)
+    assert prop.render(Kind.APOSTROPHE) == "type = 'it''s'"
+
+
 class TestBoolPropExtended:
     """Extended tests for BoolProp class."""
 

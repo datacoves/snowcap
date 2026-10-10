@@ -25,7 +25,9 @@ def _unescape_sql_string(quoted: str) -> str:
 
 StringLiteral = pp.QuotedString(
     "'", esc_char="\\", esc_quote="''", multiline=False, unquote_results=False
-).set_parse_action(lambda t: _unescape_sql_string(t[0])) | pp.QuotedString("$$", multiline=True, unquote_results=True)
+).set_parse_action(lambda t: _unescape_sql_string(t[0])) | pp.QuotedString(
+    "$$", multiline=True, unquote_results=True, convert_whitespace_escapes=False
+)
 Numeric = pp.Word(pp.nums + ".")
 
 ARROW = Literal("=>").suppress()

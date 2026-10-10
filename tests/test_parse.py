@@ -937,3 +937,8 @@ class TestConvertMatch:
 @pytest.mark.parametrize("value", ["$$ it's", '$$ say "hi"', "$$ a\nb\tc", "$$ C:\\tmp", "$$\0\x01", "it's $"])
 def test_string_literal_decodes_quote_value_fallback(value):
     assert StringLiteral.parse_string(quote_value(value), parse_all=True)[0] == value
+
+
+@pytest.mark.parametrize("value", [r"C:\Users\foo", r"a\nb\tc\rd\fe", "plain value"])
+def test_string_literal_keeps_backslashes_in_dollar_quotes(value):
+    assert StringLiteral.parse_string(quote_value(value), parse_all=True)[0] == value
