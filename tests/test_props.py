@@ -38,6 +38,7 @@ from snowcap.props import (
     ColumnNamesProp,
     SchemaProp,
     FromProp,
+    TagOnConflictProp,
 )
 
 
@@ -189,6 +190,12 @@ def test_column_names_prop_round_trips_apostrophe():
     rendered = ColumnNamesProp().render(columns)
     assert rendered == "(id COMMENT 'it''s the key')"
     assert ColumnNamesProp().parse(rendered) == columns
+
+
+def test_tag_on_conflict_prop_round_trips_apostrophe():
+    rendered = TagOnConflictProp().render("ops's rule")
+    assert rendered == "ON_CONFLICT = 'ops''s rule'"
+    assert TagOnConflictProp().parse(rendered) == "ops's rule"
 
 
 def test_schema_prop_escapes_default_and_comment():
