@@ -2849,6 +2849,54 @@ class TestSyncListingHonoursUseAccountUsage:
         assert not any("SHOW TABLES IN ACCOUNT" in statement for statement in sql)
 
 
+@pytest.mark.parametrize(
+    "resource_cls, urn, key, before, after, expected_rows",
+    [
+        (
+            res.NetworkPolicy,
+            "urn::ABCD123:network_policy/OFFICE",
+            "allowed_ip_list",
+            ["10.0.0.1/32", "10.0.0.2/32", "10.0.0.3/32", "10.0.0.4/32", "10.0.0.5/32"],
+            ["10.0.0.1/32", "10.0.0.2/32", "10.0.0.3/32", "10.0.0.4/32", "10.0.0.6/32"],
+            [
+                "│ allowed_ip_list │ 10.0.0.1/32 │ 10.0.0.1/32 │",
+                "│                 │ 10.0.0.2/32 │ 10.0.0.2/32 │",
+                "│                 │ 10.0.0.3/32 │ 10.0.0.3/32 │",
+                "│                 │ 10.0.0.4/32 │ 10.0.0.4/32 │",
+                "│                 │ 10.0.0.5/32 │ 10.0.0.6/32 │",
+            ],
+        ),
+        (
+            res.HybridTable,
+            "urn::ABCD123:hybrid_table/DB.SCH.LISTINGS",
+            "indexes",
+            [{"name": "IDX_CITY", "columns": ["CITY"]}],
+            [
+                {"name": "IDX_CITY", "columns": ["CITY"]},
+                {"name": "IDX_REGION", "columns": ["STATE", "COUNTY", "CITY", "POSTAL_CODE"]},
+            ],
+            [
+                "│ indexes  │ name: IDX_CITY, columns: ['CITY'] │ name: IDX_CITY, columns: ['CITY']                                     │",
+                "│          │                                   │ name: IDX_REGION, columns: ['STATE', 'COUNTY', 'CITY', 'POSTAL_CODE'] │",
+            ],
+        ),
+    ],
+)
+def test_plan_text_shows_each_item_of_a_changed_list(resource_cls, urn, key, before, after, expected_rows):
+    """A list longer than the table's value width is shown one item per row, so the plan says
+    which items changed instead of only how long the list is."""
+    change = UpdateResource(
+        urn=parse_URN(urn),
+        resource_cls=resource_cls,
+        before={key: before},
+        after={key: after},
+        delta={key: after},
+    )
+    plan_lines = [line.strip() for line in strip_ansi(dump_plan([change], format="text")).splitlines()]
+    start = plan_lines.index(expected_rows[0])
+    assert plan_lines[start : start + len(expected_rows)] == expected_rows
+
+
 class TestSummarizePlanValue:
     """The plan table must not dump a multiline SQL body (alert THEN, task body)."""
 
