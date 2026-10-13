@@ -446,6 +446,9 @@ class TestSplitStatements:
         result = _split_statements(sql)
         assert len(result) == 2
 
+    def test_split_with_backslash_escaped_quote(self):
+        assert _split_statements(r"SELECT 'a\';b'; SELECT 1;") == [r"SELECT 'a\';b'", "SELECT 1"]
+
     def test_split_with_dollar_quotes(self):
         """Test splitting handles dollar-quoted strings."""
         sql = "CREATE FUNCTION f() RETURNS VARCHAR AS $$ SELECT 'test;with;semi' $$; SELECT 1;"

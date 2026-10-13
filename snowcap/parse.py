@@ -80,7 +80,7 @@ snowflake_sql_comment = pp.Regex(r"--.*").set_name("Snowflake SQL comment")
 
 def _split_statements(sql_text):
     # Define SQL strings
-    single_quote = pp.QuotedString("'", multiline=True, unquote_results=False)
+    single_quote = pp.QuotedString("'", esc_char="\\", multiline=True, unquote_results=False)
     double_quote = pp.QuotedString('"', multiline=True, unquote_results=False)
     double_dollar = pp.QuotedString("$$", multiline=True, unquote_results=False, end_quote_char="$$")
     triple_dollar = pp.QuotedString("$$$", multiline=True, unquote_results=False, end_quote_char="$$$")
