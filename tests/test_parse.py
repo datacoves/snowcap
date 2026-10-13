@@ -939,6 +939,10 @@ def test_string_literal_decodes_quote_value_fallback(value):
     assert StringLiteral.parse_string(quote_value(value), parse_all=True)[0] == value
 
 
+def test_string_literal_decodes_hex_escape():
+    assert StringLiteral.parse_string(r"'\x41'", parse_all=True)[0] == "A"
+
+
 @pytest.mark.parametrize("value", [r"C:\Users\foo", r"a\nb\tc\rd\fe", "plain value"])
 def test_string_literal_keeps_backslashes_in_dollar_quotes(value):
     assert StringLiteral.parse_string(quote_value(value), parse_all=True)[0] == value

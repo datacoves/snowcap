@@ -16,6 +16,7 @@ from .parse import (
     Keyword,
     Keywords,
     Literals,
+    StringLiteral,
     _in_parens,
     _parse_props,
     _parser_has_results_name,
@@ -25,8 +26,11 @@ __this__ = sys.modules[__name__]
 
 
 def _single_quote(value) -> str:
+    text = str(value)
+    # Fail here rather than in the driver: lone surrogates cannot be encoded as UTF-8
+    text.encode("utf-8")
     # JSON and Snowflake share backslash escape syntax for control characters
-    escaped = json.dumps(str(value), ensure_ascii=False)[1:-1].replace("'", "''")
+    escaped = json.dumps(text, ensure_ascii=False)[1:-1].replace("'", "''")
     return f"'{escaped}'"
 
 
@@ -34,10 +38,9 @@ def quote_value(value: str):
     if value is None or value == "":
         return "''"
     text = str(value)
-    # Fail here rather than in the driver: lone surrogates cannot be encoded as UTF-8
-    text.encode("utf-8")
     if "$$" in text or text.endswith("$"):
         return _single_quote(text)
+    text.encode("utf-8")
     return f"$${value}$$"
 
 
@@ -371,7 +374,7 @@ class TagsProp(Prop):
     def render(self, value: dict) -> str:
         if value is None:
             return ""
-        tag_kv_pairs = ", ".join([f"{key} = '{value}'" for key, value in value.items()])
+        tag_kv_pairs = ", ".join([f"{key} = {_single_quote(value)}" for key, value in value.items()])
         return f"{self.label} ({tag_kv_pairs})"
 
 
@@ -617,8 +620,7 @@ class ColumnNamesProp(Prop):
         prop_values = prop_values.strip("()")
         column_name_parser = pp.delimited_list(
             pp.Group(
-                (Identifier() | pp.dbl_quoted_string)("name")
-                + pp.Opt(Keyword("COMMENT") + pp.sgl_quoted_string("comment"))
+                (Identifier() | pp.dbl_quoted_string)("name") + pp.Opt(Keyword("COMMENT") + StringLiteral("comment"))
             )
         )
         parsed = column_name_parser.parse_string(prop_values)
@@ -626,8 +628,6 @@ class ColumnNamesProp(Prop):
         for column_data in parsed:
             column = column_data.as_dict()
             column["name"] = column["name"].strip('"')
-            if "comment" in column:
-                column["comment"] = column["comment"].strip("'")
             columns.append(column)
         return columns
 
@@ -637,7 +637,9 @@ class ColumnNamesProp(Prop):
         columns = []
         for column in values:
             name = column["name"]
-            comment = f" COMMENT '{column['comment']}'" if "comment" in column and column["comment"] else ""
+            comment = (
+                f" COMMENT {_single_quote(column['comment'])}" if "comment" in column and column["comment"] else ""
+            )
             column_str = f"{name}{comment}"
             columns.append(column_str)
         return f"({', '.join(columns)})"
@@ -660,13 +662,15 @@ class SchemaProp(Prop):
             not_null = " NOT NULL" if column["not_null"] else ""
 
             if isinstance(column["default"], str):
-                default = f" DEFAULT '{column['default']}'"
+                default = f" DEFAULT {_single_quote(column['default'])}"
             elif column["default"] is not None:
                 default = f" DEFAULT {column['default']}"
             else:
                 default = ""
 
-            comment = f" COMMENT '{column['comment']}'" if "comment" in column and column["comment"] else ""
+            comment = (
+                f" COMMENT {_single_quote(column['comment'])}" if "comment" in column and column["comment"] else ""
+            )
             constraint = f" {column['constraint']}" if column.get("constraint") else ""
             column_str = f"{name} {data_type}{not_null}{default}{comment}{constraint}"
             columns.append(column_str)
@@ -679,7 +683,7 @@ class FromProp(Prop):
     """
 
     def __init__(self):
-        value_expr = pp.sgl_quoted_string | (pp.Literal("@") + FullyQualifiedIdentifier())
+        value_expr = StringLiteral | (pp.Literal("@") + FullyQualifiedIdentifier())
         super().__init__(label="FROM", value_expr=value_expr)
 
     def typecheck(self, prop_value):
@@ -690,7 +694,7 @@ class FromProp(Prop):
     def render(self, value):
         if value.startswith("@"):
             return f"FROM {value}"
-        return f"FROM '{value}'"
+        return f"FROM {_single_quote(value)}"
 
 
 class TagOnConflictProp(Prop):
