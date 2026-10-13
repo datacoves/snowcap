@@ -47,6 +47,7 @@ from snowcap.data_provider import (
     fetch_resource,
     fetch_database,
     fetch_shared_database,
+    fetch_share,
     fetch_security_integration,
     fetch_task,
     fetch_tag_masking_policy_reference,
@@ -3796,3 +3797,9 @@ class TestTagMaskingPolicyReferenceMissingDatabase:
         result = list_tag_masking_policy_references(MagicMock())
 
         assert result == []
+
+
+@patch("snowcap.data_provider.execute", return_value=[])
+def test_show_like_escapes_apostrophe(mock_execute):
+    fetch_share(MagicMock(), FQN(name=ResourceName('"ops\'s share"')))
+    assert mock_execute.call_args[0][1] == "SHOW SHARES LIKE '\\\"ops''s share\\\"'"

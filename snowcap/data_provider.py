@@ -46,6 +46,7 @@ from .parse import (
     parse_view_ddl,
 )
 from .privs import GrantedPrivilege
+from .props import _single_quote
 from .resource_name import (
     ResourceName,
     attribute_is_resource_name,
@@ -768,17 +769,21 @@ def _show_resources(session: SnowflakeConnection, type_str, fqn: FQN, cacheable:
         else:
             name = str(fqn.name).replace('"', "")
             if fqn.database is None and fqn.schema is None:
-                return execute(session, f"SHOW {type_str} LIKE '{name}'", cacheable=cacheable)
+                return execute(session, f"SHOW {type_str} LIKE {_single_quote(name)}", cacheable=cacheable)
             elif fqn.database is None:
-                return execute(session, f"SHOW {type_str} LIKE '{name}' IN SCHEMA {fqn.schema}", cacheable=cacheable)
+                return execute(
+                    session, f"SHOW {type_str} LIKE {_single_quote(name)} IN SCHEMA {fqn.schema}", cacheable=cacheable
+                )
             elif fqn.schema is None:
                 return execute(
-                    session, f"SHOW {type_str} LIKE '{name}' IN DATABASE {fqn.database}", cacheable=cacheable
+                    session,
+                    f"SHOW {type_str} LIKE {_single_quote(name)} IN DATABASE {fqn.database}",
+                    cacheable=cacheable,
                 )
             else:
                 return execute(
                     session,
-                    f"SHOW {type_str} LIKE '{name}' IN SCHEMA {fqn.database}.{fqn.schema}",
+                    f"SHOW {type_str} LIKE {_single_quote(name)} IN SCHEMA {fqn.database}.{fqn.schema}",
                     cacheable=cacheable,
                 )
     except ProgrammingError as err:
@@ -1448,7 +1453,7 @@ def _grants_to_roles_query(include_inherited: bool = True) -> str:
         )
     return f"""
         SELECT
-            {', '.join(columns)}
+            {", ".join(columns)}
         FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_ROLES
         WHERE DELETED_ON IS NULL
     """
@@ -2024,7 +2029,7 @@ def fetch_columns(session: SnowflakeConnection, resource_type: str, fqn: FQN):
 
 
 def fetch_compute_pool(session: SnowflakeConnection, fqn: FQN):
-    show_result = execute(session, f"SHOW COMPUTE POOLS LIKE '{fqn.name}'", cacheable=True)
+    show_result = execute(session, f"SHOW COMPUTE POOLS LIKE {_single_quote(fqn.name)}", cacheable=True)
 
     if len(show_result) == 0:
         return None
@@ -2810,7 +2815,7 @@ def fetch_notebook(session: SnowflakeConnection, fqn: FQN):
 
 
 def fetch_notification_integration(session: SnowflakeConnection, fqn: FQN):
-    show_result = execute(session, f"SHOW NOTIFICATION INTEGRATIONS LIKE '{fqn.name}'")
+    show_result = execute(session, f"SHOW NOTIFICATION INTEGRATIONS LIKE {_single_quote(fqn.name)}")
     if len(show_result) == 0:
         return None
     if len(show_result) > 1:
@@ -3080,7 +3085,7 @@ def fetch_role_grant(session: SnowflakeConnection, fqn: FQN, use_account_usage: 
 def fetch_scanner_package(session: SnowflakeConnection, fqn: FQN):
     scanner_packages = execute(
         session,
-        f"select * from snowflake.trust_center.scanner_packages where ID = '{fqn.name}' and STATE = 'TRUE'",
+        f"select * from snowflake.trust_center.scanner_packages where ID = {_single_quote(fqn.name)} and STATE = 'TRUE'",
         cacheable=True,
     )
     if len(scanner_packages) == 0:
@@ -3283,7 +3288,9 @@ def fetch_security_integration(session: SnowflakeConnection, fqn: FQN):
 
 
 def fetch_sequence(session: SnowflakeConnection, fqn: FQN):
-    show_result = execute(session, f"SHOW SEQUENCES LIKE '{fqn.name}' IN SCHEMA {fqn.database}.{fqn.schema}")
+    show_result = execute(
+        session, f"SHOW SEQUENCES LIKE {_single_quote(fqn.name)} IN SCHEMA {fqn.database}.{fqn.schema}"
+    )
     if len(show_result) == 0:
         return None
     if len(show_result) > 1:
@@ -3302,7 +3309,7 @@ def fetch_sequence(session: SnowflakeConnection, fqn: FQN):
 
 def fetch_service(session: SnowflakeConnection, fqn: FQN):
     show_result = execute(
-        session, f"SHOW SERVICES LIKE '{fqn.name}' IN SCHEMA {fqn.database}.{fqn.schema}", cacheable=True
+        session, f"SHOW SERVICES LIKE {_single_quote(fqn.name)} IN SCHEMA {fqn.database}.{fqn.schema}", cacheable=True
     )
 
     if len(show_result) == 0:
@@ -3326,7 +3333,7 @@ def fetch_service(session: SnowflakeConnection, fqn: FQN):
 
 
 def fetch_share(session: SnowflakeConnection, fqn: FQN):
-    show_result = execute(session, f"SHOW SHARES LIKE '{fqn.name}'")
+    show_result = execute(session, f"SHOW SHARES LIKE {_single_quote(fqn.name)}")
     shares = _filter_result(show_result, kind="OUTBOUND")
 
     if len(shares) == 0:
@@ -3635,7 +3642,7 @@ def fetch_task(session: SnowflakeConnection, fqn: FQN, include_params: bool = Tr
 
 
 def fetch_replication_group(session: SnowflakeConnection, fqn: FQN):
-    show_result = execute(session, f"SHOW REPLICATION GROUPS LIKE '{fqn.name}'", cacheable=True)
+    show_result = execute(session, f"SHOW REPLICATION GROUPS LIKE {_single_quote(fqn.name)}", cacheable=True)
 
     replication_groups = _filter_result(show_result, is_primary="true")
     if len(replication_groups) == 0:
@@ -3660,7 +3667,7 @@ def fetch_replication_group(session: SnowflakeConnection, fqn: FQN):
 
 
 def fetch_resource_monitor(session: SnowflakeConnection, fqn: FQN):
-    show_result = execute(session, f"SHOW RESOURCE MONITORS LIKE '{fqn.name}'")
+    show_result = execute(session, f"SHOW RESOURCE MONITORS LIKE {_single_quote(fqn.name)}")
     resource_monitors = _filter_result(show_result)
     if len(resource_monitors) == 0:
         return None
