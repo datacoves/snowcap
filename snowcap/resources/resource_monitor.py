@@ -7,6 +7,7 @@ from ..props import (
     Props,
     StringListProp,
     StringProp,
+    TriggersProp,
 )
 from ..resource_name import ResourceName
 from ..scope import AccountScope
@@ -22,6 +23,12 @@ class ResourceMonitorFrequency(ParseableEnum):
     NEVER = "NEVER"
 
 
+class ResourceMonitorAction(ParseableEnum):
+    NOTIFY = "NOTIFY"
+    SUSPEND = "SUSPEND"
+    SUSPEND_IMMEDIATE = "SUSPEND_IMMEDIATE"
+
+
 @dataclass(unsafe_hash=True)
 class _ResourceMonitor(ResourceSpec):
     name: ResourceName
@@ -31,6 +38,7 @@ class _ResourceMonitor(ResourceSpec):
     start_timestamp: str = None
     end_timestamp: str = None
     notify_users: list[str] = None
+    triggers: list[dict] = None
 
     def __post_init__(self):
         super().__post_init__()
@@ -38,8 +46,25 @@ class _ResourceMonitor(ResourceSpec):
             raise ValueError("credit_quota must be an integer or None")
         if self.start_timestamp and self.frequency is None:
             self.frequency = ResourceMonitorFrequency.MONTHLY
-        if self.owner.name != "ACCOUNTADMIN":
-            raise ValueError("ResourceMonitors can only be created by ACCOUNTADMIN")
+        # Snowflake reports both lists in its own order, and neither order carries meaning,
+        # so both sides of a diff are sorted the same way.
+        if self.notify_users:
+            self.notify_users = sorted(self.notify_users)
+        if self.triggers is not None:
+            if not self.triggers:
+                raise ValueError(
+                    "triggers cannot be empty: Snowflake has no statement that removes every trigger "
+                    "from a resource monitor. Omit triggers to leave them unmanaged."
+                )
+            if any(not isinstance(trigger["threshold"], int) for trigger in self.triggers):
+                raise ValueError("trigger thresholds must be whole percentages, for example 75")
+            self.triggers = sorted(
+                (
+                    {"threshold": trigger["threshold"], "action": ResourceMonitorAction(trigger["action"])}
+                    for trigger in self.triggers
+                ),
+                key=lambda trigger: (trigger["threshold"], trigger["action"].value),
+            )
 
 
 class ResourceMonitor(NamedResource, Resource):
@@ -57,6 +82,12 @@ class ResourceMonitor(NamedResource, Resource):
         start_timestamp (string): The start time for the monitoring period. Defaults to None.
         end_timestamp (string): The end time for the monitoring period. Defaults to None.
         notify_users (list): A list of users to notify when thresholds are reached. Defaults to None.
+        triggers (list): The actions to take at a percentage of the credit quota. Each trigger has a
+            `threshold` (an integer percentage, which can exceed 100) and an `action` (NOTIFY,
+            SUSPEND or SUSPEND_IMMEDIATE). Snowflake replaces every trigger whenever one changes.
+            Defaults to None, which leaves the triggers unmanaged.
+        owner (string or Role): The role that owns the monitor. Snowcap creates the monitor as
+            ACCOUNTADMIN and transfers it to this role. Defaults to "ACCOUNTADMIN".
 
     Python:
 
@@ -67,7 +98,12 @@ class ResourceMonitor(NamedResource, Resource):
             frequency="DAILY",
             start_timestamp="2049-01-01 00:00",
             end_timestamp="2049-12-31 23:59",
-            notify_users=["user1", "user2"]
+            notify_users=["user1", "user2"],
+            triggers=[
+                {"threshold": 75, "action": "NOTIFY"},
+                {"threshold": 100, "action": "SUSPEND"},
+                {"threshold": 110, "action": "SUSPEND_IMMEDIATE"},
+            ],
         )
         ```
 
@@ -83,6 +119,13 @@ class ResourceMonitor(NamedResource, Resource):
             notify_users:
               - user1
               - user2
+            triggers:
+              - threshold: 75
+                action: NOTIFY
+              - threshold: 100
+                action: SUSPEND
+              - threshold: 110
+                action: SUSPEND_IMMEDIATE
         ```
     """
 
@@ -94,6 +137,7 @@ class ResourceMonitor(NamedResource, Resource):
         start_timestamp=StringProp("start_timestamp", alt_tokens=["IMMEDIATELY"]),
         end_timestamp=StringProp("end_timestamp"),
         notify_users=StringListProp("notify_users", parens=True),
+        triggers=TriggersProp("triggers", ResourceMonitorAction),
     )
     scope = AccountScope()
     spec = _ResourceMonitor
@@ -106,6 +150,7 @@ class ResourceMonitor(NamedResource, Resource):
         start_timestamp: str = None,
         end_timestamp: str = None,
         notify_users: list[str] = None,
+        triggers: list[dict] = None,
         owner: str = "ACCOUNTADMIN",
         **kwargs,
     ):
@@ -117,6 +162,7 @@ class ResourceMonitor(NamedResource, Resource):
             start_timestamp=start_timestamp,
             end_timestamp=end_timestamp,
             notify_users=notify_users,
+            triggers=triggers,
             owner=owner,
         )
         # TODO: rely on notify_users

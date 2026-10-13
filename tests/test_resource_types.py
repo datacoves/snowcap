@@ -1067,6 +1067,21 @@ class TestResourceMonitor:
         )
         assert rm._data.credit_quota == 1000
 
+    @pytest.mark.parametrize(
+        "triggers",
+        [
+            # Snowflake has no statement that removes every trigger from a monitor, so an
+            # empty list could never be applied to one that has triggers.
+            [],
+            # Snowflake reads a threshold as a whole percentage.
+            [{"threshold": 75.5, "action": "NOTIFY"}],
+            [{"threshold": "75", "action": "NOTIFY"}],
+        ],
+    )
+    def test_resource_monitor_rejects_triggers_snowflake_cannot_hold(self, triggers):
+        with pytest.raises(ValueError, match="trigger"):
+            res.ResourceMonitor(name="test_rm", triggers=triggers)
+
 
 class TestTag:
     """Tests for Tag resource."""
