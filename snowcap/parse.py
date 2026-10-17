@@ -17,8 +17,8 @@ _SQL_ESCAPES = {"b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t", "0": "\0"
 def _unescape_sql_string(quoted: str) -> str:
     # pyparsing 3.0's own escape handling turns an escaped backslash before t/n into a tab/newline
     return re.sub(
-        r"\\(u[0-9a-fA-F]{4}|.)",
-        lambda m: chr(int(m[1][1:], 16)) if len(m[1]) == 5 else _SQL_ESCAPES.get(m[1], m[1]),
+        r"\\(u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|.)",
+        lambda m: chr(int(m[1][1:], 16)) if len(m[1]) > 1 else _SQL_ESCAPES.get(m[1], m[1]),
         quoted[1:-1].replace("''", "'"),
     )
 
@@ -80,7 +80,7 @@ snowflake_sql_comment = pp.Regex(r"--.*").set_name("Snowflake SQL comment")
 
 def _split_statements(sql_text):
     # Define SQL strings
-    single_quote = pp.QuotedString("'", multiline=True, unquote_results=False)
+    single_quote = pp.QuotedString("'", esc_char="\\", multiline=True, unquote_results=False)
     double_quote = pp.QuotedString('"', multiline=True, unquote_results=False)
     double_dollar = pp.QuotedString("$$", multiline=True, unquote_results=False, end_quote_char="$$")
     triple_dollar = pp.QuotedString("$$$", multiline=True, unquote_results=False, end_quote_char="$$$")

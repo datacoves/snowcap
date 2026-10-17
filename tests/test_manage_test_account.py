@@ -95,6 +95,13 @@ def test_create_account_sql_escapes_single_quotes_in_email():
     assert "EMAIL = 'o''brien@example.com'" in sql
 
 
+def test_create_account_sql_escapes_trailing_backslash():
+    sql = manage_test_account.create_account_sql(
+        "TEST_ACCT", "TEST_ADMIN", "KEY\\", "a@example.com", "STANDARD", "US_WEST_2"
+    )
+    assert r"ADMIN_RSA_PUBLIC_KEY = 'KEY\\'" in sql
+
+
 @pytest.mark.parametrize("name", ["BAD-NAME", "1BAD", "BAD NAME", "BAD'NAME"])
 def test_create_account_sql_rejects_invalid_account_name(name):
     with pytest.raises(click.ClickException):
