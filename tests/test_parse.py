@@ -942,8 +942,21 @@ def test_string_literal_decodes_quote_value_fallback(value):
     assert StringLiteral.parse_string(quote_value(value), parse_all=True)[0] == value
 
 
-def test_string_literal_decodes_hex_escape():
-    assert StringLiteral.parse_string(r"'\x41'", parse_all=True)[0] == "A"
+@pytest.mark.parametrize(
+    "literal, value",
+    [
+        (r"'\x41'", "A"),
+        (r"'\xc3\xa9'", "é"),
+        (r"'\303\251'", "é"),
+        (r"'\101'", "A"),
+        (r"'\012'", "\n"),
+        (r"'a\0b'", "a\0b"),
+        (r"'\08'", "\0" + "8"),
+        (r"'\\x41'", "\\x41"),
+    ],
+)
+def test_string_literal_decodes_byte_escapes(literal, value):
+    assert StringLiteral.parse_string(literal, parse_all=True)[0] == value
 
 
 @pytest.mark.parametrize("value", [r"C:\Users\foo", r"a\nb\tc\rd\fe", "plain value"])

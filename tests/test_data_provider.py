@@ -3802,4 +3802,18 @@ class TestTagMaskingPolicyReferenceMissingDatabase:
 @patch("snowcap.data_provider.execute", return_value=[])
 def test_show_like_escapes_apostrophe(mock_execute):
     fetch_share(MagicMock(), FQN(name=ResourceName('"ops\'s share"')))
-    assert mock_execute.call_args[0][1] == "SHOW SHARES LIKE '\\\"ops''s share\\\"'"
+    assert mock_execute.call_args[0][1] == "SHOW SHARES LIKE 'ops''s share'"
+
+
+@patch("snowcap.data_provider.execute", return_value=[])
+def test_policy_references_escape_apostrophe(mock_execute):
+    fqn = FQN(
+        database=ResourceName("GOVERNANCE"),
+        schema=ResourceName("TAGS"),
+        name=ResourceName('"ops\'s tag"'),
+        params={"masking_policy": "governance.policies.ops's_mask"},
+    )
+    fetch_tag_masking_policy_reference(MagicMock(), fqn)
+    sql = mock_execute.call_args[0][1]
+    assert "REF_ENTITY_NAME => 'GOVERNANCE.TAGS.\\\"ops''s tag\\\"'" in sql
+    assert "= 'GOVERNANCE.POLICIES.OPS''S_MASK'" in sql

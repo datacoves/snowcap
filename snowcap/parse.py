@@ -14,11 +14,19 @@ Literal = pp.CaselessLiteral
 _SQL_ESCAPES = {"b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t", "0": "\0"}
 
 
+def _decode_escape(m: re.Match) -> str:
+    if m[1] is None:
+        # \xhh and \ooo are bytes, so a run of them decodes as one UTF-8 sequence
+        data = bytes(int(e[1:], 16) if e[0] == "x" else int(e, 8) for e in m[0].split("\\")[1:])
+        return data.decode("utf-8", errors="replace")
+    return chr(int(m[1][1:], 16)) if len(m[1]) > 1 else _SQL_ESCAPES.get(m[1], m[1])
+
+
 def _unescape_sql_string(quoted: str) -> str:
     # pyparsing 3.0's own escape handling turns an escaped backslash before t/n into a tab/newline
     return re.sub(
-        r"\\(u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|.)",
-        lambda m: chr(int(m[1][1:], 16)) if len(m[1]) > 1 else _SQL_ESCAPES.get(m[1], m[1]),
+        r"(?:\\(?:x[0-9a-fA-F]{2}|[0-3][0-7]{2}))+|\\(u[0-9a-fA-F]{4}|.)",
+        _decode_escape,
         quoted[1:-1].replace("''", "'"),
     )
 
