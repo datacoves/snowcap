@@ -11,6 +11,7 @@ from pyparsing import ParseException
 from snowcap.enums import DataType
 from snowcap.resources import Database
 from snowcap.props import (
+    _single_quote,
     quote_value,
     Props,
     AlertConditionProp,
@@ -37,6 +38,7 @@ from snowcap.props import (
     ColumnNamesProp,
     SchemaProp,
     FromProp,
+    TagOnConflictProp,
 )
 
 
@@ -165,6 +167,40 @@ def test_enum_prop_quoted_render_escapes_apostrophe():
 
     prop = EnumProp("type", [Kind.APOSTROPHE], quoted=True)
     assert prop.render(Kind.APOSTROPHE) == "type = 'it''s'"
+
+
+def test_single_quote_rejects_lone_surrogate():
+    with pytest.raises(UnicodeEncodeError):
+        _single_quote("bad \ud800")
+
+
+def test_tags_prop_round_trips_apostrophe():
+    rendered = TagsProp().render({"cost_center": "ops's budget"})
+    assert rendered == "TAG (cost_center = 'ops''s budget')"
+    assert TagsProp().parse(rendered) == {"cost_center": "ops's budget"}
+
+
+def test_from_prop_escapes_apostrophe():
+    assert FromProp().render("https://example.com/it's.git") == "FROM 'https://example.com/it''s.git'"
+    assert FromProp().parse("FROM = 'https://example.com/it''s.git'") == "https://example.com/it's.git"
+
+
+def test_column_names_prop_round_trips_apostrophe():
+    columns = [{"name": "id", "comment": "it's the key"}]
+    rendered = ColumnNamesProp().render(columns)
+    assert rendered == "(id COMMENT 'it''s the key')"
+    assert ColumnNamesProp().parse(rendered) == columns
+
+
+def test_tag_on_conflict_prop_round_trips_apostrophe():
+    rendered = TagOnConflictProp().render("ops's rule")
+    assert rendered == "ON_CONFLICT = 'ops''s rule'"
+    assert TagOnConflictProp().parse(rendered) == "ops's rule"
+
+
+def test_schema_prop_escapes_default_and_comment():
+    columns = [{"name": "id", "data_type": "VARCHAR", "not_null": False, "default": "it's", "comment": "o'clock"}]
+    assert SchemaProp().render(columns) == "(id VARCHAR DEFAULT 'it''s' COMMENT 'o''clock')"
 
 
 class TestBoolPropExtended:
@@ -796,8 +832,7 @@ class TestFromPropExtended:
     def test_parse_url(self):
         prop = FromProp()
         result = prop.parse("FROM = 'https://github.com/user/repo.git'")
-        # Parser keeps quotes on single-quoted strings
-        assert result == "'https://github.com/user/repo.git'"
+        assert result == "https://github.com/user/repo.git"
 
     def test_typecheck_list_joins(self):
         prop = FromProp()

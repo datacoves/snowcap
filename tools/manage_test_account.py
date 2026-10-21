@@ -24,6 +24,7 @@ from dotenv import dotenv_values
 from snowcap.blueprint import Blueprint, print_plan
 from snowcap.blueprint_config import print_blueprint_config
 from snowcap.data_provider import fetch_region, fetch_session
+from snowcap.props import _single_quote
 from snowcap.enums import AccountCloud, AccountEdition, ResourceType
 from snowcap.gitops import (
     collect_blueprint_config,
@@ -211,10 +212,6 @@ def _utc_timestamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
-def _quote(value: str) -> str:
-    return "'" + value.replace("'", "''") + "'"
-
-
 def _validate_identifier(value: str) -> str:
     if not IDENTIFIER_PATTERN.match(value):
         raise click.ClickException(f"Invalid identifier {value!r}: must match {IDENTIFIER_PATTERN.pattern}")
@@ -249,10 +246,10 @@ def create_account_sql(
 
     lines = [
         f"CREATE ACCOUNT {name}",
-        f"ADMIN_NAME = {_quote(admin_name)}",
-        f"ADMIN_RSA_PUBLIC_KEY = {_quote(admin_rsa_public_key)}",
+        f"ADMIN_NAME = {_single_quote(admin_name)}",
+        f"ADMIN_RSA_PUBLIC_KEY = {_single_quote(admin_rsa_public_key)}",
         "ADMIN_USER_TYPE = SERVICE",
-        f"EMAIL = {_quote(email)}",
+        f"EMAIL = {_single_quote(email)}",
         f"EDITION = {edition}",
     ]
     if region_group:
