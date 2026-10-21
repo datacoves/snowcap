@@ -2,6 +2,7 @@ import datetime
 import inspect
 import json
 import logging
+import re
 import sys
 import threading
 from typing import Any, Optional, TypedDict, Union
@@ -40,6 +41,7 @@ from .identifiers import FQN, URN, parse_FQN, resource_label_for_type, resource_
 from .parse import (
     _parse_column,
     _parse_dynamic_table_text,
+    _unescape_sql_string,
     format_collection_string,
     parse_collection_string,
     parse_region,
@@ -714,7 +716,7 @@ def _fetch_columns_for_table(session: SnowflakeConnection, fqn: FQN):
         elif col["DATA_TYPE"] == "TEXT":
             data_type = f"VARCHAR({col['CHARACTER_MAXIMUM_LENGTH']})"
             if col["COLUMN_DEFAULT"]:
-                default = col["COLUMN_DEFAULT"].strip("'")
+                default = _unescape_sql_string(default) if re.fullmatch(r"'.*'", default, re.S) else default
         else:
             data_type = col["DATA_TYPE"]
 
@@ -742,7 +744,7 @@ def _fetch_owner(session: SnowflakeConnection, type_str: str, fqn: FQN) -> Optio
 
 def _quote_bare_name(name) -> str:
     # LIKE and ID lookups match the bare name, so drop the identifier's double quotes before escaping
-    return _single_quote(str(name).replace('"', ""))
+    return _single_quote(ResourceName(name).unquoted.replace('""', '"'))
 
 
 def _show_resources(session: SnowflakeConnection, type_str, fqn: FQN, cacheable: bool = True) -> list[dict]:

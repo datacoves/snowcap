@@ -449,6 +449,10 @@ class TestSplitStatements:
     def test_split_with_backslash_escaped_quote(self):
         assert _split_statements(r"SELECT 'a\';b'; SELECT 1;") == [r"SELECT 'a\';b'", "SELECT 1"]
 
+    def test_split_with_glued_and_doubled_quotes(self):
+        sql = "ALTER TABLE t SET TAG x='a;b'; SELECT f('a;b'); SELECT 'it''s';"
+        assert _split_statements(sql) == ["ALTER TABLE t SET TAG x='a;b'", "SELECT f('a;b')", "SELECT 'it''s'"]
+
     def test_split_with_dollar_quotes(self):
         """Test splitting handles dollar-quoted strings."""
         sql = "CREATE FUNCTION f() RETURNS VARCHAR AS $$ SELECT 'test;with;semi' $$; SELECT 1;"
@@ -957,6 +961,11 @@ def test_string_literal_decodes_quote_value_fallback(value):
 )
 def test_string_literal_decodes_byte_escapes(literal, value):
     assert StringLiteral.parse_string(literal, parse_all=True)[0] == value
+
+
+def test_string_literal_rejects_invalid_utf8_escape():
+    with pytest.raises(ValueError, match="not valid UTF-8"):
+        StringLiteral.parse_string(r"'\xe9'", parse_all=True)
 
 
 @pytest.mark.parametrize("value", [r"C:\Users\foo", r"a\nb\tc\rd\fe", "plain value"])

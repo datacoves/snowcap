@@ -3806,6 +3806,30 @@ def test_show_like_escapes_apostrophe(mock_execute):
 
 
 @patch("snowcap.data_provider.execute", return_value=[])
+def test_show_like_keeps_escaped_double_quote(mock_execute):
+    fetch_share(MagicMock(), FQN(name=ResourceName('"say ""hi"""')))
+    assert mock_execute.call_args[0][1] == r"""SHOW SHARES LIKE 'say \"hi\"'"""
+
+
+@patch("snowcap.data_provider.execute")
+def test_table_column_default_unescapes_literal(mock_execute):
+    from snowcap.data_provider import _fetch_columns_for_table
+
+    row = {
+        "TABLE_SCHEMA": "PUBLIC",
+        "TABLE_NAME": "T",
+        "COLUMN_NAME": "C",
+        "DATA_TYPE": "TEXT",
+        "CHARACTER_MAXIMUM_LENGTH": 10,
+        "IS_NULLABLE": "YES",
+        "COMMENT": None,
+    }
+    mock_execute.return_value = [{**row, "COLUMN_DEFAULT": "'it''s'"}, {**row, "COLUMN_DEFAULT": "CURRENT_USER()"}]
+    fqn = FQN(database=ResourceName("DB"), schema=ResourceName("PUBLIC"), name=ResourceName("T"))
+    assert [c["default"] for c in _fetch_columns_for_table(MagicMock(), fqn)] == ["it's", "CURRENT_USER()"]
+
+
+@patch("snowcap.data_provider.execute", return_value=[])
 def test_policy_references_escape_apostrophe(mock_execute):
     fqn = FQN(
         database=ResourceName("GOVERNANCE"),
