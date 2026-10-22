@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from itertools import zip_longest
 from typing import (
     Any,
     Generator,
@@ -887,6 +888,29 @@ def _summarize_plan_value(value, max_len: int = 60) -> str:
     return f"<{lines} {unit}, {len(text)} chars>"
 
 
+def _plan_value_rows(key: str, before, after) -> list[list[str]]:
+    """Rows of the plan table for one changed property.
+
+    A list is shown one item per row, before and after side by side, so the plan names the
+    items that changed. As one value, a list of IP addresses or triggers soon outgrows the
+    table width and collapses to its length. A dict item is shown as `key: value` pairs, and
+    an item is shown in full however long it is: only a multiline item collapses, because the
+    table cannot lay out a newline.
+    """
+    if isinstance(before, list) or isinstance(after, list):
+        pairs = list(zip_longest(map(_plan_item, before or []), map(_plan_item, after or []), fillvalue=""))
+        if pairs:
+            return [[key if index == 0 else "", old, new] for index, (old, new) in enumerate(pairs)]
+    return [[key, _summarize_plan_value(before), _summarize_plan_value(after)]]
+
+
+def _plan_item(item) -> str:
+    if isinstance(item, dict):
+        item = ", ".join(f"{field}: {value}" for field, value in item.items())
+    text = str(item)
+    return _summarize_plan_value(text) if "\n" in text else text
+
+
 def _render_table(rows: list[list[str]], headers: list[str]) -> str:
     """
     Render a table with box-drawing characters.
@@ -1191,14 +1215,7 @@ def _dump_plan_text(plan: Plan) -> str:
                 for key, new_value in change.delta.items():
                     if key.startswith("_"):
                         continue
-                    before = change.before.get(key, "")
-                    rows.append(
-                        [
-                            key,
-                            _summarize_plan_value(before),
-                            _summarize_plan_value(new_value),
-                        ]
-                    )
+                    rows.extend(_plan_value_rows(key, change.before.get(key, ""), new_value))
 
                 if rows:
                     table = _render_table(rows, ["Property", "Before", "After"])
