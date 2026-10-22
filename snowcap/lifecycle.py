@@ -30,6 +30,14 @@ def _key_pair_user(urn: URN) -> ResourceName:
     return ResourceName(user)
 
 
+def _as_function(urn: URN) -> URN:
+    """
+    An external function's urn retyped as FUNCTION. Snowflake accepts EXTERNAL FUNCTION only
+    in CREATE. ALTER, DROP, and GRANT name the function as FUNCTION <name>(<arg types>).
+    """
+    return URN(ResourceType.FUNCTION, urn.fqn, urn.account_locator)
+
+
 ################ Create functions
 
 
@@ -100,6 +108,19 @@ def create_database_role_grant(urn: URN, data: dict, props: Props, if_not_exists
         "TO",
         to_type,
         to,
+    )
+
+
+def create_external_function(urn: URN, data: dict, props: Props, if_not_exists: bool = False) -> str:
+    data = data.copy()
+    secure = data.pop("secure", None)
+    return tidy_sql(
+        "CREATE",
+        "SECURE" if secure else "",
+        urn.resource_type,
+        "IF NOT EXISTS" if if_not_exists else "",
+        fqn_to_sql(urn.fqn),
+        props.render(data),
     )
 
 
@@ -506,6 +527,10 @@ def update_event_table(urn: URN, data: dict, props: Props) -> Union[str, list[st
     return update__default(new_urn, data, props)
 
 
+def update_external_function(urn: URN, data: dict, props: Props) -> Union[str, list[str]]:
+    return update__default(_as_function(urn), data, props)
+
+
 def update_procedure(urn: URN, data: dict, props: Props) -> Union[str, list[str]]:
     return _update_with_separate_clauses(
         urn,
@@ -752,6 +777,10 @@ def drop_function(urn: URN, data: dict, if_exists: bool) -> str:
     )
 
 
+def drop_external_function(urn: URN, data: dict, if_exists: bool) -> str:
+    return drop_function(_as_function(urn), data, if_exists)
+
+
 def drop_grant(urn: URN, data: dict, **kwargs):
     if data["priv"] == "OWNERSHIP":
         raise NotImplementedError
@@ -871,11 +900,11 @@ def transfer_resource(
 
 
 # GRANT OWNERSHIP names these resource types by a broader object type. Snowflake
-# rejects EXTERNAL FUNCTION and the integration subtype names, and its usage notes
-# say to use VIEW for materialized views and TABLE for hybrid tables.
+# rejects the integration subtype names, and its usage notes say to use VIEW for
+# materialized views and TABLE for hybrid tables. External functions are retyped by
+# transfer_external_function, because every statement except CREATE names them FUNCTION.
 # https://docs.snowflake.com/en/sql-reference/sql/grant-ownership
 _OWNERSHIP_OBJECT_TYPES = {
-    ResourceType.EXTERNAL_FUNCTION: "FUNCTION",
     ResourceType.HYBRID_TABLE: "TABLE",
     ResourceType.MATERIALIZED_VIEW: "VIEW",
 }
@@ -904,3 +933,13 @@ def transfer__default(
         "REVOKE CURRENT GRANTS" if revoke_current_grants else "",
         "COPY CURRENT GRANTS" if copy_current_grants else "",
     )
+
+
+def transfer_external_function(
+    urn: URN,
+    owner: str,
+    owner_resource_type: ResourceType,
+    copy_current_grants: bool = False,
+    revoke_current_grants: bool = False,
+) -> str:
+    return transfer__default(_as_function(urn), owner, owner_resource_type, copy_current_grants, revoke_current_grants)

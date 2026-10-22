@@ -2277,6 +2277,55 @@ def fetch_external_access_integration(session: SnowflakeConnection, fqn: FQN):
     }
 
 
+def fetch_external_function(session: SnowflakeConnection, fqn: FQN):
+    try:
+        # Snowflake resolves the overload from the argument types in the FQN.
+        desc_result = execute(session, f"DESC FUNCTION {fqn}", cacheable=True)
+    except ProgrammingError as err:
+        if err.errno == DOES_NOT_EXIST_ERR:
+            return None
+        raise
+    properties = _desc_result_to_dict(desc_result)
+    if properties["language"] != "EXTERNAL":
+        # UDFs and external functions share one namespace, so a UDF can hold this signature.
+        return None
+
+    # DESC FUNCTION omits the API integration and the owner. The row with the signature
+    # DESC resolved carries both.
+    functions = execute(session, f"SELECT * FROM {fqn.database}.INFORMATION_SCHEMA.FUNCTIONS", cacheable=True)
+    data = next(
+        row
+        for row in functions
+        if resource_name_from_snowflake_metadata(row["FUNCTION_SCHEMA"]) == fqn.schema
+        and resource_name_from_snowflake_metadata(row["FUNCTION_NAME"]) == fqn.name
+        and row["ARGUMENT_SIGNATURE"] == properties["signature"]
+    )
+
+    def _set_or_none(value: str) -> Optional[str]:
+        return None if value == "not set" else value
+
+    max_batch_rows = _set_or_none(properties["max_batch_rows"])
+    returns, not_null_suffix, _ = properties["returns"].partition(" NOT NULL")
+    return {
+        "name": _quote_snowflake_identifier(data["FUNCTION_NAME"]),
+        "secure": data["IS_SECURE"] == "YES",
+        "args": _parse_signature(properties["signature"]),
+        "returns": returns,
+        "not_null": bool(not_null_suffix),
+        "null_handling": properties["null handling"],
+        "volatility": properties["volatility"],
+        "comment": data["COMMENT"],
+        "api_integration": data["API_INTEGRATION"],
+        "headers": json.loads(properties["headers"]),
+        "max_batch_rows": int(max_batch_rows) if max_batch_rows else None,
+        "compression": properties["compression"],
+        "request_translator": _set_or_none(properties["request_translator"]),
+        "response_translator": _set_or_none(properties["response_translator"]),
+        "as_": properties["body"],
+        "owner": _quote_snowflake_identifier(data["FUNCTION_OWNER"]),
+    }
+
+
 def fetch_external_volume(session: SnowflakeConnection, fqn: FQN):
     show_result = _show_resources(session, "EXTERNAL VOLUMES", fqn)
     if len(show_result) == 0:
@@ -4387,6 +4436,19 @@ def list_integrations(session: SnowflakeConnection) -> list[FQN]:
 
 def list_external_access_integrations(session: SnowflakeConnection) -> list[FQN]:
     return list_account_scoped_resource(session, "EXTERNAL ACCESS INTEGRATIONS")
+
+
+def list_external_functions(session: SnowflakeConnection) -> list[FQN]:
+    show_result = execute(session, "SHOW EXTERNAL FUNCTIONS IN ACCOUNT", cacheable=True)
+    functions = []
+    for row in show_result:
+        if row["catalog_name"] in SYSTEM_DATABASES:
+            continue
+        fqn, _ = _parse_function_arguments(row["arguments"])
+        fqn.database = resource_name_from_snowflake_metadata(row["catalog_name"])
+        fqn.schema = resource_name_from_snowflake_metadata(row["schema_name"])
+        functions.append(fqn)
+    return functions
 
 
 def list_external_volumes(session: SnowflakeConnection) -> list[FQN]:
