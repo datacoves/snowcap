@@ -3811,6 +3811,19 @@ def test_show_like_keeps_escaped_double_quote(mock_execute):
     assert mock_execute.call_args[0][1] == r"""SHOW SHARES LIKE 'say \"hi\"'"""
 
 
+@patch("snowcap.data_provider.execute", return_value=[{"name": "MYXSHARE", "kind": "OUTBOUND"}])
+def test_show_like_ignores_wildcard_matches(mock_execute):
+    assert fetch_share(MagicMock(), FQN(name=ResourceName("MY_SHARE"))) is None
+
+
+@patch("snowcap.data_provider.execute")
+def test_show_resources_large_account_ignores_wildcard_matches(mock_execute):
+    from snowcap.data_provider import _show_resources
+
+    mock_execute.side_effect = [[{"name": f"R{i}"} for i in range(1000)], [{"name": "MYXROLE"}, {"name": "MY_ROLE"}]]
+    assert _show_resources(MagicMock(), "ROLES", FQN(name=ResourceName("MY_ROLE"))) == [{"name": "MY_ROLE"}]
+
+
 @patch("snowcap.data_provider.execute")
 def test_table_column_default_unescapes_literal(mock_execute):
     from snowcap.data_provider import _fetch_columns_for_table
