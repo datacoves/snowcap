@@ -7,6 +7,7 @@ from tests.helpers import (
     TEST_PUBLIC_KEY,
     TEST_PUBLIC_KEY_2,
     TEST_PUBLIC_KEY_FINGERPRINT,
+    TEST_SAML2_X509_CERT,
     assert_resource_dicts_eq_ignore_nulls,
     assert_resource_dicts_eq_ignore_nulls_and_unfetchable,
     clean_resource_data,
@@ -439,6 +440,32 @@ def test_fetch_snowflake_custom_oauth_security_integration(cursor, suffix, marke
     assert result is not None
     result = clean_resource_data(res.SnowflakeCustomOAuthSecurityIntegration.spec, result)
     data = clean_resource_data(res.SnowflakeCustomOAuthSecurityIntegration.spec, security_integration.to_dict())
+    assert result == data
+
+
+def test_fetch_saml2_security_integration(cursor, suffix, marked_for_cleanup):
+    security_integration = res.SAML2SecurityIntegration(
+        name=f"SAML2_SECURITY_INTEGRATION_{suffix}",
+        enabled=False,
+        saml2_provider="CUSTOM",
+        saml2_issuer="http://www.example.com/saml2-issuer",
+        saml2_sso_url="https://example.com/app/snowflake/sso/saml",
+        # Snowflake only checks that the cert parses, so a throwaway self-signed one is enough.
+        saml2_x509_cert=TEST_SAML2_X509_CERT,
+        saml2_enable_sp_initiated=True,
+        saml2_sp_initiated_login_page_label="Test SSO",
+        comment="Test SAML2 security integration",
+    )
+    create(cursor, security_integration)
+    marked_for_cleanup.append(security_integration)
+
+    result = safe_fetch(cursor, security_integration.urn)
+    assert result is not None
+    result = clean_resource_data(res.SAML2SecurityIntegration.spec, result)
+    data = clean_resource_data(res.SAML2SecurityIntegration.spec, security_integration.to_dict())
+    # Snowflake fills these in from the account URL when they aren't declared.
+    for field in ("saml2_snowflake_acs_url", "saml2_snowflake_issuer_url", "saml2_requested_nameid_format"):
+        result.pop(field, None)
     assert result == data
 
 

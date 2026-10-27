@@ -1,0 +1,21 @@
+{
+    "name": "TEST_SAML2_INTEGRATION",
+    "type": "SAML2",
+    "enabled": true,
+    "saml2_issuer": "http://www.okta.com/exk1abcdefghijkl",
+    "saml2_sso_url": "https://example.okta.com/app/snowflake/exk1abcdefghijkl/sso/saml",
+    "saml2_provider": "OKTA",
+    "saml2_x509_cert": "MIIDpDCCAoygAwIBAgIGAV2ka+55MA0GCSqGSIb3DQEBCwUAMIGSMQswCQYDVQQGEwJVUzETMBEG",
+    "saml2_enable_sp_initiated": true,
+    "saml2_sp_initiated_login_page_label": "Datacoves SSO",
+    "saml2_snowflake_acs_url": null,
+    "saml2_snowflake_issuer_url": null,
+    "saml2_force_authn": false,
+    "saml2_requested_nameid_format": null,
+    "saml2_post_logout_redirect_url": null,
+    "saml2_sign_request": false,
+    "allowed_user_domains": null,
+    "allowed_email_patterns": null,
+    "owner": "ACCOUNTADMIN",
+    "comment": "Test SAML2 security integration"
+}

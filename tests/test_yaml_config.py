@@ -726,3 +726,36 @@ class TestSecurityIntegrationConfig:
         assert data["oauth_any_role_mode"] == "ENABLE_FOR_PRIVILEGE"
         assert data["oauth_enforce_pkce"] is True
         assert data["blocked_roles_list"] == ["SYSADMIN"]
+
+    def test_saml2_from_yaml(self):
+        """A security_integrations: block with type: SAML2 resolves to the SAML2 resource,
+        and ALLOW_ID_TOKEN rides along as a plain account parameter."""
+        from snowcap import resources as res
+
+        config = {
+            "security_integrations": [
+                {
+                    "name": "sso_saml",
+                    "type": "SAML2",
+                    "enabled": True,
+                    "saml2_provider": "OKTA",
+                    "saml2_issuer": "http://www.okta.com/exk1abc",
+                    "saml2_sso_url": "https://example.okta.com/app/snowflake/exk1abc/sso/saml",
+                    "saml2_x509_cert": "MIIDpDCCAoyg",
+                    "saml2_enable_sp_initiated": True,
+                    "saml2_sp_initiated_login_page_label": "Datacoves SSO",
+                }
+            ],
+            "account_parameters": [{"name": "ALLOW_ID_TOKEN", "value": True}],
+        }
+        blueprint_config = collect_blueprint_config(config)
+
+        assert len(blueprint_config.resources) == 2
+        by_type = {type(r): r for r in blueprint_config.resources}
+
+        data = by_type[res.SAML2SecurityIntegration].to_dict()
+        assert data["type"] == "SAML2"
+        assert data["saml2_provider"] == "OKTA"
+        assert data["saml2_enable_sp_initiated"] is True
+
+        assert by_type[res.AccountParameter].to_dict() == {"name": "ALLOW_ID_TOKEN", "value": True}

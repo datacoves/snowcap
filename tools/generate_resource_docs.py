@@ -180,6 +180,7 @@ def get_resource_classes_for_file(resource_file: str) -> dict[str, str]:
 
 def camelcase_to_snakecase(name: str) -> str:
     name = name.replace("OAuth", "OAUTH")
+    name = name.replace("SAML2", "SAML2_")
     pattern = re.compile(r"(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
     name = pattern.sub("_", name).lower()
     return name

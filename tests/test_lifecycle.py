@@ -1840,3 +1840,67 @@ class TestUpdateSnowflakeCustomOAuthSecurityIntegration:
         data = {"oauth_refresh_token_validity": 86400}
         result = update_resource(urn, data, res.SnowflakeCustomOAuthSecurityIntegration.props)
         assert result == "ALTER SECURITY INTEGRATION CLAUDE_MCP_OAUTH SET OAUTH_REFRESH_TOKEN_VALIDITY = 86400"
+
+
+# ============================================================================
+# Test SAML2SecurityIntegration lifecycle
+# ============================================================================
+
+
+class TestSAML2SecurityIntegration:
+    """create_sql, update_set_sql, the SAML2 resolver, and field validation for SAML2SecurityIntegration."""
+
+    def _integration(self, **overrides):
+        kwargs = dict(
+            name="SSO_SAML",
+            saml2_issuer="http://www.okta.com/exk1abc",
+            saml2_sso_url="https://example.okta.com/app/snowflake/exk1abc/sso/saml",
+            saml2_provider="OKTA",
+            saml2_x509_cert="MIIDpDCCAoyg",
+        )
+        kwargs.update(overrides)
+        return res.SAML2SecurityIntegration(**kwargs)
+
+    def test_resolver_returns_saml2_class(self):
+        """type: SAML2 in YAML (and in SHOW output) resolves to the SAML2 resource."""
+        resource_cls = res.Resource.resolve_resource_cls(ResourceType.SECURITY_INTEGRATION, {"type": "SAML2"})
+        assert resource_cls is res.SAML2SecurityIntegration
+
+    @pytest.mark.parametrize("missing", ["saml2_issuer", "saml2_sso_url", "saml2_provider", "saml2_x509_cert"])
+    def test_missing_required_field_raises(self, missing):
+        """Snowflake rejects a SAML2 integration without these, so fail at parse time instead."""
+        with pytest.raises(ValueError):
+            self._integration(**{missing: None})
+
+    def test_pem_armor_is_stripped(self):
+        """A pasted PEM must normalize to the bare base64 Snowflake stores, or every plan drifts."""
+        integration = self._integration(
+            saml2_x509_cert="-----BEGIN CERTIFICATE-----\nMIIDpDCC\nAoyg\n-----END CERTIFICATE-----\n"
+        )
+        assert integration.to_dict()["saml2_x509_cert"] == "MIIDpDCCAoyg"
+
+    def test_create_sql(self):
+        integration = self._integration(
+            saml2_enable_sp_initiated=True,
+            saml2_sp_initiated_login_page_label="Datacoves SSO",
+            allowed_user_domains=["datacoves.com"],
+            comment="test comment",
+        )
+        sql = integration.create_sql()
+        assert sql == (
+            "CREATE SECURITY INTEGRATION SSO_SAML type = SAML2 ENABLED = TRUE "
+            "SAML2_ISSUER = $$http://www.okta.com/exk1abc$$ "
+            "SAML2_SSO_URL = $$https://example.okta.com/app/snowflake/exk1abc/sso/saml$$ "
+            "saml2_provider = 'OKTA' SAML2_X509_CERT = $$MIIDpDCCAoyg$$ "
+            "SAML2_ENABLE_SP_INITIATED = TRUE "
+            "SAML2_SP_INITIATED_LOGIN_PAGE_LABEL = $$Datacoves SSO$$ "
+            "SAML2_FORCE_AUTHN = FALSE SAML2_SIGN_REQUEST = FALSE "
+            "ALLOWED_USER_DOMAINS = ($$datacoves.com$$) COMMENT = $$test comment$$"
+        )
+
+    def test_update_set_sql(self):
+        """A changed IdP cert renders as ALTER ... SET, never a recreate."""
+        urn = make_urn(ResourceType.SECURITY_INTEGRATION, "SSO_SAML")
+        data = {"saml2_x509_cert": "MIIDnewcert"}
+        result = update_resource(urn, data, res.SAML2SecurityIntegration.props)
+        assert result == "ALTER SECURITY INTEGRATION SSO_SAML SET SAML2_X509_CERT = $$MIIDnewcert$$"
