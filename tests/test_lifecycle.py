@@ -1886,6 +1886,26 @@ class TestSAML2SecurityIntegration:
         assert integration.to_dict()["saml2_x509_cert"] == "MIIDpDCCAoyg"
         assert "SAML2_X509_CERT = $$MIIDpDCCAoyg$$" in integration.create_sql()
 
+    def test_metadata_url_replaces_the_idp_fields(self):
+        """Okta and Entra ID can be described by metadata URL instead of the four IdP fields."""
+        integration = res.SAML2SecurityIntegration(
+            name="ENTRA_SSO",
+            metadata_url="https://login.microsoftonline.com/tid/federationmetadata/2007-06/federationmetadata.xml",
+        )
+        assert "METADATA_URL = $$https://login.microsoftonline.com/tid" in integration.create_sql()
+        # Snowflake derives the IdP fields from the metadata, so a declared metadata_url
+        # must not be reconciled against DESC or it drifts on every plan.
+        assert res.SAML2SecurityIntegration.spec.get_metadata("metadata_url").fetchable is False
+
+    def test_metadata_url_and_idp_fields_are_mutually_exclusive(self):
+        """Snowflake's grammar takes one or the other, so fail at parse time, not on apply."""
+        with pytest.raises(ValueError):
+            res.SAML2SecurityIntegration(
+                name="ENTRA_SSO",
+                metadata_url="https://login.microsoftonline.com/tid/federationmetadata.xml",
+                saml2_issuer="https://sts.windows.net/tid/",
+            )
+
     def test_create_sql(self):
         integration = self._integration(
             saml2_enable_sp_initiated=True,

@@ -2,6 +2,7 @@
     "name": "TEST_SAML2_INTEGRATION",
     "type": "SAML2",
     "enabled": false,
+    "metadata_url": null,
     "saml2_issuer": "http://www.okta.com/exk1abcdefghijkl",
     "saml2_sso_url": "https://example.okta.com/app/snowflake/exk1abcdefghijkl/sso/saml",
     "saml2_provider": "OKTA",

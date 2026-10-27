@@ -10,6 +10,16 @@ description: >-
 A SAML2 security integration, which federates Snowflake authentication to an external
 identity provider (Okta, ADFS, or any SAML2 IdP). With one in place, clients can connect
 with `authenticator = externalbrowser`.
+Describe the IdP one of two ways: set `metadata_url`, which Snowflake supports for
+Okta and Microsoft Entra ID only, or set all four of `saml2_issuer`, `saml2_sso_url`,
+`saml2_provider` and `saml2_x509_cert`. The two are mutually exclusive. `metadata_url`
+is CREATE-only in snowcap: Snowflake reads the metadata once and reports the derived
+values, so editing the URL later produces no diff and no error, and the change has to
+be applied out of band with
+`ALTER SECURITY INTEGRATION <name> SET METADATA_URL = '...'`.
+Microsoft Entra ID uses `saml2_provider: CUSTOM`. Take `saml2_issuer` from the
+enterprise app's Microsoft Entra Identifier, `saml2_sso_url` from its Login URL, and
+`saml2_x509_cert` from the Base64 SAML signing certificate.
 Snowflake matches the IdP's NameID to the user's `login_name`, so every federated user
 needs a `login_name` that matches what the IdP sends.
 To stop the browser from opening on every new connection, also set the `ALLOW_ID_TOKEN`
@@ -59,6 +69,7 @@ security_integrations:
 ## Fields
 
 * `name` (string, required) - The name of the security integration.
+* `metadata_url` (string) - The IdP metadata URL, in place of the four saml2_* IdP fields. Okta and Microsoft Entra ID only. Set at creation only.
 * `saml2_issuer` (string, required) - The EntityID or Issuer of the IdP.
 * `saml2_sso_url` (string, required) - The IdP SSO URL where Snowflake sends the SAML request.
 * `saml2_provider` (string or SAML2Provider, required) - The IdP vendor. One of 'OKTA', 'ADFS', or 'CUSTOM'.

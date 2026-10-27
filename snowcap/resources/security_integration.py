@@ -585,6 +585,11 @@ class SnowflakeCustomOAuthSecurityIntegration(NamedResource, Resource):
 @dataclass(unsafe_hash=True)
 class _SAML2SecurityIntegration(ResourceSpec):
     name: ResourceName
+    # CREATE-only: Snowflake reads the IdP metadata once and populates saml2_issuer,
+    # saml2_sso_url, saml2_provider and saml2_x509_cert from it, which is what DESC
+    # reports back. Marking it unfetchable keeps a declared metadata_url from showing
+    # as drift on every plan.
+    metadata_url: str = field(default=None, metadata={"fetchable": False})
     saml2_issuer: str = None
     saml2_sso_url: str = None
     saml2_provider: SAML2Provider = None
@@ -606,9 +611,15 @@ class _SAML2SecurityIntegration(ResourceSpec):
 
     def __post_init__(self):
         super().__post_init__()
-        for required in ("saml2_issuer", "saml2_sso_url", "saml2_provider", "saml2_x509_cert"):
-            if getattr(self, required) is None:
-                raise ValueError(f"{required} must be set")
+        idp_fields = ("saml2_issuer", "saml2_sso_url", "saml2_provider", "saml2_x509_cert")
+        if self.metadata_url is None:
+            for required in idp_fields:
+                if getattr(self, required) is None:
+                    raise ValueError(f"{required} must be set, or set metadata_url instead")
+        else:
+            set_too = [f for f in idp_fields if getattr(self, f) is not None]
+            if set_too:
+                raise ValueError(f"metadata_url cannot be combined with {', '.join(set_too)}")
 
     def to_dict(self, account_edition: AccountEdition):
         # Snowflake's SQL takes the certificate without its PEM delimiters, and DESC
@@ -630,6 +641,18 @@ class SAML2SecurityIntegration(NamedResource, Resource):
         identity provider (Okta, ADFS, or any SAML2 IdP). With one in place, clients can connect
         with `authenticator = externalbrowser`.
 
+        Describe the IdP one of two ways: set `metadata_url`, which Snowflake supports for
+        Okta and Microsoft Entra ID only, or set all four of `saml2_issuer`, `saml2_sso_url`,
+        `saml2_provider` and `saml2_x509_cert`. The two are mutually exclusive. `metadata_url`
+        is CREATE-only in snowcap: Snowflake reads the metadata once and reports the derived
+        values, so editing the URL later produces no diff and no error, and the change has to
+        be applied out of band with
+        `ALTER SECURITY INTEGRATION <name> SET METADATA_URL = '...'`.
+
+        Microsoft Entra ID uses `saml2_provider: CUSTOM`. Take `saml2_issuer` from the
+        enterprise app's Microsoft Entra Identifier, `saml2_sso_url` from its Login URL, and
+        `saml2_x509_cert` from the Base64 SAML signing certificate.
+
         Snowflake matches the IdP's NameID to the user's `login_name`, so every federated user
         needs a `login_name` that matches what the IdP sends.
 
@@ -649,6 +672,7 @@ class SAML2SecurityIntegration(NamedResource, Resource):
 
     Fields:
         name (string, required): The name of the security integration.
+        metadata_url (string): The IdP metadata URL, in place of the four saml2_* IdP fields. Okta and Microsoft Entra ID only. Set at creation only.
         saml2_issuer (string, required): The EntityID or Issuer of the IdP.
         saml2_sso_url (string, required): The IdP SSO URL where Snowflake sends the SAML request.
         saml2_provider (string or SAML2Provider, required): The IdP vendor. One of 'OKTA', 'ADFS', or 'CUSTOM'.
@@ -701,6 +725,7 @@ class SAML2SecurityIntegration(NamedResource, Resource):
     props = Props(
         type=EnumProp("type", [SecurityIntegrationType.SAML2]),
         enabled=BoolProp("enabled"),
+        metadata_url=StringProp("metadata_url"),
         saml2_issuer=StringProp("saml2_issuer"),
         saml2_sso_url=StringProp("saml2_sso_url"),
         saml2_provider=EnumProp("saml2_provider", SAML2Provider, quoted=True),
@@ -723,6 +748,7 @@ class SAML2SecurityIntegration(NamedResource, Resource):
     def __init__(
         self,
         name: str,
+        metadata_url: str = None,
         saml2_issuer: str = None,
         saml2_sso_url: str = None,
         saml2_provider: SAML2Provider = None,
@@ -746,6 +772,7 @@ class SAML2SecurityIntegration(NamedResource, Resource):
         super().__init__(name, **kwargs)
         self._data: _SAML2SecurityIntegration = _SAML2SecurityIntegration(
             name=self._name,
+            metadata_url=metadata_url,
             saml2_issuer=saml2_issuer,
             saml2_sso_url=saml2_sso_url,
             saml2_provider=saml2_provider,
