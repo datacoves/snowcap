@@ -19,7 +19,8 @@ be applied out of band with
 `ALTER SECURITY INTEGRATION <name> SET METADATA_URL = '...'`.
 Microsoft Entra ID uses `saml2_provider: CUSTOM`. Take `saml2_issuer` from the
 enterprise app's Microsoft Entra Identifier, `saml2_sso_url` from its Login URL, and
-`saml2_x509_cert` from the Base64 SAML signing certificate.
+`saml2_x509_cert` from the Base64 SAML signing certificate. Both URLs embed the
+tenant id, so pass them as vars rather than committing them.
 Snowflake matches the IdP's NameID to the user's `login_name`, so every federated user
 needs a `login_name` that matches what the IdP sends.
 To stop the browser from opening on every new connection, also set the `ALLOW_ID_TOKEN`
@@ -53,13 +54,24 @@ sso_saml = SAML2SecurityIntegration(
 ### YAML
 
 ```yaml
+# The IdP values identify your tenant and rotate independently of this config,
+# so keep them out of the repo: SNOWCAP_VAR_SAML2_X509_CERT becomes
+# {{ var.saml2_x509_cert }}. Declaring them here with no default makes a missing
+# value fail the run before it reaches Snowflake.
+vars:
+  - name: saml2_issuer
+    type: string
+  - name: saml2_sso_url
+    type: string
+  - name: saml2_x509_cert
+    type: string
 security_integrations:
   - name: sso_saml
     type: SAML2
     enabled: true
     saml2_provider: OKTA
-    saml2_issuer: http://www.okta.com/exk1abcdefg
-    saml2_sso_url: https://example.okta.com/app/snowflake/exk1abcdefg/sso/saml
+    saml2_issuer: "{{ var.saml2_issuer }}"
+    saml2_sso_url: "{{ var.saml2_sso_url }}"
     saml2_x509_cert: "{{ var.saml2_x509_cert }}"
     saml2_enable_sp_initiated: true
     saml2_sp_initiated_login_page_label: Datacoves SSO
