@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 
 from ..builtins import ALWAYS_BLOCKED_OAUTH_ROLES
-from ..enums import ParseableEnum, ResourceType
+from ..enums import AccountEdition, ParseableEnum, ResourceType
 from ..props import (
     BoolProp,
     EnumProp,
@@ -10,6 +10,7 @@ from ..props import (
     StringListProp,
     StringProp,
 )
+from ..public_key import PEM_DELIMITER
 from ..resource_name import ResourceName
 from ..scope import AccountScope
 from .resource import NamedResource, Resource, ResourceSpec
@@ -581,14 +582,6 @@ class SnowflakeCustomOAuthSecurityIntegration(NamedResource, Resource):
         )
 
 
-def _strip_pem_armor(cert: str) -> str:
-    """Snowflake stores (and DESC returns) the bare base64 body of the IdP certificate.
-    Accept a full PEM so the value can be pasted straight out of the IdP, and normalize
-    it here, otherwise every plan would show drift against what Snowflake echoes back."""
-    body = cert.replace("-----BEGIN CERTIFICATE-----", "").replace("-----END CERTIFICATE-----", "")
-    return "".join(body.split())
-
-
 @dataclass(unsafe_hash=True)
 class _SAML2SecurityIntegration(ResourceSpec):
     name: ResourceName
@@ -616,7 +609,18 @@ class _SAML2SecurityIntegration(ResourceSpec):
         for required in ("saml2_issuer", "saml2_sso_url", "saml2_provider", "saml2_x509_cert"):
             if getattr(self, required) is None:
                 raise ValueError(f"{required} must be set")
-        self.saml2_x509_cert = _strip_pem_armor(self.saml2_x509_cert)
+
+    def to_dict(self, account_edition: AccountEdition):
+        # Snowflake's SQL takes the certificate without its PEM delimiters, and DESC
+        # reports it that way, so a certificate pasted straight out of the IdP would
+        # otherwise be rejected on apply and read back as drift. Normalized here rather
+        # than in __post_init__ because a certificate given as a var is still a template
+        # until vars resolve, which happens after the resource is constructed.
+        serialized = super().to_dict(account_edition)
+        cert = serialized.get("saml2_x509_cert")
+        if isinstance(cert, str):
+            serialized["saml2_x509_cert"] = "".join(PEM_DELIMITER.sub("", cert).split())
+        return serialized
 
 
 class SAML2SecurityIntegration(NamedResource, Resource):
@@ -687,7 +691,7 @@ class SAML2SecurityIntegration(NamedResource, Resource):
             saml2_provider: OKTA
             saml2_issuer: http://www.okta.com/exk1abcdefg
             saml2_sso_url: https://example.okta.com/app/snowflake/exk1abcdefg/sso/saml
-            saml2_x509_cert: "${{ var.saml2_x509_cert }}"
+            saml2_x509_cert: "{{ var.saml2_x509_cert }}"
             saml2_enable_sp_initiated: true
             saml2_sp_initiated_login_page_label: Datacoves SSO
         ```

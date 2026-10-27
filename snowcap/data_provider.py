@@ -3293,6 +3293,9 @@ def fetch_security_integration(session: SnowflakeConnection, fqn: FQN):
             "saml2_post_logout_redirect_url": properties.get("saml2_post_logout_redirect_url"),
             "saml2_sign_request": properties.get("saml2_sign_request"),
             "allowed_user_domains": properties.get("allowed_user_domains") or None,
+            # ponytail: _parse_list_property splits DESC lists on "," so an email pattern
+            # containing a comma (e.g. a {2,10} quantifier) reads back split and drifts
+            # forever. Fix in _parse_list_property if that shows up in practice.
             "allowed_email_patterns": properties.get("allowed_email_patterns") or None,
             "comment": data["comment"] or None,
             "owner": owner,

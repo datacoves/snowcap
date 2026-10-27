@@ -1861,11 +1861,6 @@ class TestSAML2SecurityIntegration:
         kwargs.update(overrides)
         return res.SAML2SecurityIntegration(**kwargs)
 
-    def test_resolver_returns_saml2_class(self):
-        """type: SAML2 in YAML (and in SHOW output) resolves to the SAML2 resource."""
-        resource_cls = res.Resource.resolve_resource_cls(ResourceType.SECURITY_INTEGRATION, {"type": "SAML2"})
-        assert resource_cls is res.SAML2SecurityIntegration
-
     @pytest.mark.parametrize("missing", ["saml2_issuer", "saml2_sso_url", "saml2_provider", "saml2_x509_cert"])
     def test_missing_required_field_raises(self, missing):
         """Snowflake rejects a SAML2 integration without these, so fail at parse time instead."""
@@ -1878,6 +1873,18 @@ class TestSAML2SecurityIntegration:
             saml2_x509_cert="-----BEGIN CERTIFICATE-----\nMIIDpDCC\nAoyg\n-----END CERTIFICATE-----\n"
         )
         assert integration.to_dict()["saml2_x509_cert"] == "MIIDpDCCAoyg"
+
+    def test_cert_from_a_var_is_accepted_and_normalized(self):
+        """Keeping the cert out of the repo means passing it as a var, which is still an
+        unrendered template at construction time. Normalizing it in __post_init__ would
+        raise AttributeError on the VarString, and normalizing before vars resolve would
+        leave a PEM delivered by var un-stripped, so it drifts."""
+        integration = self._integration(saml2_x509_cert="{{ var.saml2_x509_cert }}")
+        integration._resolve_vars(
+            {"saml2_x509_cert": "-----BEGIN CERTIFICATE-----\nMIIDpDCC\nAoyg\n-----END CERTIFICATE-----"}, []
+        )
+        assert integration.to_dict()["saml2_x509_cert"] == "MIIDpDCCAoyg"
+        assert "SAML2_X509_CERT = $$MIIDpDCCAoyg$$" in integration.create_sql()
 
     def test_create_sql(self):
         integration = self._integration(

@@ -50,7 +50,7 @@ security_integrations:
     saml2_provider: OKTA
     saml2_issuer: http://www.okta.com/exk1abcdefg
     saml2_sso_url: https://example.okta.com/app/snowflake/exk1abcdefg/sso/saml
-    saml2_x509_cert: "${{ var.saml2_x509_cert }}"
+    saml2_x509_cert: "{{ var.saml2_x509_cert }}"
     saml2_enable_sp_initiated: true
     saml2_sp_initiated_login_page_label: Datacoves SSO
 ```
@@ -61,7 +61,7 @@ security_integrations:
 * `name` (string, required) - The name of the security integration.
 * `saml2_issuer` (string, required) - The EntityID or Issuer of the IdP.
 * `saml2_sso_url` (string, required) - The IdP SSO URL where Snowflake sends the SAML request.
-* `saml2_provider` (string or [SAML2Provider](saml2_provider.md), required) - The IdP vendor. One of 'OKTA', 'ADFS', or 'CUSTOM'.
+* `saml2_provider` (string or SAML2Provider, required) - The IdP vendor. One of 'OKTA', 'ADFS', or 'CUSTOM'.
 * `saml2_x509_cert` (string, required) - The IdP signing certificate, base64 encoded or as a PEM block.
 * `enabled` (bool) - Specifies if the security integration is enabled. Defaults to True.
 * `saml2_enable_sp_initiated` (bool) - Shows the IdP button on the Snowflake login page for SP-initiated login. Defaults to False.

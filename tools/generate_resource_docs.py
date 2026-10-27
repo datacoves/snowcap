@@ -153,10 +153,11 @@ def enrich_fields(fields):
         words = field_type.split()
         linked_words = []
         for word in words:
-            if word[0].isupper():
-                docs_page = camelcase_to_snakecase(word)
-                linked_word = f"[{word}]({docs_page}.md)"
-                linked_words.append(linked_word)
+            docs_page = camelcase_to_snakecase(word)
+            # Only link types that actually have a page; enum types (OAuthClientType,
+            # SAML2Provider, ...) don't, and linking them ships a 404.
+            if word[0].isupper() and os.path.exists(os.path.join(DOCS_ROOT, "resources", f"{docs_page}.md")):
+                linked_words.append(f"[{word}]({docs_page}.md)")
             else:
                 linked_words.append(word)
         field["field_type"] = " ".join(linked_words)
