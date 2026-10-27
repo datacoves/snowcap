@@ -539,6 +539,22 @@ class TestNestedDirectoryCollection:
         assert len(configs) == 1
         assert os.path.basename(configs[0][0]) == "single.yaml"
 
+    def test_comment_only_file_is_treated_as_empty(self, tmp_path):
+        """A file commented out while it is being fixed parses to None. It must merge as an
+        empty config, not crash merge_configs with a bare AttributeError."""
+        from snowcap.gitops import collect_configs_from_path, merge_configs
+
+        (tmp_path / "roles.yaml").write_text("roles:\n  - name: role1\n")
+        (tmp_path / "streams.yaml").write_text("# streams:\n#   - name: disabled_stream\n")
+        (tmp_path / "blank.yaml").write_text("")
+
+        configs = collect_configs_from_path(str(tmp_path))
+
+        merged = {}
+        for _, config in configs:
+            merged = merge_configs(merged, config)
+        assert merged == {"roles": [{"name": "role1"}]}
+
     def test_invalid_path_raises_error(self, tmp_path):
         """Test: Invalid path raises ValueError."""
         from snowcap.gitops import collect_configs_from_path
