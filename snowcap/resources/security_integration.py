@@ -609,18 +609,6 @@ class _SAML2SecurityIntegration(ResourceSpec):
     comment: str = None
     owner: Role = "ACCOUNTADMIN"
 
-    def __post_init__(self):
-        super().__post_init__()
-        idp_fields = ("saml2_issuer", "saml2_sso_url", "saml2_provider", "saml2_x509_cert")
-        if self.metadata_url is None:
-            for required in idp_fields:
-                if getattr(self, required) is None:
-                    raise ValueError(f"{required} must be set, or set metadata_url instead")
-        else:
-            set_too = [f for f in idp_fields if getattr(self, f) is not None]
-            if set_too:
-                raise ValueError(f"metadata_url cannot be combined with {', '.join(set_too)}")
-
     def to_dict(self, account_edition: AccountEdition):
         # Snowflake's SQL takes the certificate without its PEM delimiters, and DESC
         # reports it that way, so a certificate pasted straight out of the IdP would
@@ -630,6 +618,11 @@ class _SAML2SecurityIntegration(ResourceSpec):
         serialized = super().to_dict(account_edition)
         cert = serialized.get("saml2_x509_cert")
         if isinstance(cert, str):
+            # Stripping the armor off a private key would ship it to Snowflake, where
+            # DESC SECURITY INTEGRATION hands it back to anyone who can read the
+            # integration. Reject it the same way normalize_public_key does.
+            if "PRIVATE KEY" in cert.upper():
+                raise ValueError("saml2_x509_cert contains a private key; provide only the IdP's signing certificate")
             serialized["saml2_x509_cert"] = "".join(PEM_DELIMITER.sub("", cert).split())
         return serialized
 
@@ -674,10 +667,10 @@ class SAML2SecurityIntegration(NamedResource, Resource):
     Fields:
         name (string, required): The name of the security integration.
         metadata_url (string): The IdP metadata URL, in place of the four saml2_* IdP fields. Okta and Microsoft Entra ID only. Set at creation only.
-        saml2_issuer (string, required): The EntityID or Issuer of the IdP.
-        saml2_sso_url (string, required): The IdP SSO URL where Snowflake sends the SAML request.
-        saml2_provider (string or SAML2Provider, required): The IdP vendor. One of 'OKTA', 'ADFS', or 'CUSTOM'.
-        saml2_x509_cert (string, required): The IdP signing certificate, base64 encoded or as a PEM block.
+        saml2_issuer (string): The EntityID or Issuer of the IdP. Required unless metadata_url is set, and rejected if it is.
+        saml2_sso_url (string): The IdP SSO URL where Snowflake sends the SAML request. Required unless metadata_url is set, and rejected if it is.
+        saml2_provider (string or SAML2Provider): The IdP vendor, one of 'OKTA', 'ADFS', or 'CUSTOM'. Required unless metadata_url is set, and rejected if it is.
+        saml2_x509_cert (string): The IdP signing certificate, base64 encoded or as a PEM block. Required unless metadata_url is set, and rejected if it is.
         enabled (bool): Specifies if the security integration is enabled. Defaults to True.
         saml2_enable_sp_initiated (bool): Shows the IdP button on the Snowflake login page for SP-initiated login. Defaults to False.
         saml2_sp_initiated_login_page_label (string): The label of that button on the Snowflake login page.
@@ -688,7 +681,7 @@ class SAML2SecurityIntegration(NamedResource, Resource):
         saml2_post_logout_redirect_url (string): Where the user lands after logging out of Snowflake.
         saml2_sign_request (bool): Signs the SAML request Snowflake sends to the IdP. Defaults to False.
         allowed_user_domains (list): Email domains allowed to authenticate through this integration.
-        allowed_email_patterns (list): Regular expressions for email addresses allowed to authenticate through this integration.
+        allowed_email_patterns (list): Regular expressions for email addresses allowed to authenticate through this integration. A pattern containing a comma (a {2,10} quantifier, say) is read back split, so the plan never converges; avoid commas in patterns for now.
         comment (string): A comment about the security integration.
 
     Python:
@@ -782,6 +775,23 @@ class SAML2SecurityIntegration(NamedResource, Resource):
     ):
         kwargs.pop("type", None)
         kwargs.pop("owner", None)
+        # Checked here rather than on the spec because blueprint hydrates remote state
+        # with spec(**data): a spec-level raise would abort the whole plan on whatever
+        # DESC happened to return, instead of reporting drift.
+        idp_fields = {
+            "saml2_issuer": saml2_issuer,
+            "saml2_sso_url": saml2_sso_url,
+            "saml2_provider": saml2_provider,
+            "saml2_x509_cert": saml2_x509_cert,
+        }
+        if metadata_url is None:
+            for field_name, value in idp_fields.items():
+                if value is None:
+                    raise ValueError(f"{field_name} must be set, or set metadata_url instead")
+        else:
+            set_too = [f for f, v in idp_fields.items() if v is not None]
+            if set_too:
+                raise ValueError(f"metadata_url cannot be combined with {', '.join(set_too)}")
         super().__init__(name, **kwargs)
         self._data: _SAML2SecurityIntegration = _SAML2SecurityIntegration(
             name=self._name,

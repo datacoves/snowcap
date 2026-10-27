@@ -82,10 +82,10 @@ security_integrations:
 
 * `name` (string, required) - The name of the security integration.
 * `metadata_url` (string) - The IdP metadata URL, in place of the four saml2_* IdP fields. Okta and Microsoft Entra ID only. Set at creation only.
-* `saml2_issuer` (string, required) - The EntityID or Issuer of the IdP.
-* `saml2_sso_url` (string, required) - The IdP SSO URL where Snowflake sends the SAML request.
-* `saml2_provider` (string or SAML2Provider, required) - The IdP vendor. One of 'OKTA', 'ADFS', or 'CUSTOM'.
-* `saml2_x509_cert` (string, required) - The IdP signing certificate, base64 encoded or as a PEM block.
+* `saml2_issuer` (string) - The EntityID or Issuer of the IdP. Required unless metadata_url is set, and rejected if it is.
+* `saml2_sso_url` (string) - The IdP SSO URL where Snowflake sends the SAML request. Required unless metadata_url is set, and rejected if it is.
+* `saml2_provider` (string or SAML2Provider) - The IdP vendor, one of 'OKTA', 'ADFS', or 'CUSTOM'. Required unless metadata_url is set, and rejected if it is.
+* `saml2_x509_cert` (string) - The IdP signing certificate, base64 encoded or as a PEM block. Required unless metadata_url is set, and rejected if it is.
 * `enabled` (bool) - Specifies if the security integration is enabled. Defaults to True.
 * `saml2_enable_sp_initiated` (bool) - Shows the IdP button on the Snowflake login page for SP-initiated login. Defaults to False.
 * `saml2_sp_initiated_login_page_label` (string) - The label of that button on the Snowflake login page.
@@ -96,7 +96,7 @@ security_integrations:
 * `saml2_post_logout_redirect_url` (string) - Where the user lands after logging out of Snowflake.
 * `saml2_sign_request` (bool) - Signs the SAML request Snowflake sends to the IdP. Defaults to False.
 * `allowed_user_domains` (list) - Email domains allowed to authenticate through this integration.
-* `allowed_email_patterns` (list) - Regular expressions for email addresses allowed to authenticate through this integration.
+* `allowed_email_patterns` (list) - Regular expressions for email addresses allowed to authenticate through this integration. A pattern containing a comma (a {2,10} quantifier, say) is read back split, so the plan never converges; avoid commas in patterns for now.
 * `comment` (string) - A comment about the security integration.
 
 

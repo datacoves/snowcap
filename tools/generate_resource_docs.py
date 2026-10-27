@@ -54,6 +54,11 @@ summary_template = """\
 """
 
 
+# Resource class names that get their own docs page. Filled by main() before any doc
+# is written, so field-type links do not depend on what already exists on disk.
+DOCUMENTED_RESOURCES: set[str] = set()
+
+
 class EmptyDocstringError(Exception):
     pass
 
@@ -153,11 +158,12 @@ def enrich_fields(fields):
         words = field_type.split()
         linked_words = []
         for word in words:
-            docs_page = camelcase_to_snakecase(word)
-            # Only link types that actually have a page; enum types (OAuthClientType,
-            # SAML2Provider, ...) don't, and linking them ships a 404.
-            if word[0].isupper() and os.path.exists(os.path.join(DOCS_ROOT, "resources", f"{docs_page}.md")):
-                linked_words.append(f"[{word}]({docs_page}.md)")
+            # Only link types that are themselves documented resources. Enum types
+            # (OAuthClientType, SAML2Provider, ...) get no page, and linking them ships
+            # a 404. Resolved against the classes being documented rather than against
+            # files on disk, so a clean run and a re-run produce the same output.
+            if word[0].isupper() and word in DOCUMENTED_RESOURCES:
+                linked_words.append(f"[{word}]({camelcase_to_snakecase(word)}.md)")
             else:
                 linked_words.append(word)
         field["field_type"] = " ".join(linked_words)
@@ -248,7 +254,20 @@ def generate_summary(generated_docs):
         f.write(output)
 
 
+def collect_documented_resources() -> set[str]:
+    """Every resource class with a docstring, across all resource files. Scans all files
+    even in single-file mode, so links resolve the same either way."""
+    names = set()
+    for file in os.listdir(RESOURCES_ROOT):
+        if file.endswith(".py") and file != "resource.py":
+            for class_name, docstring in get_resource_classes_for_file(os.path.join(RESOURCES_ROOT, file)).items():
+                if docstring:
+                    names.add(class_name)
+    return names
+
+
 def main(resource_file: str):
+    DOCUMENTED_RESOURCES.update(collect_documented_resources())
     generated_docs = []
     for file in os.listdir(RESOURCES_ROOT):
         if file.endswith(".py"):

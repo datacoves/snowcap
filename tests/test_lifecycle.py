@@ -1867,6 +1867,34 @@ class TestSAML2SecurityIntegration:
         with pytest.raises(ValueError):
             self._integration(**{missing: None})
 
+    def test_remote_state_with_a_blank_field_does_not_abort_the_plan(self):
+        """blueprint hydrates remote state with spec(**data). Validating the IdP fields on
+        the spec would turn whatever DESC returned into a raise that kills the whole plan
+        instead of reporting drift, so the check belongs on __init__, not the spec."""
+        from snowcap.enums import AccountEdition
+        from snowcap.resources.security_integration import _SAML2SecurityIntegration
+
+        fetched = {
+            "name": "ENTRA_SSO",
+            "type": "SAML2",
+            "enabled": True,
+            "saml2_issuer": "https://sts.windows.net/tid/",
+            "saml2_sso_url": "https://login.microsoftonline.com/tid/saml2",
+            "saml2_provider": None,
+            "saml2_x509_cert": "MIIDcert",
+            "owner": "ACCOUNTADMIN",
+        }
+        assert _SAML2SecurityIntegration(**fetched).to_dict(AccountEdition.ENTERPRISE)["name"] == "ENTRA_SSO"
+
+    def test_private_key_in_the_cert_field_is_rejected(self):
+        """Stripping the armor off a private key would ship it to Snowflake, where DESC
+        hands it back to anyone who can read the integration."""
+        integration = self._integration(
+            saml2_x509_cert="-----BEGIN PRIVATE KEY-----\nMIIabc\n-----END PRIVATE KEY-----"
+        )
+        with pytest.raises(ValueError, match="private key"):
+            integration.to_dict()
+
     def test_pem_armor_is_stripped(self):
         """A pasted PEM must normalize to the bare base64 Snowflake stores, or every plan drifts."""
         integration = self._integration(
