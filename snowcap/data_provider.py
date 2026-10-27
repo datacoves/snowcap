@@ -3275,7 +3275,32 @@ def fetch_security_integration(session: SnowflakeConnection, fqn: FQN):
                 f"snowcap cannot read back partner OAuth integration {fqn.name!r} "
                 f"(oauth_client={oauth_client}): fetch is not implemented for partner OAuth"
             )
-    # A security integration type snowcap does not model (e.g. SAML2, SCIM, EXTERNAL_OAUTH)
+    elif data["type"] == "SAML2":
+        return {
+            "name": _quote_snowflake_identifier(data["name"]),
+            "type": data["type"],
+            "enabled": data["enabled"] == "true",
+            "saml2_issuer": properties.get("saml2_issuer"),
+            "saml2_sso_url": properties.get("saml2_sso_url"),
+            "saml2_provider": properties.get("saml2_provider"),
+            "saml2_x509_cert": properties.get("saml2_x509_cert"),
+            "saml2_enable_sp_initiated": properties.get("saml2_enable_sp_initiated"),
+            "saml2_sp_initiated_login_page_label": properties.get("saml2_sp_initiated_login_page_label"),
+            "saml2_snowflake_acs_url": properties.get("saml2_snowflake_acs_url"),
+            "saml2_snowflake_issuer_url": properties.get("saml2_snowflake_issuer_url"),
+            "saml2_force_authn": properties.get("saml2_force_authn"),
+            "saml2_requested_nameid_format": properties.get("saml2_requested_nameid_format"),
+            "saml2_post_logout_redirect_url": properties.get("saml2_post_logout_redirect_url"),
+            "saml2_sign_request": properties.get("saml2_sign_request"),
+            "allowed_user_domains": properties.get("allowed_user_domains") or None,
+            # ponytail: _parse_list_property splits DESC lists on "," so an email pattern
+            # containing a comma (e.g. a {2,10} quantifier) reads back split and drifts
+            # forever. Fix in _parse_list_property if that shows up in practice.
+            "allowed_email_patterns": properties.get("allowed_email_patterns") or None,
+            "comment": data["comment"] or None,
+            "owner": owner,
+        }
+    # A security integration type snowcap does not model (e.g. SCIM, EXTERNAL_OAUTH)
     # must not break list/export just because the account holds one. Skip it with a warning
     # rather than raising, so fetching one unmodeled type doesn't abort the whole run.
     logger.warning(f"Skipping unsupported security integration type {data['type']!r} for {fqn.name}")

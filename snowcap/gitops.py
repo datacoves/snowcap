@@ -437,7 +437,11 @@ def read_config(config_path) -> dict:
             if hasattr(e, "context") and e.context:
                 error_msg += f" {e.context}"
             raise ValueError(error_msg) from e
-    return config
+    # An empty file, or one that is nothing but comments, parses to None. That is a
+    # normal thing to have in a config directory (a block commented out while it is
+    # fixed), so treat it as an empty config rather than letting None reach
+    # merge_configs, which raised a bare AttributeError on it.
+    return config or {}
 
 
 def merge_configs(config1: dict, config2: dict) -> dict:

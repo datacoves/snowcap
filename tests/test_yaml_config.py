@@ -539,6 +539,22 @@ class TestNestedDirectoryCollection:
         assert len(configs) == 1
         assert os.path.basename(configs[0][0]) == "single.yaml"
 
+    def test_comment_only_file_is_treated_as_empty(self, tmp_path):
+        """A file commented out while it is being fixed parses to None. It must merge as an
+        empty config, not crash merge_configs with a bare AttributeError."""
+        from snowcap.gitops import collect_configs_from_path, merge_configs
+
+        (tmp_path / "roles.yaml").write_text("roles:\n  - name: role1\n")
+        (tmp_path / "streams.yaml").write_text("# streams:\n#   - name: disabled_stream\n")
+        (tmp_path / "blank.yaml").write_text("")
+
+        configs = collect_configs_from_path(str(tmp_path))
+
+        merged = {}
+        for _, config in configs:
+            merged = merge_configs(merged, config)
+        assert merged == {"roles": [{"name": "role1"}]}
+
     def test_invalid_path_raises_error(self, tmp_path):
         """Test: Invalid path raises ValueError."""
         from snowcap.gitops import collect_configs_from_path
@@ -726,3 +742,36 @@ class TestSecurityIntegrationConfig:
         assert data["oauth_any_role_mode"] == "ENABLE_FOR_PRIVILEGE"
         assert data["oauth_enforce_pkce"] is True
         assert data["blocked_roles_list"] == ["SYSADMIN"]
+
+    def test_saml2_from_yaml(self):
+        """A security_integrations: block with type: SAML2 resolves to the SAML2 resource,
+        and ALLOW_ID_TOKEN rides along as a plain account parameter."""
+        from snowcap import resources as res
+
+        config = {
+            "security_integrations": [
+                {
+                    "name": "sso_saml",
+                    "type": "SAML2",
+                    "enabled": True,
+                    "saml2_provider": "OKTA",
+                    "saml2_issuer": "http://www.okta.com/exk1abc",
+                    "saml2_sso_url": "https://example.okta.com/app/snowflake/exk1abc/sso/saml",
+                    "saml2_x509_cert": "MIIDpDCCAoyg",
+                    "saml2_enable_sp_initiated": True,
+                    "saml2_sp_initiated_login_page_label": "Datacoves SSO",
+                }
+            ],
+            "account_parameters": [{"name": "ALLOW_ID_TOKEN", "value": True}],
+        }
+        blueprint_config = collect_blueprint_config(config)
+
+        assert len(blueprint_config.resources) == 2
+        by_type = {type(r): r for r in blueprint_config.resources}
+
+        data = by_type[res.SAML2SecurityIntegration].to_dict()
+        assert data["type"] == "SAML2"
+        assert data["saml2_provider"] == "OKTA"
+        assert data["saml2_enable_sp_initiated"] is True
+
+        assert by_type[res.AccountParameter].to_dict() == {"name": "ALLOW_ID_TOKEN", "value": True}
