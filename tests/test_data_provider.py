@@ -47,6 +47,7 @@ from snowcap.data_provider import (
     fetch_resource,
     fetch_database,
     fetch_shared_database,
+    fetch_share,
     fetch_security_integration,
     fetch_task,
     fetch_tag_masking_policy_reference,
@@ -3853,3 +3854,72 @@ class TestTagMaskingPolicyReferenceMissingDatabase:
         result = list_tag_masking_policy_references(MagicMock())
 
         assert result == []
+
+
+@patch("snowcap.data_provider.execute", return_value=[])
+def test_show_like_escapes_apostrophe(mock_execute):
+    fetch_share(MagicMock(), FQN(name=ResourceName('"ops\'s share"')))
+    assert mock_execute.call_args[0][1] == "SHOW SHARES LIKE 'ops''s share'"
+
+
+@patch("snowcap.data_provider.execute", return_value=[])
+def test_show_like_keeps_escaped_double_quote(mock_execute):
+    fetch_share(MagicMock(), FQN(name=ResourceName('"say ""hi"""')))
+    assert mock_execute.call_args[0][1] == r"""SHOW SHARES LIKE 'say \"hi\"'"""
+
+
+@patch("snowcap.data_provider.execute", return_value=[])
+def test_show_like_escapes_pattern_characters(mock_execute):
+    fetch_share(MagicMock(), FQN(name=ResourceName('"a\\b_c%d"')))
+    assert mock_execute.call_args[0][1] == r"SHOW SHARES LIKE 'a\\\\b\\_c\\%d'"
+
+
+def test_id_lookup_is_not_like_escaped():
+    from snowcap.data_provider import _quote_bare_name
+
+    assert _quote_bare_name(ResourceName('"a_b"')) == "'a_b'"
+
+
+@patch("snowcap.data_provider.execute", return_value=[{"name": "MYXSHARE", "kind": "OUTBOUND"}])
+def test_show_like_ignores_wildcard_matches(mock_execute):
+    assert fetch_share(MagicMock(), FQN(name=ResourceName("MY_SHARE"))) is None
+
+
+@patch("snowcap.data_provider.execute")
+def test_show_resources_large_account_ignores_wildcard_matches(mock_execute):
+    from snowcap.data_provider import _show_resources
+
+    mock_execute.side_effect = [[{"name": f"R{i}"} for i in range(1000)], [{"name": "MYXROLE"}, {"name": "MY_ROLE"}]]
+    assert _show_resources(MagicMock(), "ROLES", FQN(name=ResourceName("MY_ROLE"))) == [{"name": "MY_ROLE"}]
+
+
+@patch("snowcap.data_provider.execute")
+def test_table_column_default_unescapes_literal(mock_execute):
+    from snowcap.data_provider import _fetch_columns_for_table
+
+    row = {
+        "TABLE_SCHEMA": "PUBLIC",
+        "TABLE_NAME": "T",
+        "COLUMN_NAME": "C",
+        "DATA_TYPE": "TEXT",
+        "CHARACTER_MAXIMUM_LENGTH": 10,
+        "IS_NULLABLE": "YES",
+        "COMMENT": None,
+    }
+    mock_execute.return_value = [{**row, "COLUMN_DEFAULT": "'it''s'"}, {**row, "COLUMN_DEFAULT": "CURRENT_USER()"}]
+    fqn = FQN(database=ResourceName("DB"), schema=ResourceName("PUBLIC"), name=ResourceName("T"))
+    assert [c["default"] for c in _fetch_columns_for_table(MagicMock(), fqn)] == ["it's", "CURRENT_USER()"]
+
+
+@patch("snowcap.data_provider.execute", return_value=[])
+def test_policy_references_escape_apostrophe(mock_execute):
+    fqn = FQN(
+        database=ResourceName("GOVERNANCE"),
+        schema=ResourceName("TAGS"),
+        name=ResourceName('"ops\'s tag"'),
+        params={"masking_policy": "governance.policies.ops's_mask"},
+    )
+    fetch_tag_masking_policy_reference(MagicMock(), fqn)
+    sql = mock_execute.call_args[0][1]
+    assert "REF_ENTITY_NAME => 'GOVERNANCE.TAGS.\\\"ops''s tag\\\"'" in sql
+    assert "= 'GOVERNANCE.POLICIES.OPS''S_MASK'" in sql
