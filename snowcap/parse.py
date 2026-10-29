@@ -78,34 +78,28 @@ NOTIFICATION_INTEGRATION = Keywords("NOTIFICATION INTEGRATION")
 snowflake_sql_comment = pp.Regex(r"--.*").set_name("Snowflake SQL comment")
 
 
+_STATEMENT_TOKEN = re.compile(
+    r"(?P<str>\$\$\$.*?\$\$\$|\$\$.*?\$\$|'(?:[^'\\]|\\.|'')*'|\"(?:[^\"]|\"\")*\")"
+    r"|(?P<gap>\s+|/\*.*?\*/|--[^\n]*)|(?P<semi>;)|(?P<other>[^\s;'\"$/-]+|.)",
+    re.S,
+)
+
+
 def _split_statements(sql_text):
-    # Define SQL strings
-    single_quote = pp.QuotedString("'", multiline=True, unquote_results=False)
-    double_quote = pp.QuotedString('"', multiline=True, unquote_results=False)
-    double_dollar = pp.QuotedString("$$", multiline=True, unquote_results=False, end_quote_char="$$")
-    triple_dollar = pp.QuotedString("$$$", multiline=True, unquote_results=False, end_quote_char="$$$")
-
-    # Combine all SQL strings into a single parser
-    any_sql_string = pp.MatchFirst([single_quote, double_quote, double_dollar, triple_dollar])
-
-    # Define other characters
-    other_chars = pp.Word(pp.printables, excludeChars=";") | pp.White()
-    semicolon = pp.Literal(";").suppress()
-
-    # SQL Statement is any sequence of SQL strings and other characters, ended with semicolon
-    parser = pp.OneOrMore(any_sql_string | other_chars).set_parse_action(" ".join) + semicolon
-    parser = parser.ignore(pp.c_style_comment | snowflake_sql_comment)
-
-    results = []
-    end = 0
-    for result, start, end in parser.scan_string(sql_text):
-        results.append(result[0])
-
-    # Allow last statement to not have a semicolon
-    remainder = sql_text[end:]
-    if remainder.strip():
-        results.append(remainder)
-
+    # Whitespace and comments outside literals collapse to one space; literals are kept verbatim
+    results, current, gap = [], "", False
+    for m in _STATEMENT_TOKEN.finditer(sql_text):
+        if m["gap"]:
+            gap = True
+        elif m["semi"]:
+            if current:
+                results.append(current)
+            current, gap = "", False
+        else:
+            current += (" " if gap and current else "") + m[0]
+            gap = False
+    if current:
+        results.append(current)
     return results
 
 
