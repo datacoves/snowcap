@@ -742,9 +742,18 @@ def _fetch_owner(session: SnowflakeConnection, type_str: str, fqn: FQN) -> Optio
     return ownership_grant[0]["grantee_name"]
 
 
+def _bare_name(name) -> str:
+    # LIKE and ID lookups match the bare name, so drop the identifier's double quotes
+    return ResourceName(name).unquoted.replace('""', '"')
+
+
 def _quote_bare_name(name) -> str:
-    # LIKE and ID lookups match the bare name, so drop the identifier's double quotes before escaping
-    return _single_quote(ResourceName(name).unquoted.replace('""', '"'))
+    return _single_quote(_bare_name(name))
+
+
+def _like_bare_name(name) -> str:
+    # SHOW ... LIKE takes backslash as its escape character, so match \, % and _ literally
+    return _single_quote(re.sub(r"([\\%_])", r"\\\1", _bare_name(name)))
 
 
 def _show_resources(session: SnowflakeConnection, type_str, fqn: FQN, cacheable: bool = True) -> list[dict]:
@@ -774,25 +783,25 @@ def _show_resources(session: SnowflakeConnection, type_str, fqn: FQN, cacheable:
             )
             return filtered_fetch
         else:
-            # LIKE treats % and _ as wildcards, so keep only the exact name
+            # LIKE ignores case, so keep only the exact name
             if fqn.database is None and fqn.schema is None:
-                like_fetch = execute(session, f"SHOW {type_str} LIKE {_quote_bare_name(fqn.name)}", cacheable=cacheable)
+                like_fetch = execute(session, f"SHOW {type_str} LIKE {_like_bare_name(fqn.name)}", cacheable=cacheable)
             elif fqn.database is None:
                 like_fetch = execute(
                     session,
-                    f"SHOW {type_str} LIKE {_quote_bare_name(fqn.name)} IN SCHEMA {fqn.schema}",
+                    f"SHOW {type_str} LIKE {_like_bare_name(fqn.name)} IN SCHEMA {fqn.schema}",
                     cacheable=cacheable,
                 )
             elif fqn.schema is None:
                 like_fetch = execute(
                     session,
-                    f"SHOW {type_str} LIKE {_quote_bare_name(fqn.name)} IN DATABASE {fqn.database}",
+                    f"SHOW {type_str} LIKE {_like_bare_name(fqn.name)} IN DATABASE {fqn.database}",
                     cacheable=cacheable,
                 )
             else:
                 like_fetch = execute(
                     session,
-                    f"SHOW {type_str} LIKE {_quote_bare_name(fqn.name)} IN SCHEMA {fqn.database}.{fqn.schema}",
+                    f"SHOW {type_str} LIKE {_like_bare_name(fqn.name)} IN SCHEMA {fqn.database}.{fqn.schema}",
                     cacheable=cacheable,
                 )
             return _filter_result(like_fetch, name=fqn.name)
@@ -2039,7 +2048,7 @@ def fetch_columns(session: SnowflakeConnection, resource_type: str, fqn: FQN):
 
 
 def fetch_compute_pool(session: SnowflakeConnection, fqn: FQN):
-    show_result = execute(session, f"SHOW COMPUTE POOLS LIKE {_quote_bare_name(fqn.name)}", cacheable=True)
+    show_result = execute(session, f"SHOW COMPUTE POOLS LIKE {_like_bare_name(fqn.name)}", cacheable=True)
     show_result = _filter_result(show_result, name=fqn.name)
 
     if len(show_result) == 0:
@@ -2826,7 +2835,7 @@ def fetch_notebook(session: SnowflakeConnection, fqn: FQN):
 
 
 def fetch_notification_integration(session: SnowflakeConnection, fqn: FQN):
-    show_result = execute(session, f"SHOW NOTIFICATION INTEGRATIONS LIKE {_quote_bare_name(fqn.name)}")
+    show_result = execute(session, f"SHOW NOTIFICATION INTEGRATIONS LIKE {_like_bare_name(fqn.name)}")
     show_result = _filter_result(show_result, name=fqn.name)
     if len(show_result) == 0:
         return None
@@ -3301,7 +3310,7 @@ def fetch_security_integration(session: SnowflakeConnection, fqn: FQN):
 
 def fetch_sequence(session: SnowflakeConnection, fqn: FQN):
     show_result = execute(
-        session, f"SHOW SEQUENCES LIKE {_quote_bare_name(fqn.name)} IN SCHEMA {fqn.database}.{fqn.schema}"
+        session, f"SHOW SEQUENCES LIKE {_like_bare_name(fqn.name)} IN SCHEMA {fqn.database}.{fqn.schema}"
     )
     show_result = _filter_result(show_result, name=fqn.name)
     if len(show_result) == 0:
@@ -3323,7 +3332,7 @@ def fetch_sequence(session: SnowflakeConnection, fqn: FQN):
 def fetch_service(session: SnowflakeConnection, fqn: FQN):
     show_result = execute(
         session,
-        f"SHOW SERVICES LIKE {_quote_bare_name(fqn.name)} IN SCHEMA {fqn.database}.{fqn.schema}",
+        f"SHOW SERVICES LIKE {_like_bare_name(fqn.name)} IN SCHEMA {fqn.database}.{fqn.schema}",
         cacheable=True,
     )
     show_result = _filter_result(show_result, name=fqn.name)
@@ -3349,7 +3358,7 @@ def fetch_service(session: SnowflakeConnection, fqn: FQN):
 
 
 def fetch_share(session: SnowflakeConnection, fqn: FQN):
-    show_result = execute(session, f"SHOW SHARES LIKE {_quote_bare_name(fqn.name)}")
+    show_result = execute(session, f"SHOW SHARES LIKE {_like_bare_name(fqn.name)}")
     shares = _filter_result(show_result, name=fqn.name, kind="OUTBOUND")
 
     if len(shares) == 0:
@@ -3658,7 +3667,7 @@ def fetch_task(session: SnowflakeConnection, fqn: FQN, include_params: bool = Tr
 
 
 def fetch_replication_group(session: SnowflakeConnection, fqn: FQN):
-    show_result = execute(session, f"SHOW REPLICATION GROUPS LIKE {_quote_bare_name(fqn.name)}", cacheable=True)
+    show_result = execute(session, f"SHOW REPLICATION GROUPS LIKE {_like_bare_name(fqn.name)}", cacheable=True)
 
     replication_groups = _filter_result(show_result, name=fqn.name, is_primary="true")
     if len(replication_groups) == 0:
@@ -3683,7 +3692,7 @@ def fetch_replication_group(session: SnowflakeConnection, fqn: FQN):
 
 
 def fetch_resource_monitor(session: SnowflakeConnection, fqn: FQN):
-    show_result = execute(session, f"SHOW RESOURCE MONITORS LIKE {_quote_bare_name(fqn.name)}")
+    show_result = execute(session, f"SHOW RESOURCE MONITORS LIKE {_like_bare_name(fqn.name)}")
     resource_monitors = _filter_result(show_result, name=fqn.name)
     if len(resource_monitors) == 0:
         return None

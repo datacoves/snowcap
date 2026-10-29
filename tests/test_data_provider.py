@@ -3811,6 +3811,18 @@ def test_show_like_keeps_escaped_double_quote(mock_execute):
     assert mock_execute.call_args[0][1] == r"""SHOW SHARES LIKE 'say \"hi\"'"""
 
 
+@patch("snowcap.data_provider.execute", return_value=[])
+def test_show_like_escapes_pattern_characters(mock_execute):
+    fetch_share(MagicMock(), FQN(name=ResourceName('"a\\b_c%d"')))
+    assert mock_execute.call_args[0][1] == r"SHOW SHARES LIKE 'a\\\\b\\_c\\%d'"
+
+
+def test_id_lookup_is_not_like_escaped():
+    from snowcap.data_provider import _quote_bare_name
+
+    assert _quote_bare_name(ResourceName('"a_b"')) == "'a_b'"
+
+
 @patch("snowcap.data_provider.execute", return_value=[{"name": "MYXSHARE", "kind": "OUTBOUND"}])
 def test_show_like_ignores_wildcard_matches(mock_execute):
     assert fetch_share(MagicMock(), FQN(name=ResourceName("MY_SHARE"))) is None

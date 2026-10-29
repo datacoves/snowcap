@@ -14,22 +14,11 @@ Literal = pp.CaselessLiteral
 _SQL_ESCAPES = {"b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t", "0": "\0"}
 
 
-def _decode_escape(m: re.Match) -> str:
-    if m[1] is None:
-        # \xhh and \ooo are bytes, so a run of them decodes as one UTF-8 sequence
-        data = bytes(int(e[1:], 16) if e[0] == "x" else int(e, 8) for e in m[0].split("\\")[1:])
-        try:
-            return data.decode("utf-8")
-        except UnicodeDecodeError as e:
-            raise ValueError(f"String literal escape {m[0]!r} is not valid UTF-8") from e
-    return chr(int(m[1][1:], 16)) if len(m[1]) > 1 else _SQL_ESCAPES.get(m[1], m[1])
-
-
 def _unescape_sql_string(quoted: str) -> str:
     # pyparsing 3.0's own escape handling turns an escaped backslash before t/n into a tab/newline
     return re.sub(
-        r"(?:\\(?:x[0-9a-fA-F]{2}|[0-3][0-7]{2}))+|\\(u[0-9a-fA-F]{4}|.)",
-        _decode_escape,
+        r"\\(u[0-9a-fA-F]{4}|.)",
+        lambda m: chr(int(m[1][1:], 16)) if len(m[1]) == 5 else _SQL_ESCAPES.get(m[1], m[1]),
         quoted[1:-1].replace("''", "'"),
     )
 
@@ -89,28 +78,34 @@ NOTIFICATION_INTEGRATION = Keywords("NOTIFICATION INTEGRATION")
 snowflake_sql_comment = pp.Regex(r"--.*").set_name("Snowflake SQL comment")
 
 
-_STATEMENT_TOKEN = re.compile(
-    r"(?P<str>\$\$\$.*?\$\$\$|\$\$.*?\$\$|'(?:[^'\\]|\\.|'')*'|\"(?:[^\"]|\"\")*\")"
-    r"|(?P<gap>\s+|/\*.*?\*/|--[^\n]*)|(?P<semi>;)|(?P<other>[^\s;'\"$/-]+|.)",
-    re.S,
-)
-
-
 def _split_statements(sql_text):
-    # Whitespace and comments outside literals collapse to one space; literals are kept verbatim
-    results, current, gap = [], "", False
-    for m in _STATEMENT_TOKEN.finditer(sql_text):
-        if m["gap"]:
-            gap = True
-        elif m["semi"]:
-            if current:
-                results.append(current)
-            current, gap = "", False
-        else:
-            current += (" " if gap and current else "") + m[0]
-            gap = False
-    if current:
-        results.append(current)
+    # Define SQL strings
+    single_quote = pp.QuotedString("'", multiline=True, unquote_results=False)
+    double_quote = pp.QuotedString('"', multiline=True, unquote_results=False)
+    double_dollar = pp.QuotedString("$$", multiline=True, unquote_results=False, end_quote_char="$$")
+    triple_dollar = pp.QuotedString("$$$", multiline=True, unquote_results=False, end_quote_char="$$$")
+
+    # Combine all SQL strings into a single parser
+    any_sql_string = pp.MatchFirst([single_quote, double_quote, double_dollar, triple_dollar])
+
+    # Define other characters
+    other_chars = pp.Word(pp.printables, excludeChars=";") | pp.White()
+    semicolon = pp.Literal(";").suppress()
+
+    # SQL Statement is any sequence of SQL strings and other characters, ended with semicolon
+    parser = pp.OneOrMore(any_sql_string | other_chars).set_parse_action(" ".join) + semicolon
+    parser = parser.ignore(pp.c_style_comment | snowflake_sql_comment)
+
+    results = []
+    end = 0
+    for result, start, end in parser.scan_string(sql_text):
+        results.append(result[0])
+
+    # Allow last statement to not have a semicolon
+    remainder = sql_text[end:]
+    if remainder.strip():
+        results.append(remainder)
+
     return results
 
 
