@@ -6,7 +6,7 @@ from inflection import pluralize
 from .builder import tidy_sql
 from .enums import GrantType, ResourceType, resource_type_is_integration
 from .identifiers import FQN, URN
-from .props import BoolProp, IntProp, Props, StringProp, quote_value
+from .props import BoolProp, IntProp, Props, StringProp, _single_quote, quote_value
 from .resource_name import ResourceName
 
 __this__ = sys.modules[__name__]
@@ -129,13 +129,13 @@ def create_hybrid_table(urn: URN, data: dict, props: Props, if_not_exists: bool 
         not_null = " NOT NULL" if column.get("not_null") else ""
 
         if isinstance(column.get("default"), str):
-            default = f" DEFAULT '{column['default']}'"
+            default = f" DEFAULT {_single_quote(column['default'])}"
         elif column.get("default") is not None:
             default = f" DEFAULT {column['default']}"
         else:
             default = ""
 
-        comment = f" COMMENT '{column['comment']}'" if column.get("comment") else ""
+        comment = f" COMMENT {_single_quote(column['comment'])}" if column.get("comment") else ""
         constraint = f" {column['constraint']}" if column.get("constraint") else ""
         col_strs.append(f"{name} {data_type}{not_null}{default}{comment}{constraint}")
 
@@ -322,7 +322,7 @@ def create_table(urn: URN, data: dict, props: Props, if_not_exists: bool = False
 
 
 def create_tag_reference(urn: URN, data: dict, props: Props, if_not_exists: bool = False) -> str:
-    tags_sql = ", ".join([f"{k}='{v}'" for k, v in data["tags"].items()])
+    tags_sql = ", ".join([f"{k}={_single_quote(v)}" for k, v in data["tags"].items()])
     return tidy_sql(
         "ALTER",
         data["object_domain"],

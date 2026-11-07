@@ -17,6 +17,7 @@ from snowcap.lifecycle import (
     create_database,
     create_database_role_grant,
     create_function,
+    create_hybrid_table,
     create_grant,
     create_masking_policy,
     create_procedure,
@@ -644,6 +645,17 @@ class TestCreateTagReference:
         assert "ALTER TABLE MY_DB.MY_SCHEMA.MY_TABLE SET TAG" in result
         assert "env='prod'" in result
         assert "team='data'" in result
+
+    def test_escapes_apostrophe(self):
+        urn = make_urn(ResourceType.TAG_REFERENCE, "REF")
+        data = {"object_domain": "TABLE", "object_name": "T", "tags": {"cost_center": "ops's budget"}}
+        assert "cost_center='ops''s budget'" in create_tag_reference(urn, data, MockProps(""))
+
+
+def test_create_hybrid_table_escapes_default_and_comment():
+    urn = make_urn(ResourceType.HYBRID_TABLE, "T")
+    data = {"columns": [{"name": "id", "data_type": "VARCHAR", "default": "it's", "comment": "o'clock"}]}
+    assert "(id VARCHAR DEFAULT 'it''s' COMMENT 'o''clock')" in create_hybrid_table(urn, data, MockProps(""))
 
 
 class TestCreateView:
