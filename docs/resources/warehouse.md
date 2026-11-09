@@ -87,14 +87,14 @@ warehouses:
 
 * `name` (string, required) - The name of the warehouse.
 * `owner` (string) - The owner of the warehouse. Defaults to "SYSADMIN".
-* `warehouse_type` (string or [WarehouseType](warehouse_type.md)) - The type of the warehouse: STANDARD, SNOWPARK-OPTIMIZED, or ADAPTIVE. Defaults to STANDARD. ADAPTIVE warehouses do not support warehouse_size, min_cluster_count, max_cluster_count, scaling_policy, auto_suspend, auto_resume, initially_suspended, enable_query_acceleration, query_acceleration_max_scale_factor, resource_constraint, or generation.
-* `warehouse_size` (string or [WarehouseSize](warehouse_size.md)) - The size of the warehouse which defines the compute and storage capacity.
-* `generation` (string or [WarehouseGeneration](warehouse_generation.md)) - The standard warehouse generation, either "1" or "2".
-* `resource_constraint` (string or [WarehouseResourceConstraint](warehouse_resource_constraint.md)) - The warehouse resource constraint, either STANDARD_GEN_1/2 for standard warehouses or MEMORY_* for Snowpark-optimized warehouses.
-* `max_query_performance_level` (string or [WarehouseSize](warehouse_size.md)) - The maximum size an ADAPTIVE warehouse may scale to: XSMALL, SMALL, MEDIUM, LARGE, XLARGE, XXLARGE, XXXLARGE, or X4LARGE. Only valid for ADAPTIVE warehouses; Snowflake defaults to XLARGE if omitted.
+* `warehouse_type` (string or WarehouseType) - The type of the warehouse: STANDARD, SNOWPARK-OPTIMIZED, or ADAPTIVE. Defaults to STANDARD. ADAPTIVE warehouses do not support warehouse_size, min_cluster_count, max_cluster_count, scaling_policy, auto_suspend, auto_resume, initially_suspended, enable_query_acceleration, query_acceleration_max_scale_factor, resource_constraint, or generation.
+* `warehouse_size` (string or WarehouseSize) - The size of the warehouse which defines the compute and storage capacity.
+* `generation` (string or WarehouseGeneration) - The standard warehouse generation, either "1" or "2".
+* `resource_constraint` (string or WarehouseResourceConstraint) - The warehouse resource constraint, either STANDARD_GEN_1/2 for standard warehouses or MEMORY_* for Snowpark-optimized warehouses.
+* `max_query_performance_level` (string or WarehouseSize) - The maximum size an ADAPTIVE warehouse may scale to: XSMALL, SMALL, MEDIUM, LARGE, XLARGE, XXLARGE, XXXLARGE, or X4LARGE. Only valid for ADAPTIVE warehouses; Snowflake defaults to XLARGE if omitted.
 * `max_cluster_count` (int) - The maximum number of clusters for the warehouse.
 * `min_cluster_count` (int) - The minimum number of clusters for the warehouse.
-* `scaling_policy` (string or [WarehouseScalingPolicy](warehouse_scaling_policy.md)) - The policy that defines how the warehouse scales.
+* `scaling_policy` (string or WarehouseScalingPolicy) - The policy that defines how the warehouse scales.
 * `auto_suspend` (int) - The time in seconds of inactivity after which the warehouse is automatically suspended.
 * `auto_resume` (bool) - Whether the warehouse should automatically resume when queries are submitted.
 * `initially_suspended` (bool) - Whether the warehouse should start in a suspended state.
