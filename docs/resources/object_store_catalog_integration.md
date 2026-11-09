@@ -1,6 +1,6 @@
 ---
 description: >-
-  An object store catalog integration in Snowflake.
+  An object store catalog integration in Snowflake. Manage it as code with Snowcap: YAML and Python examples and a reference for every field.
 ---
 
 # ObjectStoreCatalogIntegration

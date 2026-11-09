@@ -1,6 +1,6 @@
 ---
 description: >-
-  A Snowservices OAuth security integration in Snowflake.
+  A Snowservices OAuth security integration in Snowflake. Manage it as code with Snowcap: YAML and Python examples and a reference for every field.
 ---
 
 # SnowservicesOAuthSecurityIntegration

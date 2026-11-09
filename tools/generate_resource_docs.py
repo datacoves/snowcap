@@ -196,10 +196,15 @@ def camelcase_to_snakecase(name: str) -> str:
 def default_frontmatter_description(resource_class_name: str) -> str:
     # Every committed description that doesn't have bespoke wording follows
     # this pattern, so it's a reasonable default for resources that don't
-    # have a hand-written one yet (see get_frontmatter_description).
+    # have a hand-written one yet (see get_frontmatter_description). It is the
+    # page's meta description, so it says what the page offers, not just what
+    # the object is: search engines flag descriptions under ~110 characters.
     human_name = camelcase_to_snakecase(resource_class_name).replace("_", " ")
     article = "An" if human_name[0].lower() in "aeiou" else "A"
-    return f"  {article} {human_name} in Snowflake."
+    return (
+        f"  {article} {human_name} in Snowflake. Manage it as code with Snowcap:"
+        " YAML and Python examples and a reference for every field."
+    )
 
 
 def get_frontmatter_description(doc_file: str, resource_class_name: str) -> str:

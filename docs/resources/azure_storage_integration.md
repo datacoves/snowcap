@@ -1,6 +1,6 @@
 ---
 description: >-
-  An Azure storage integration in Snowflake.
+  An Azure storage integration in Snowflake. Manage it as code with Snowcap: YAML and Python examples and a reference for every field.
 ---
 
 # AzureStorageIntegration
