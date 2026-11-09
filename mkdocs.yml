@@ -1,5 +1,10 @@
 site_name: Snowcap
 site_url: https://snowcap.datacoves.com/
+# SUMMARY.md is the GitBook-era table of contents that tools/generate_resource_docs.py
+# still writes; mkdocs uses `nav:` below, so don't publish it as a page.
+exclude_docs: |
+  SUMMARY.md
+
 site_description: Snowflake infrastructure as code
 repo_url: https://github.com/datacoves/snowcap
 repo_name: datacoves/snowcap
