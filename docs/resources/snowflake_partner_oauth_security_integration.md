@@ -1,6 +1,6 @@
 ---
 description: >-
-  A Snowflake partner OAuth security integration.
+  A Snowflake partner OAuth security integration. Manage it as code with Snowcap: YAML and Python examples and a reference for every field.
 ---
 
 # SnowflakePartnerOAuthSecurityIntegration

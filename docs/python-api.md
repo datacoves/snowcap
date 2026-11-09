@@ -1,3 +1,8 @@
+---
+description: >-
+  Use Snowcap from Python instead of the CLI: build resources such as Role, Grant and Warehouse in code, then plan and apply them with a Blueprint.
+---
+
 # Python API
 
 For programmatic control, use the Python API directly instead of the CLI.

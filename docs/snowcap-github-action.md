@@ -1,3 +1,8 @@
+---
+description: >-
+  Automate Snowflake deployments with the Snowcap GitHub Action: plan on every pull request for review, then apply the change when it merges.
+---
+
 # GitHub Action
 
 Automate Snowflake deployments with GitHub Actions using a review-then-apply workflow.

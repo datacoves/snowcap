@@ -1,3 +1,8 @@
+---
+description: >-
+  Which Snowflake privileges Snowcap needs, why it runs as your session role, and how to set up a least-privilege service account for CI/CD deployments.
+---
+
 # Snowflake Permissions
 
 Snowcap runs SQL on your behalf. Whatever role your session uses, that's the role Snowcap uses. It has no elevated access of its own. This means a human operator running `snowcap apply` is doing exactly what they could do by hand in a SQL worksheet, just with reproducibility and version control.

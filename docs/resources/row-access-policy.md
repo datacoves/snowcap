@@ -1,6 +1,6 @@
 ---
 description: >-
-  A row access policy for row-level security.
+  A row access policy for row-level security. Manage it as code with Snowcap: YAML and Python examples and a reference for every field.
 ---
 
 # RowAccessPolicy

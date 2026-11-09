@@ -1,3 +1,8 @@
+---
+description: >-
+  Reference for the Snowcap command line interface: plan, apply and export Snowflake resources from YAML configs, with options for scoping, roles and dry runs.
+---
+
 # Command Line Interface
 
 Snowcap provides a CLI for managing Snowflake resources.

@@ -1,6 +1,6 @@
 ---
 description: >-
-  An email notification integration in Snowflake.
+  An email notification integration in Snowflake. Manage it as code with Snowcap: YAML and Python examples and a reference for every field.
 ---
 
 # EmailNotificationIntegration
