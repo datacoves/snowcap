@@ -213,6 +213,18 @@ def test_a_value_snowflake_does_not_report_never_passes():
     assert ok is None and "reports no comment" in detail
 
 
+def test_a_value_snowflake_does_not_report_fails_when_a_value_was_expected():
+    # TABLE columns[].tags: CREATE leaves out the tag, so Snowflake reports nothing for it.
+    obj = warehouse([("comment", ["a", "b"], ["a", "b"])])
+    row = obj["properties"][0]
+    account = ScriptedAccount(reported={})
+
+    live_audit.test_row(account, obj, row, "DB", 0)
+
+    assert row["snowcap"]["levels"]["L2"] == "fail" and row["snowcap"]["failures"]["L2"] == "create"
+    assert live_audit.landed(account, obj, None, "DB", "comment", "b", "comment")[0] is False
+
+
 def test_combined_leaves_out_rows_that_share_a_field():
     obj = warehouse(
         [

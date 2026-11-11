@@ -5,11 +5,11 @@ into inventory.yaml.
 For each row the script creates one object with the first sample value, then:
 
 - L2 Created: Snowflake reports the declared value (truth queries). Without a truth key, L2 passes
-  only through L3. When the truth key reports no value, L2 is untested.
+  only through L3. When the truth key reports no value and the expected value is NONE or null, L2 is untested.
 - L3 Fetched: snowcap's fetch, read through the spec as plan does, equals Snowflake's value (truth
   queries) or the declared value. When Snowflake reports no value, L3 is untested.
 - L4 Updated: a change to the second sample value lands in Snowflake. When the truth key reports no
-  value after the change, L4 is untested. When ALTER cannot change the property (docs `alter: none`),
+  value after the change and the expected value is NONE or null, L4 is untested. When ALTER cannot change the property (docs `alter: none`),
   L4 passes only if snowcap refuses the change with an error before it sends SQL. A refusal is an
   error that snowcap raises on purpose: a bare Exception, NotImplementedError, or a snowcap.exceptions
   class, raised outside snowcap's fetch code. Any other error is a crash and fails.
@@ -136,6 +136,11 @@ def norm(value) -> Optional[str]:
         return str(value).lower()
     text = str(value).strip().strip("'\"").lower().replace("_", " ")
     return BOOLEAN_WORDS.get(text, text)
+
+
+def means_none(value) -> bool:
+    """Whether an expected value is NONE or null, which a truth key that reports nothing cannot confirm."""
+    return value is None or norm(value) == "none"
 
 
 class Account:
@@ -383,10 +388,10 @@ def landed(
     account: Account, obj: dict, resource, database: str, path: str, expected, truth_key
 ) -> tuple[Optional[bool], str]:
     """Whether Snowflake holds the row's value. Uses the truth query when the row has a key. None when the truth key
-    reports no value: a missing value is not proof that the change landed."""
+    reports no value and the expected value is NONE or null: a missing value is not proof that the change landed."""
     if truth_key:
         reported = account.truth(obj, resource, database).get(truth_key)
-        if reported is None:
+        if reported is None and means_none(expected):
             return None, f"Snowflake reports no {truth_key}"
         return norm(reported) == norm(expected), f"Snowflake reports {truth_key}={reported!r}"
     declared, fetched = read_back(account, resource, path)
@@ -429,7 +434,7 @@ def test_row(account: Account, obj: dict, row: dict, database: str, index: int) 
     reported = account.truth(obj, resource, database).get(truth_key) if truth_key else None
     if truth_key:
         # L2 and L3 are separate checks against Snowflake's own value.
-        if reported is None:
+        if reported is None and means_none(expect[0]):
             levels["L2"] = "untested"
             evidence["L2"] = f"Snowflake reports no {truth_key}, so the create has no reference"
         elif norm(reported) == norm(expect[0]):
