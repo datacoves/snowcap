@@ -11,8 +11,22 @@ from .scope import DatabaseScope, SchemaScope
 Keyword = pp.CaselessKeyword
 Literal = pp.CaselessLiteral
 
-StringLiteral = pp.QuotedString("'", multiline=False, unquote_results=True) | pp.QuotedString(
-    "$$", multiline=True, unquote_results=True
+_SQL_ESCAPES = {"b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t", "0": "\0"}
+
+
+def _unescape_sql_string(quoted: str) -> str:
+    # pyparsing 3.0's own escape handling turns an escaped backslash before t/n into a tab/newline
+    return re.sub(
+        r"\\(u[0-9a-fA-F]{4}|.)",
+        lambda m: chr(int(m[1][1:], 16)) if len(m[1]) == 5 else _SQL_ESCAPES.get(m[1], m[1]),
+        quoted[1:-1].replace("''", "'"),
+    )
+
+
+StringLiteral = pp.QuotedString(
+    "'", esc_char="\\", esc_quote="''", multiline=False, unquote_results=False
+).set_parse_action(lambda t: _unescape_sql_string(t[0])) | pp.QuotedString(
+    "$$", multiline=True, unquote_results=True, convert_whitespace_escapes=False
 )
 Numeric = pp.Word(pp.nums + ".")
 
@@ -64,34 +78,28 @@ NOTIFICATION_INTEGRATION = Keywords("NOTIFICATION INTEGRATION")
 snowflake_sql_comment = pp.Regex(r"--.*").set_name("Snowflake SQL comment")
 
 
+_STATEMENT_TOKEN = re.compile(
+    r"(?P<str>\$\$\$.*?\$\$\$|\$\$.*?\$\$|'(?:[^'\\]|\\.|'')*'|\"(?:[^\"]|\"\")*\")"
+    r"|(?P<gap>\s+|/\*.*?\*/|--[^\n]*)|(?P<semi>;)|(?P<other>[^\s;'\"$/-]+|.)",
+    re.S,
+)
+
+
 def _split_statements(sql_text):
-    # Define SQL strings
-    single_quote = pp.QuotedString("'", multiline=True, unquote_results=False)
-    double_quote = pp.QuotedString('"', multiline=True, unquote_results=False)
-    double_dollar = pp.QuotedString("$$", multiline=True, unquote_results=False, end_quote_char="$$")
-    triple_dollar = pp.QuotedString("$$$", multiline=True, unquote_results=False, end_quote_char="$$$")
-
-    # Combine all SQL strings into a single parser
-    any_sql_string = pp.MatchFirst([single_quote, double_quote, double_dollar, triple_dollar])
-
-    # Define other characters
-    other_chars = pp.Word(pp.printables, excludeChars=";") | pp.White()
-    semicolon = pp.Literal(";").suppress()
-
-    # SQL Statement is any sequence of SQL strings and other characters, ended with semicolon
-    parser = pp.OneOrMore(any_sql_string | other_chars).set_parse_action(" ".join) + semicolon
-    parser = parser.ignore(pp.c_style_comment | snowflake_sql_comment)
-
-    results = []
-    end = 0
-    for result, start, end in parser.scan_string(sql_text):
-        results.append(result[0])
-
-    # Allow last statement to not have a semicolon
-    remainder = sql_text[end:]
-    if remainder.strip():
-        results.append(remainder)
-
+    # Whitespace and comments outside literals collapse to one space; literals are kept verbatim
+    results, current, gap = [], "", False
+    for m in _STATEMENT_TOKEN.finditer(sql_text):
+        if m["gap"]:
+            gap = True
+        elif m["semi"]:
+            if current:
+                results.append(current)
+            current, gap = "", False
+        else:
+            current += (" " if gap and current else "") + m[0]
+            gap = False
+    if current:
+        results.append(current)
     return results
 
 

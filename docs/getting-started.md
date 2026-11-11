@@ -1,3 +1,8 @@
+---
+description: >-
+  Install Snowcap and deploy your first Snowflake resource in minutes: run it with uv, write a YAML config, then plan and apply the change from the CLI.
+---
+
 # Getting Started
 
 **Requirements:** Python 3.10 or higher

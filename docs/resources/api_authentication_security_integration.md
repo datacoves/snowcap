@@ -1,6 +1,6 @@
 ---
 description: >-
-  An API authentication security integration in Snowflake.
+  An API authentication security integration in Snowflake. Manage it as code with Snowcap: YAML and Python examples and a reference for every field.
 ---
 
 # APIAuthenticationSecurityIntegration

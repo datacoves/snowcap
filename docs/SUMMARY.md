@@ -54,6 +54,7 @@
 * [Role](resources/role.md)
 * [RoleGrant](resources/role_grant.md)
 * [S3StorageIntegration](resources/s3storage_integration.md)
+* [SAML2SecurityIntegration](resources/saml2_security_integration.md)
 * [Schema](resources/schema.md)
 * [Sequence](resources/sequence.md)
 * [Service](resources/service.md)

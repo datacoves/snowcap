@@ -1,3 +1,8 @@
+---
+description: >-
+  Why we built Snowcap: how it compares to Terraform, Permifrost and other tools for managing Snowflake roles, grants and permissions at scale.
+---
+
 # Why Snowcap
 
 Picking a tool to manage Snowflake permissions at scale is harder than it should be. The options range from "too general" to "not maintained" to "works fine until you have a thousand roles." Here's what we found.

@@ -1,3 +1,8 @@
+---
+description: >-
+  Snowcap is open-source Snowflake infrastructure as code: define warehouses, roles, grants and users in YAML or Python, then plan and apply changes safely.
+---
+
 # `snowcap` - Snowflake infrastructure as code
 
 ## Brought to you by Datacoves
