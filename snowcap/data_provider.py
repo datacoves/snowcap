@@ -2319,12 +2319,17 @@ def fetch_external_function(session: SnowflakeConnection, fqn: FQN):
     # DESC resolved carries both.
     functions = execute(session, f"SELECT * FROM {fqn.database}.INFORMATION_SCHEMA.FUNCTIONS", cacheable=True)
     data = next(
-        row
-        for row in functions
-        if resource_name_from_snowflake_metadata(row["FUNCTION_SCHEMA"]) == fqn.schema
-        and resource_name_from_snowflake_metadata(row["FUNCTION_NAME"]) == fqn.name
-        and row["ARGUMENT_SIGNATURE"] == properties["signature"]
+        (
+            row
+            for row in functions
+            if resource_name_from_snowflake_metadata(row["FUNCTION_SCHEMA"]) == fqn.schema
+            and resource_name_from_snowflake_metadata(row["FUNCTION_NAME"]) == fqn.name
+            and row["ARGUMENT_SIGNATURE"] == properties["signature"]
+        ),
+        None,
     )
+    if data is None:
+        return None
 
     def _set_or_none(value: str) -> Optional[str]:
         return None if value == "not set" else value
@@ -2347,7 +2352,7 @@ def fetch_external_function(session: SnowflakeConnection, fqn: FQN):
         "request_translator": _set_or_none(properties["request_translator"]),
         "response_translator": _set_or_none(properties["response_translator"]),
         "as_": properties["body"],
-        "owner": _quote_snowflake_identifier(data["FUNCTION_OWNER"]),
+        "owner": _quote_snowflake_identifier(data["FUNCTION_OWNER"]) if data["FUNCTION_OWNER"] else "",
     }
 
 

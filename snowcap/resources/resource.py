@@ -767,14 +767,21 @@ class NamedResource:
         return self.scope.fully_qualified_name(self.container, self.name)
 
 
+_SIGNATURE_RESOURCE_TYPES = frozenset({ResourceType.FUNCTION, ResourceType.PROCEDURE, ResourceType.EXTERNAL_FUNCTION})
+
+
 class ResourcePointer(NamedResource, Resource, ResourceContainer):
     def __init__(self, name: Union[str, ResourceName], resource_type: ResourceType):
         self._resource_type: ResourceType = resource_type
         self.scope = RESOURCE_SCOPES[resource_type]
         super().__init__(name)
         # A function is identified by its argument types as well as its name, and
-        # NamedResource keeps only the name.
-        self._arg_types = parse_identifier(name)["arg_types"] if isinstance(name, str) and "(" in name else None
+        # NamedResource keeps only the name. Any other quoted name can hold a literal `(`.
+        self._arg_types = (
+            parse_identifier(name)["arg_types"]
+            if resource_type in _SIGNATURE_RESOURCE_TYPES and isinstance(name, str) and "(" in name
+            else None
+        )
 
         # Don't want to do this for all implicit resources but making an exception for PUBLIC schema
         # If this points to a database, assume it includes a PUBLIC schema

@@ -1181,6 +1181,23 @@ class TestFetchExternalFunction:
 
         assert fetch_external_function(MagicMock(), self.FQN) is None
 
+    @patch("snowcap.data_provider.execute")
+    def test_no_information_schema_row_for_the_signature_returns_none(self, mock_execute):
+        responses = self.responses()
+        responses["SELECT * FROM DB.INFORMATION_SCHEMA.FUNCTIONS"] = []
+        mock_execute.side_effect = self.fake_execute(responses)
+
+        assert fetch_external_function(MagicMock(), self.FQN) is None
+
+    @patch("snowcap.data_provider.execute")
+    def test_null_owner_degrades_to_empty(self, mock_execute):
+        responses = self.responses()
+        for row in responses["SELECT * FROM DB.INFORMATION_SCHEMA.FUNCTIONS"]:
+            row["FUNCTION_OWNER"] = None
+        mock_execute.side_effect = self.fake_execute(responses)
+
+        assert fetch_external_function(MagicMock(), self.FQN)["owner"] == ""
+
 
 class TestFetchWarehouse:
     """Tests for fetch_warehouse normalization."""

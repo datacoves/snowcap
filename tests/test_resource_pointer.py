@@ -20,3 +20,23 @@ def test_resource_pointer_type_checking():
 
     with pytest.raises(TypeError):
         res.NetworkPolicy(name="my_network_policy", allowed_network_rule_list=[111])
+
+
+def test_quoted_name_with_parenthesis_is_not_a_signature():
+    """Only a function or procedure name carries argument types. A quoted identifier of
+    any other type can hold a literal `(`."""
+    ptr = ResourcePointer(name='"MY(POOL)"', resource_type=ResourceType.WAREHOUSE)
+    assert ptr.fqn.arg_types is None
+    assert str(ptr.fqn) == '"MY(POOL)"'
+    assert ptr == ResourcePointer(name='"MY(POOL)"', resource_type=ResourceType.WAREHOUSE)
+
+
+@pytest.mark.parametrize(
+    "resource_type",
+    [ResourceType.FUNCTION, ResourceType.PROCEDURE, ResourceType.EXTERNAL_FUNCTION],
+)
+def test_function_signature_is_part_of_identity(resource_type):
+    ptr = ResourcePointer(name="DB.SCH.FN(NUMBER, VARCHAR)", resource_type=resource_type)
+    assert ptr.fqn.arg_types == ["NUMBER", "VARCHAR"]
+    assert str(ptr.fqn) == "DB.SCH.FN(NUMBER, VARCHAR)"
+    assert ptr != ResourcePointer(name="DB.SCH.FN(NUMBER)", resource_type=resource_type)
