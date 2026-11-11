@@ -1,3 +1,4 @@
+import re
 from typing import Optional, Union
 
 import pyparsing as pp
@@ -209,6 +210,27 @@ class URN:
 #         return f"ResourceLocator(resource_key='{self.resource_key}', locator='{self.locator}')"
 
 
+# SHOW GRANTS quotes a function's signature and return type into its name: "FN(X VARCHAR):OBJECT"
+_QUOTED_SIGNATURE = re.compile(r'^"([^"(]*)(\(.*\):.+)"$')
+
+
+def _split_signature(scoped_name: str) -> tuple[str, Optional[str]]:
+    """Split `db.sch.fn(args)` into the name and the argument list. A ( inside quotes belongs to the name."""
+    if "(" not in scoped_name:
+        return scoped_name, None
+    in_quotes = False
+    for i, char in enumerate(scoped_name):
+        if char == '"':
+            in_quotes = not in_quotes
+        elif char == "(" and not in_quotes:
+            return scoped_name[:i], scoped_name[i:]
+    *qualifiers, name = smart_split(scoped_name, ".")
+    match = _QUOTED_SIGNATURE.match(name)
+    if match is None:
+        return scoped_name, None
+    return ".".join([*qualifiers, f'"{match.group(1)}"']), match.group(2)
+
+
 def parse_identifier(identifier: str, is_db_scoped=False) -> dict:
     scoped_name, param_str = smart_split(identifier, "?") if "?" in identifier else (identifier, "")
     params = {}
@@ -218,15 +240,8 @@ def parse_identifier(identifier: str, is_db_scoped=False) -> dict:
             params[k] = v
 
     arg_types = None
-    if "(" in scoped_name:
-        args_start = scoped_name.find("(")
-        if scoped_name.endswith('"'):
-            # Handle situation such as `a.b."c(x varchar):varchar(12345)"`
-            scoped_name = scoped_name.rstrip('"')
-            scoped_name, args_str = scoped_name[:args_start], scoped_name[args_start:]
-            scoped_name += '"'
-        else:
-            scoped_name, args_str = scoped_name[:args_start], scoped_name[args_start:]
+    scoped_name, args_str = _split_signature(scoped_name)
+    if args_str is not None:
         args_str = ":".join(smart_split(args_str, ":")[:-1]) if ":" in args_str else args_str  # Strip return type
         arg_types = [arg.strip() for arg in smart_split(args_str.strip("()"), ",") if arg.strip()]
 

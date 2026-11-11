@@ -3,7 +3,7 @@ import pytest
 import pyparsing as pp
 
 from snowcap import resources as res
-from snowcap.identifiers import parse_URN, smart_split
+from snowcap.identifiers import parse_identifier, parse_URN, smart_split
 from snowcap.parse import FullyQualifiedIdentifier
 from snowcap.resource_name import ResourceName
 
@@ -109,3 +109,32 @@ def test_smart_split():
     assert smart_split("\"test.only\".'double.quotes'.work", ".") == ['"test.only"', "'double", "quotes'", "work"]
     assert smart_split('"test max" split works', " ", 1) == ['"test max"', "split works"]
     assert smart_split('test!escaping!\\"still!splits\\"', "!") == ["test", "escaping", '\\"still', 'splits\\"']
+
+
+@pytest.mark.parametrize(
+    "identifier, name, arg_types",
+    [
+        # A ( inside quotes belongs to the name.
+        ('"T(X)"', '"T(X)"', None),
+        ('DB.SCH."T(X)"', '"T(X)"', None),
+        ('DB.SCH."T(X)"?a=b', '"T(X)"', None),
+        ('DB.SCH."my(fn"(VARCHAR)', '"my(fn"', ["VARCHAR"]),
+        # A ( outside quotes starts the signature.
+        ("DB.SCH.FN(NUMBER, VARCHAR)", "FN", ["NUMBER", "VARCHAR"]),
+        ('DB.SCH."my fn"(VARCHAR)', '"my fn"', ["VARCHAR"]),
+        ("DB.SCH.FN(VARCHAR):VARCHAR", "FN", ["VARCHAR"]),
+        ("FN()", "FN", []),
+        # SHOW GRANTS quotes a function's signature and return type into its name.
+        ('DB.SCH."FN(X VARCHAR):OBJECT"', '"FN"', ["X VARCHAR"]),
+        ('DB.SCH."FN():VARCHAR(16777216)"', '"FN"', []),
+    ],
+)
+def test_parse_identifier_signature(identifier, name, arg_types):
+    parsed = parse_identifier(identifier)
+    assert parsed["name"] == name
+    assert parsed["arg_types"] == arg_types
+
+
+def test_quoted_table_name_with_parenthesis():
+    tbl = res.Table(name='"T(X)"', database="DB", schema="SCH", columns=[{"name": "A", "data_type": "INT"}])
+    assert str(tbl.fqn) == 'DB.SCH."T(X)"'
