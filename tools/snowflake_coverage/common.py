@@ -49,9 +49,10 @@ import base64
 import hashlib
 import json
 import re
+import sys
 from dataclasses import fields
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Optional
 
 import yaml
 
@@ -70,6 +71,7 @@ SECRET = re.compile(r"\{secret:(\w+)\}")
 # a valid AES key for client-side encryption (Snowflake accepts it unpadded), and AWS accepts it as a key id, which
 # padding breaks. It has no entropy, so even a fragment of one in a truncated error message is not credential-shaped.
 # Byte values 1 to 61 encode without + or /, which covers the first 61 names.
+MAX_SECRETS = 61
 _secrets: dict[str, str] = {}
 
 
@@ -118,14 +120,16 @@ def object_label(obj: dict) -> str:
     return obj["object"] + (f":{obj['variant']}" if obj["variant"] else "")
 
 
-def select_objects(inventory: dict, labels: Optional[list[str]]) -> Iterator[dict]:
-    """Yield the modeled objects whose label (OBJECT or OBJECT:variant) is in labels, or all when labels is empty.
+def select_objects(inventory: dict, labels: Optional[list[str]]) -> list[dict]:
+    """The modeled objects whose label (OBJECT or OBJECT:variant) is in labels, or all when labels is empty.
 
-    Objects without a snowcap block have docs rows only and are not mapped to snowcap yet.
+    Objects without a snowcap block have docs rows only and are not mapped to snowcap yet. A label that names no
+    modeled object exits with an error, so a mistyped label does not look like a clean run.
     """
-    for obj in inventory["objects"]:
-        if obj.get("snowcap", {}).get("class") and (not labels or object_label(obj) in labels):
-            yield obj
+    modeled = [obj for obj in inventory["objects"] if obj.get("snowcap", {}).get("class")]
+    if unknown := sorted(set(labels or []) - {object_label(obj) for obj in modeled}):
+        sys.exit("No modeled object has the label: " + ", ".join(unknown))
+    return [obj for obj in modeled if not labels or object_label(obj) in labels]
 
 
 def resource_class(obj: dict) -> type:
@@ -155,6 +159,8 @@ def map_strings(value, change):
 
 def secret(name: str) -> str:
     """The run's value for {secret:name}."""
+    if name not in _secrets and len(_secrets) == MAX_SECRETS:
+        raise ValueError(f"secret() encodes at most {MAX_SECRETS} names without + or /")
     return _secrets.setdefault(name, base64.b64encode(bytes([len(_secrets) + 1]) * 16).decode().rstrip("="))
 
 
@@ -185,7 +191,8 @@ def build_resource(obj: dict, name: str, database: str, owner: str, values: Opti
 
 
 def testable_rows(obj: dict) -> list[dict]:
-    """Rows with samples whose path heads a spec field, plus tags rows of a TaggableResource."""
+    """Rows with samples whose path heads a spec field, plus tags rows of a TaggableResource. A row that snowcap does
+    not model (field: null) is not testable, even with a sample."""
     cls = resource_class(obj)
     spec_fields = {f.name for f in fields(cls.spec)}
     if issubclass(cls, TaggableResource):
@@ -195,5 +202,6 @@ def testable_rows(obj: dict) -> list[dict]:
         for p in obj["properties"]
         if p["snowcap"].get("sample")
         and not p["snowcap"].get("n_a")
+        and p["snowcap"].get("field")
         and top_field(p["snowcap"]["field"]) in spec_fields
     ]

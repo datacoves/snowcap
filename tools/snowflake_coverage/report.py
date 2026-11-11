@@ -24,23 +24,33 @@ KINDS = {
     "not_read": "snowcap does not read the value back",
     "not_planned": "A change to the value plans nothing",
     "update_crash": "snowcap crashes while it plans the change",
-    "fetch_crash": "snowcap crashes while it reads the object",
+    "fetch_crash": "snowcap fails while it reads the object",
     "not_landed": "The change runs but does not land",
     "refuses_supported": "snowcap refuses a change that ALTER supports",
     "drift": "Plan is not empty after create or change",
 }
 
-LIMITS = [
-    "A change to any input of an object, docs fields included, clears that object's live results until the next "
-    "live run.",
-    "List values are compared as strings, and normalization strips quotes. A sample that differs only in quotes is a "
-    "weak test.",
-    "An `args[].data_type` L4 pass creates a new function overload. L5 shows this.",
-    "The combined test cannot mix fields that exclude each other.",
-    "`owner` rows are not sampled: the harness sets the owner to the test role.",
-    "Objects that need paid compute, another account, or another edition are docs only, with the reason in their "
-    "section.",
-]
+
+def limits(supported: list[dict]) -> list[str]:
+    owners = sorted(
+        object_label(obj)
+        for obj in supported
+        for row in obj["properties"]
+        if row["snowcap"].get("field") == "owner" and row["snowcap"].get("sample")
+    )
+    return [
+        "A change to any input of an object, docs fields included, clears that object's live results until the next "
+        "live run.",
+        "List values are compared as strings, and normalization strips quotes. A sample that differs only in quotes "
+        "is a weak test.",
+        "An `args[].data_type` L4 pass creates a new function overload. L5 shows this.",
+        "The combined test cannot mix fields that exclude each other, or rows that share one field.",
+        f"`owner` has a live sample only for {', '.join(owners) or 'no object'}. The other `owner` rows are untested, "
+        "because the harness sets the owner to the test role.",
+        "Objects that need paid compute, another account, or another edition are docs only, with the reason in their "
+        "section.",
+    ]
+
 
 # Throwaway names carry the test database name, for example COVERAGE_TABLE_96DBABC6.
 THROWAWAY = re.compile(r"COVERAGE_[A-Z0-9_]*?_[0-9A-F]{8}")
@@ -113,8 +123,11 @@ def object_section(obj: dict) -> list[str]:
             f"{tested['snowflake_version']}. {len(rows['pass'])} pass, {len(rows['fail'])} fail, "
             f"{len(rows['unmodeled'])} not modeled, {len(rows['untested'])} without a live sample."
         )
-    else:
+    elif snowcap["test"] == "docs_only":
         status = f"Docs only: {prose(snowcap['test_reason']).rstrip('.')}."
+    else:
+        reason = snowcap.get("test_reason")
+        status = "Not tested live" + (f": {prose(reason).rstrip('.')}" if reason else "") + "."
     lines = [f"### {label}", "", f"{status} Docs: {docs}", ""]
     for row in rows["fail"]:
         lines += failing_item(row)
@@ -215,13 +228,14 @@ def build(inventory: dict) -> str:
     lines += ["## Other code findings", ""]
     lines += [f"- [{'x' if f['fixed'] else ' '}] {f['finding']} (`{f['path']}`)" for f in meta["code_findings"]]
     lines += ["", "## Limits of these results", ""]
-    lines += [f"- {limit}" for limit in LIMITS]
+    lines += [f"- {limit}" for limit in limits(supported)]
     lines += [
         "",
         "## How to update",
         "",
         "Live tests need the test account credentials in `tests/.env`. They create objects in throwaway databases "
-        "and drop them, also on failure.",
+        "and drop them, also on failure. The ACCOUNT object changes account parameters, and its cleanup sets each one "
+        "back to its value before the run.",
         "",
         "```sh",
         "uv run python tools/snowflake_coverage/static_map.py            # L1 and static candidates",

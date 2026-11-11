@@ -37,7 +37,7 @@ One fix can close several items when they share a cause.
 | snowcap does not read the value back | 59 | [API INTEGRATION:aws_api_gateway](#api-integrationaws_api_gateway) (1), [API INTEGRATION:google_api_gateway](#api-integrationgoogle_api_gateway) (1), [CATALOG INTEGRATION:iceberg_rest](#catalog-integrationiceberg_rest) (1), [EVENT TABLE](#event-table) (2), [EXTERNAL VOLUME](#external-volume) (3), [FUNCTION:javascript](#functionjavascript) (1), [ICEBERG TABLE:snowflake](#iceberg-tablesnowflake) (2), [NOTEBOOK](#notebook) (1), [NOTIFICATION INTEGRATION:inbound_azure](#notification-integrationinbound_azure) (1), [ROLE](#role) (1), [SECRET:generic_string](#secretgeneric_string) (1), [SECRET:oauth2_authorization_code](#secretoauth2_authorization_code) (1), [SECRET:password](#secretpassword) (1), [SECURITY INTEGRATION:api_auth_authorization_code](#security-integrationapi_auth_authorization_code) (1), [SECURITY INTEGRATION:api_auth_client_credentials](#security-integrationapi_auth_client_credentials) (1), [SECURITY INTEGRATION:snowflake_oauth_custom](#security-integrationsnowflake_oauth_custom) (2), [STAGE:external_azure](#stageexternal_azure) (3), [STAGE:external_gcs](#stageexternal_gcs) (3), [STAGE:external_onelake](#stageexternal_onelake) (3), [STAGE:external_s3](#stageexternal_s3) (8), [STAGE:internal](#stageinternal) (1), [STORAGE INTEGRATION:azure](#storage-integrationazure) (1), [STREAM:table](#streamtable) (2), [STREAM:view](#streamview) (2), [TABLE](#table) (8), [USER](#user) (4), [VIEW](#view) (2), [WAREHOUSE](#warehouse) (1) |
 | A change to the value plans nothing | 21 | [CATALOG INTEGRATION:iceberg_rest](#catalog-integrationiceberg_rest) (8), [ICEBERG TABLE:snowflake](#iceberg-tablesnowflake) (5), [MATERIALIZED VIEW](#materialized-view) (1), [TABLE](#table) (5), [VIEW](#view) (2) |
 | snowcap crashes while it plans the change | 2 | [SECRET:oauth2_authorization_code](#secretoauth2_authorization_code) (2) |
-| snowcap crashes while it reads the object | 30 | [AUTHENTICATION POLICY](#authentication-policy) (8), [FUNCTION:python](#functionpython) (12), [SECRET:oauth2_client_credentials](#secretoauth2_client_credentials) (3), [SECURITY INTEGRATION:api_auth_client_credentials](#security-integrationapi_auth_client_credentials) (1), [SECURITY INTEGRATION:snowflake_oauth_partner](#security-integrationsnowflake_oauth_partner) (6) |
+| snowcap fails while it reads the object | 30 | [AUTHENTICATION POLICY](#authentication-policy) (8), [FUNCTION:python](#functionpython) (12), [SECRET:oauth2_client_credentials](#secretoauth2_client_credentials) (3), [SECURITY INTEGRATION:api_auth_client_credentials](#security-integrationapi_auth_client_credentials) (1), [SECURITY INTEGRATION:snowflake_oauth_partner](#security-integrationsnowflake_oauth_partner) (6) |
 | The change runs but does not land | 6 | [EXTERNAL VOLUME](#external-volume) (6) |
 | Plan is not empty after create or change | 17 | [EXTERNAL VOLUME](#external-volume) (2), [FUNCTION:javascript](#functionjavascript) (1), [NOTIFICATION INTEGRATION:inbound_azure](#notification-integrationinbound_azure) (2), [USER](#user) (12) |
 
@@ -2116,13 +2116,13 @@ Modeled, without a live sample: `warehouse_type`, `resource_constraint`, `initia
 - A change to any input of an object, docs fields included, clears that object's live results until the next live run.
 - List values are compared as strings, and normalization strips quotes. A sample that differs only in quotes is a weak test.
 - An `args[].data_type` L4 pass creates a new function overload. L5 shows this.
-- The combined test cannot mix fields that exclude each other.
-- `owner` rows are not sampled: the harness sets the owner to the test role.
+- The combined test cannot mix fields that exclude each other, or rows that share one field.
+- `owner` has a live sample only for PROCEDURE:python, SCHEMA, TABLE. The other `owner` rows are untested, because the harness sets the owner to the test role.
 - Objects that need paid compute, another account, or another edition are docs only, with the reason in their section.
 
 ## How to update
 
-Live tests need the test account credentials in `tests/.env`. They create objects in throwaway databases and drop them, also on failure.
+Live tests need the test account credentials in `tests/.env`. They create objects in throwaway databases and drop them, also on failure. The ACCOUNT object changes account parameters, and its cleanup sets each one back to its value before the run.
 
 ```sh
 uv run python tools/snowflake_coverage/static_map.py            # L1 and static candidates

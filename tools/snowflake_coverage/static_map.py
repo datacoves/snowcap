@@ -49,9 +49,12 @@ def fetched_keys(cls) -> Optional[set[str]]:
     return None if fetch is None else returned_keys(fetch)
 
 
-def returned_keys(func) -> set[str]:
+def returned_keys(func, seen: frozenset = frozenset()) -> set[str]:
     """String keys of the dicts that func returns: a dict literal, a named dict that it builds with a literal and item
-    assignments, or the result of another function in its module that returns one of these."""
+    assignments, or the result of another function in its module that returns one of these. seen holds the functions
+    already on the call path, so recursive helpers end the walk."""
+    if func in seen:
+        return set()
     nodes = list(ast.walk(ast.parse(inspect.getsource(func).lstrip())))
     returns = [n.value for n in nodes if isinstance(n, ast.Return) and n.value is not None]
     returned_names = {r.id for r in returns if isinstance(r, ast.Name)}
@@ -63,7 +66,7 @@ def returned_keys(func) -> set[str]:
             and isinstance(r.func, ast.Name)
             and inspect.isfunction(helper := func.__globals__.get(r.func.id))
         ):
-            keys |= returned_keys(helper)
+            keys |= returned_keys(helper, seen | {func})
     for node in nodes:
         if isinstance(node, ast.Assign) and any(
             isinstance(t, ast.Name) and t.id in returned_names for t in node.targets
@@ -135,7 +138,8 @@ def l1(cls, field: str) -> bool:
     head, *rest = path_steps(field)
     if head not in types:
         return False
-    if rest[:1] != ["[]"]:
+    # `head` and `head[]` name the field itself.
+    if rest[:1] != ["[]"] or len(rest) == 1:
         return True
     element, key = get_args(types[head])[0], rest[1]
     if hasattr(element, "spec"):

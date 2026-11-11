@@ -5,22 +5,28 @@ into inventory.yaml.
 For each row the script creates one object with the first sample value, then:
 
 - L2 Created: Snowflake reports the declared value (truth queries). Without a truth key, L2 passes
-  only through L3.
+  only through L3. When the truth key reports no value, L2 is untested.
 - L3 Fetched: snowcap's fetch, read through the spec as plan does, equals Snowflake's value (truth
   queries) or the declared value. When Snowflake reports no value, L3 is untested.
-- L4 Updated: a change to the second sample value lands in Snowflake. When ALTER cannot change the
-  property (docs `alter: none`), L4 passes only if snowcap refuses the change with an error before
-  it sends SQL. A refusal is an error that snowcap raises on purpose: a bare Exception,
-  NotImplementedError, or a snowcap.exceptions class, raised outside snowcap's fetch code. Any other
-  error is a crash and fails.
+- L4 Updated: a change to the second sample value lands in Snowflake. When the truth key reports no
+  value after the change, L4 is untested. When ALTER cannot change the property (docs `alter: none`),
+  L4 passes only if snowcap refuses the change with an error before it sends SQL. A refusal is an
+  error that snowcap raises on purpose: a bare Exception, NotImplementedError, or a snowcap.exceptions
+  class, raised outside snowcap's fetch code. Any other error is a crash and fails.
 - L5 Round trip: plan shows no change after the create and after the change. When snowcap
   correctly refuses the change, nothing is applied, so L5 is n/a.
+
+A plan only reads the account, so an error while snowcap plans, for example a fetch query that Snowflake rejects, is a
+read failure. It fails L3 (or L4 when the plan is for the change), never L2, because nothing was created yet.
 
 A nested row (`columns[].comment`, `credentials.aws_key_id`) declares and plans the field its path heads,
 and L3 compares the values the path names. A tags row tests the TagReference that snowcap plans for the object.
 
 It also runs one combined test per object: every combinable SET property changes in one plan, and
 each value must land.
+
+The ACCOUNT object tests account parameters, and its cleanup unsets each one. The final cleanup then sets each
+parameter that had an account-level value back to that value.
 
 Every object runs in its own throwaway database. The object's setup SQL runs in it first. Account-level test
 objects are dropped after each row. The final cleanup runs also on failure: it drops the remaining test objects,
@@ -33,6 +39,7 @@ the run goes on to the next object, and the script exits with an error that name
 Usage: uv run python tools/snowflake_coverage/live_audit.py [OBJECT[:variant] ...]
 """
 
+import collections
 import contextlib
 import copy
 import datetime
@@ -43,6 +50,7 @@ import sys
 import traceback
 import uuid
 from pathlib import Path
+from typing import Optional
 
 import snowflake.connector
 
@@ -93,17 +101,22 @@ class Crashed(Exception):
     rejected a value that Snowflake accepts."""
 
 
+class ReadFailed(Exception):
+    """snowcap could not read the account: Snowflake rejected one of its fetch queries, or its fetch code crashed."""
+
+
 def snowcap_error(err: Exception) -> Exception:
     """Classify an error that snowcap raised while it planned or compiled a change.
 
     A read failure is never a refusal: data_provider raises bare Exception for fetches it does not implement
     (partner security integration oauth_client), and that must not pass L4.
     """
-    deliberate = type(err) in (Exception, NotImplementedError) or type(err).__module__ == "snowcap.exceptions"
-    reading = any(
+    if any(
         frame.f_globals.get("__name__") == "snowcap.data_provider" for frame, _ in traceback.walk_tb(err.__traceback__)
-    )
-    return (Refused if deliberate and not reading else Crashed)(short(err))
+    ):
+        return ReadFailed(short(err))
+    deliberate = type(err) in (Exception, NotImplementedError) or type(err).__module__ == "snowcap.exceptions"
+    return (Refused if deliberate else Crashed)(short(err))
 
 
 class NotPlanned(Exception):
@@ -115,7 +128,10 @@ def short(err: BaseException) -> str:
     return f"{type(err).__name__}: {text[:300]}"
 
 
-def norm(value) -> str:
+def norm(value) -> Optional[str]:
+    """The value as comparable text. None stays None, so a missing value never equals the word NONE."""
+    if value is None:
+        return None
     if isinstance(value, bool):
         return str(value).lower()
     text = str(value).strip().strip("'\"").lower().replace("_", " ")
@@ -146,12 +162,13 @@ class Account:
         return map_strings(value, lambda text: EXTERNAL_ID.sub("SFCRole=<id>", text.replace(self.locator, "<account>")))
 
     def plan(self, resource) -> tuple[Blueprint, list]:
+        """The plan for the resource. A plan only reads the account, so every Snowflake error is a ReadFailed."""
         blueprint = Blueprint(resources=[resource])
         try:
             with contextlib.redirect_stdout(io.StringIO()):
                 return blueprint, blueprint.plan(self.conn)
-        except snowflake.connector.errors.Error:
-            raise
+        except snowflake.connector.errors.Error as err:
+            raise ReadFailed(short(err)) from err
         except Exception as err:
             raise snowcap_error(err) from err
 
@@ -176,13 +193,33 @@ class Account:
         finally:
             self.cur.execute(f"USE ROLE {TEST_ROLE}")
 
-    def create(self, resource) -> list[str]:
+    def create(self, resource, evidence: Optional[dict] = None) -> None:
+        """Plan and apply the create. The SQL goes into evidence before the apply, so a create that Snowflake rejects
+        keeps the SQL it rejected."""
         blueprint, plan = self.plan(resource)
         sql = self.sql(plan)
+        if evidence is not None:
+            evidence["create_sql"] = sql
         if isinstance(type(resource).scope, AccountScope):
             self.account_objects[str(resource.urn)] = resource
         self.apply(blueprint, plan)
-        return sql
+
+    def parameter_restores(self, names: list[str]) -> list[str]:
+        """The SQL that sets each account parameter in names back to its current account-level value. A parameter
+        at its default needs none: the cleanup's UNSET already restores it."""
+        restores = []
+        for name in names:
+            # LIKE treats _ as a wildcard, so keep only the row of the parameter itself.
+            for row in self.cur.execute(f"SHOW PARAMETERS LIKE '{name}' IN ACCOUNT").fetchall():
+                row = {k.lower(): v for k, v in row.items()}
+                if row["key"] == name and row["level"] == "ACCOUNT":
+                    value = (
+                        row["value"]
+                        if row["type"] in ("BOOLEAN", "NUMBER")
+                        else "'{}'".format(row["value"].replace("'", "''"))
+                    )
+                    restores.append(f"ALTER ACCOUNT SET {name} = {value}")
+        return restores
 
     def clean_up(self, teardown: list[str]) -> None:
         """Drop the account-level test objects with snowcap's own DROP SQL, newest first, then run teardown SQL.
@@ -235,10 +272,8 @@ class Account:
         try:
             data = data_provider.fetch_resource(self.conn, resource.urn)
             return None if data is None else type(resource).spec(**data).to_dict(self.edition)
-        except snowflake.connector.errors.Error:
-            raise
         except Exception as err:
-            raise Crashed(short(err)) from err
+            raise ReadFailed(short(err)) from err
 
 
 def declare(obj: dict, name: str, database: str, values: dict):
@@ -340,12 +375,19 @@ def plan_drift(account: Account, resource, path: str) -> list[str]:
         return [f"plan refuses: {err}"]
     except Crashed as err:
         return [f"plan crashes: {err}"]
+    except ReadFailed as err:
+        return [f"plan read fails: {err}"]
 
 
-def landed(account: Account, obj: dict, resource, database: str, path: str, expected, truth_key) -> tuple[bool, str]:
-    """Whether Snowflake holds the row's value. Uses the truth query when the row has a key."""
+def landed(
+    account: Account, obj: dict, resource, database: str, path: str, expected, truth_key
+) -> tuple[Optional[bool], str]:
+    """Whether Snowflake holds the row's value. Uses the truth query when the row has a key. None when the truth key
+    reports no value: a missing value is not proof that the change landed."""
     if truth_key:
         reported = account.truth(obj, resource, database).get(truth_key)
+        if reported is None:
+            return None, f"Snowflake reports no {truth_key}"
         return norm(reported) == norm(expected), f"Snowflake reports {truth_key}={reported!r}"
     declared, fetched = read_back(account, resource, path)
     return fetched == declared, f"snowcap fetches {fetched!r}"
@@ -374,7 +416,11 @@ def test_row(account: Account, obj: dict, row: dict, database: str, index: int) 
 
     try:
         resource = make(before)
-        evidence["create_sql"] = account.create(resource)
+        account.create(resource, evidence)
+    except ReadFailed as err:
+        levels.update(L2="untested", L4="untested", L5="untested")
+        fail("L3", "fetch_crash", f"snowcap's read fails while it plans the create: {err}")
+        return
     except (Refused, Crashed, snowflake.connector.errors.Error) as err:
         levels.update(L3="untested", L4="untested", L5="untested")
         fail("L2", "create", f"create failed: {short(err)}")
@@ -383,14 +429,17 @@ def test_row(account: Account, obj: dict, row: dict, database: str, index: int) 
     reported = account.truth(obj, resource, database).get(truth_key) if truth_key else None
     if truth_key:
         # L2 and L3 are separate checks against Snowflake's own value.
-        if norm(reported) == norm(expect[0]):
+        if reported is None:
+            levels["L2"] = "untested"
+            evidence["L2"] = f"Snowflake reports no {truth_key}, so the create has no reference"
+        elif norm(reported) == norm(expect[0]):
             levels["L2"] = "pass"
         else:
             fail("L2", "create", f"declared {before!r}, Snowflake reports {truth_key}={reported!r}")
     try:
         declared, fetched = read_back(account, resource, path)
-    except Crashed as err:
-        fail("L3", "fetch_crash", f"snowcap fetch crashes: {err}")
+    except ReadFailed as err:
+        fail("L3", "fetch_crash", f"snowcap's fetch fails: {err}")
     else:
         if not truth_key or (not is_plain(path) and levels["L2"] == "pass"):
             # No truth for the path's values: either no truth key at all, or a truth that reports one value of a
@@ -417,7 +466,7 @@ def test_row(account: Account, obj: dict, row: dict, database: str, index: int) 
             evidence["L3"] = f"Snowflake reports no {truth_key}, so the read-back has no reference"
         else:
             levels["L3"] = "untested"
-            evidence["L3"] = "CREATE did not write the value, so the read-back of the path has no reference"
+            evidence["L3"] = "L2 does not pass, so the read-back of the path has no reference"
     if not truth_key:
         # Without an independent read, a matching fetch is the only proof that CREATE wrote the value.
         levels["L2"] = "pass" if levels["L3"] == "pass" else "untested"
@@ -437,7 +486,9 @@ def test_row(account: Account, obj: dict, row: dict, database: str, index: int) 
         account.apply(blueprint, plan)
         applied = True
         ok, detail = landed(account, obj, changed, database, path, expected, truth_key)
-        if not ok:
+        if ok is None:
+            levels["L4"], evidence["L4"] = "untested", f"apply ran, but the change has no reference: {detail}"
+        elif not ok:
             fail("L4", "not_landed", f"apply ran but the change did not land: {detail}")
         else:
             levels["L4"] = "pass"
@@ -452,6 +503,8 @@ def test_row(account: Account, obj: dict, row: dict, database: str, index: int) 
             fail("L4", "refuses_supported", f"snowcap refuses a change ALTER supports: {err}")
     except Crashed as err:
         fail("L4", "update_crash", f"snowcap crashes: {err}")
+    except ReadFailed as err:
+        fail("L4", "fetch_crash", f"snowcap's read fails while it plans or checks the change: {err}")
     except snowflake.connector.errors.Error as err:
         fail("L4", "bad_sql", f"Snowflake rejects the SQL: {short(err)}")
     except NotPlanned as err:
@@ -473,18 +526,25 @@ def test_combined(account: Account, obj: dict, database: str) -> dict:
     """Change every combinable SET property in one plan, and report the values that did not land.
 
     Only top-level fields take part: two nested rows can share one head field, so their samples cannot combine.
-    Rows that share a field, such as the `value` of each account parameter, count as one field.
+    Rows that share a field, such as the `value` of each account parameter, are left out too: one declaration holds
+    one value per field. A value that Snowflake does not report counts as missed.
     """
     rows = [
         r
         for r in testable_rows(obj)
         if r["alter"] == "set" and r["combinable"] is True and is_plain(r["snowcap"]["field"])
     ]
+    counts = collections.Counter(r["snowcap"]["field"] for r in rows)
+    shared = sorted(field for field, n in counts.items() if n > 1)
+    rows = [r for r in rows if counts[r["snowcap"]["field"]] == 1]
     before = {r["snowcap"]["field"]: r["snowcap"]["sample"][0] for r in rows}
     after = {r["snowcap"]["field"]: r["snowcap"]["sample"][1] for r in rows}
-    result = {"fields": sorted(after)}
+    result = {"fields": sorted(after)} | ({"shared": shared} if shared else {})
     if len(after) < 2:
-        return result | {"result": "untested (needs two or more fields)"}
+        reason = "needs two or more fields" + (
+            f", and rows that share {', '.join(shared)} cannot combine" if shared else ""
+        )
+        return result | {"result": f"untested ({reason})"}
     name = unique_name(obj, database, "COMBINED")
     try:
         account.create(declare(obj, name, database, before))
@@ -492,23 +552,23 @@ def test_combined(account: Account, obj: dict, database: str) -> dict:
         blueprint, plan = account.plan(changed)
         result["sql"] = account.sql(plan)
         account.apply(blueprint, plan)
-    except (Refused, Crashed, snowflake.connector.errors.Error) as err:
+        missed = [
+            r["snowcap"]["field"]
+            for r in rows
+            if not landed(
+                account,
+                obj,
+                changed,
+                database,
+                r["snowcap"]["field"],
+                fill(r["snowcap"].get("expect", r["snowcap"]["sample"])[1], database),
+                r["snowcap"].get("truth"),
+            )[0]
+        ]
+    except (Refused, Crashed, ReadFailed, snowflake.connector.errors.Error) as err:
         result["result"] = "fail"
         result["error"] = short(err)
         return result
-    missed = [
-        r["snowcap"]["field"]
-        for r in rows
-        if not landed(
-            account,
-            obj,
-            changed,
-            database,
-            r["snowcap"]["field"],
-            fill(r["snowcap"].get("expect", r["snowcap"]["sample"])[1], database),
-            r["snowcap"].get("truth"),
-        )[0]
-    ]
     result["result"] = "fail" if missed else "pass"
     if missed:
         result["missed"] = missed
@@ -518,6 +578,10 @@ def test_combined(account: Account, obj: dict, database: str) -> dict:
 def test_object(account: Account, obj: dict, snowcap_commit: str) -> None:
     label = object_label(obj)
     database = f"COVERAGE_{re.sub(r'[^A-Za-z0-9]', '_', label).upper()}_{uuid.uuid4().hex[:8].upper()}"
+    teardown = fill(obj["snowcap"].get("teardown", []), database)
+    if resource_class(obj) is AccountParameter:
+        # Each row's cleanup unsets its parameter, so the final cleanup puts back the values from before the run.
+        teardown += account.parameter_restores([row["name"].upper() for row in testable_rows(obj)])
     account.cur.execute(f"CREATE DATABASE {database}")
     try:
         for statement in fill(obj["snowcap"].get("setup", []), database):
@@ -546,7 +610,7 @@ def test_object(account: Account, obj: dict, snowcap_commit: str) -> None:
             account.cur.execute(f"USE WAREHOUSE {TEST_WAREHOUSE}")
         # Dependents go first. Database objects can hold setup's account-level prerequisites (an OAuth secret
         # holds its security integration), and Snowflake drops a database whose objects an integration references.
-        account.clean_up([f"DROP DATABASE IF EXISTS {database}", *fill(obj["snowcap"].get("teardown", []), database)])
+        account.clean_up([f"DROP DATABASE IF EXISTS {database}", *teardown])
 
 
 def git(*args: str) -> str:
@@ -567,6 +631,8 @@ def main(labels: list[str]) -> None:
         account = Account(conn)
         for obj in select_objects(inventory, labels):
             if obj["snowcap"]["test"] != "live":
+                if labels:
+                    print(f"{object_label(obj)}: skipped, test is {obj['snowcap']['test']}")
                 continue
             try:
                 test_object(account, obj, snowcap_commit)
