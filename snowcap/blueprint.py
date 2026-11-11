@@ -918,7 +918,7 @@ def _plan_value_rows(
         hidden = sum(count for count, _, _ in pairs[max_items:])
         label = f"<{hidden} more items>"
         pairs = pairs[:max_items] + [(hidden, label, label)]
-    rows = []
+    rows: list[list[str]] = []
     for _, o, n in pairs:
         for old_line, new_line in zip_longest(_wrap_plan_item(o, width), _wrap_plan_item(n, width), fillvalue=""):
             rows.append(["" if rows else key, old_line, new_line])
