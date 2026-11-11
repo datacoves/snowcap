@@ -53,6 +53,7 @@ from snowcap.blueprint import (
     UpdateResource,
     compute_levels,
     _merge_pointers,
+    _plan_value_rows,
     _summarize_plan_value,
     compile_plan_to_sql,
     diff,
@@ -2847,6 +2848,110 @@ class TestSyncListingHonoursUseAccountUsage:
 
         assert any("ACCOUNT_USAGE.TABLES" in statement for statement in sql)
         assert not any("SHOW TABLES IN ACCOUNT" in statement for statement in sql)
+
+
+@pytest.mark.parametrize(
+    "resource_cls, urn, key, before, after, expected_rows",
+    [
+        (
+            res.NetworkPolicy,
+            "urn::ABCD123:network_policy/OFFICE",
+            "allowed_ip_list",
+            ["10.0.0.1/32", "10.0.0.2/32", "10.0.0.3/32", "10.0.0.4/32", "10.0.0.5/32"],
+            ["10.0.0.1/32", "10.0.0.2/32", "10.0.0.3/32", "10.0.0.4/32", "10.0.0.6/32"],
+            [
+                "│ allowed_ip_list │ <4 unchanged items> │ <4 unchanged items> │",
+                "│                 │ 10.0.0.5/32         │ 10.0.0.6/32         │",
+            ],
+        ),
+        (
+            res.HybridTable,
+            "urn::ABCD123:hybrid_table/DB.SCH.LISTINGS",
+            "indexes",
+            [{"name": "IDX_CITY", "columns": ["CITY"]}],
+            [
+                {"name": "IDX_CITY", "columns": ["CITY"]},
+                {"name": "IDX_REGION", "columns": ["STATE", "COUNTY", "CITY", "POSTAL_CODE"]},
+            ],
+            [
+                "│ indexes  │ name: IDX_CITY, columns: ['CITY'] │ name: IDX_CITY, columns: ['CITY']                      │",
+                "│          │                                   │ name: IDX_REGION, columns: ['STATE', 'COUNTY', 'CITY', │",
+                "│          │                                   │   'POSTAL_CODE']                                       │",
+            ],
+        ),
+    ],
+)
+def test_plan_text_shows_each_item_of_a_changed_list(resource_cls, urn, key, before, after, expected_rows):
+    """A list longer than the table's value width is shown one item per row, so the plan says
+    which items changed instead of only how long the list is."""
+    change = UpdateResource(
+        urn=parse_URN(urn),
+        resource_cls=resource_cls,
+        before={key: before},
+        after={key: after},
+        delta={key: after},
+    )
+    plan_lines = [line.strip() for line in strip_ansi(dump_plan([change], format="text")).splitlines()]
+    start = plan_lines.index(expected_rows[0])
+    assert plan_lines[start : start + len(expected_rows)] == expected_rows
+
+
+class TestPlanValueRows:
+    """A changed list shows the items that changed, in a table that stays a bounded size."""
+
+    def test_unchanged_items_of_a_long_list_collapse(self):
+        before = [f"10.0.{i // 250}.{i % 250}/32" for i in range(300)]
+        after = before[:150] + ["192.168.0.1/32"] + before[151:]
+        assert _plan_value_rows("allowed_ip_list", before, after) == [
+            ["allowed_ip_list", "<150 unchanged items>", "<150 unchanged items>"],
+            ["", "10.0.0.150/32", "192.168.0.1/32"],
+            ["", "<149 unchanged items>", "<149 unchanged items>"],
+        ]
+
+    def test_a_short_run_of_unchanged_items_is_shown(self):
+        before = ["a", "b", "c", "d"]
+        after = ["a", "b", "c", "e"]
+        assert _plan_value_rows("names", before, after) == [
+            ["names", "a", "a"],
+            ["", "b", "b"],
+            ["", "c", "c"],
+            ["", "d", "e"],
+        ]
+
+    def test_an_inserted_item_does_not_shift_the_items_after_it(self):
+        before = ["a", "b", "c", "d", "e", "f", "g", "h"]
+        after = ["a", "b", "c", "d", "NEW", "e", "f", "g", "h"]
+        assert _plan_value_rows("names", before, after) == [
+            ["names", "<4 unchanged items>", "<4 unchanged items>"],
+            ["", "", "NEW"],
+            ["", "<4 unchanged items>", "<4 unchanged items>"],
+        ]
+
+    def test_a_long_item_wraps_within_the_value_width(self):
+        def column(name, comment):
+            return {"name": name, "data_type": "VARCHAR(16777216)", "not_null": False, "comment": comment}
+
+        before = [column(f"COLUMN_{i}", "x" * 80) for i in range(3)]
+        after = before[:2] + [column("COLUMN_2", "y" * 80)]
+        rows = _plan_value_rows("columns", before, after)
+        assert all(len(cell) <= 60 for row in rows for cell in row[1:])
+        assert rows[-3:] == [
+            ["", *["name: COLUMN_2, data_type: VARCHAR(16777216), not_null:"] * 2],
+            ["", "  False, comment: " + "x" * 42, "  False, comment: " + "y" * 42],
+            ["", "  " + "x" * 38, "  " + "y" * 38],
+        ]
+
+    def test_a_long_list_of_changes_ends_with_a_count_of_the_rest(self):
+        rows = _plan_value_rows("names", [f"old_{i}" for i in range(30)], [f"new_{i}" for i in range(30)])
+        assert len(rows) == 21
+        assert rows[-1] == ["", "<10 more items>", "<10 more items>"]
+
+    def test_a_non_list_side_is_one_item_not_a_list_of_characters(self):
+        assert _plan_value_rows("x", "abc", ["a"]) == [["x", "abc", "a"]]
+        assert _plan_value_rows("x", "", ["a"]) == [["x", "", "a"]]
+
+    def test_a_scalar_change_is_one_summarized_row(self):
+        assert _plan_value_rows("comment", "old", "new") == [["comment", "old", "new"]]
 
 
 class TestSummarizePlanValue:

@@ -1,9 +1,12 @@
 import json
 import logging
+import textwrap
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from difflib import SequenceMatcher
+from itertools import zip_longest
 from typing import (
     Any,
     Generator,
@@ -887,6 +890,60 @@ def _summarize_plan_value(value, max_len: int = 60) -> str:
     return f"<{lines} {unit}, {len(text)} chars>"
 
 
+def _plan_value_rows(
+    key: str, before, after, width: int = 60, max_items: int = 20, max_unchanged: int = 3
+) -> list[list[str]]:
+    """Rows of the plan table for one changed property.
+
+    A list is shown one item per row, before and after side by side, so the plan names the
+    items that changed. As one value, a list of IP addresses or triggers soon outgrows the
+    table width and collapses to its length. Items are matched as a diff, so an inserted item
+    does not shift the rows after it. A run of more than `max_unchanged` unchanged items
+    collapses to its count, and past `max_items` rows the rest collapse to their count. A dict
+    item is shown as `key: value` pairs, and an item longer than `width` wraps onto more rows.
+    """
+    if not (isinstance(before, list) or isinstance(after, list)):
+        return [[key, _summarize_plan_value(before), _summarize_plan_value(after)]]
+    old, new = _plan_items(before), _plan_items(after)
+    pairs: list[tuple[int, str, str]] = []
+    for tag, i1, i2, j1, j2 in SequenceMatcher(None, old, new, autojunk=False).get_opcodes():
+        if tag == "equal" and i2 - i1 > max_unchanged:
+            label = f"<{i2 - i1} unchanged items>"
+            pairs.append((i2 - i1, label, label))
+        else:
+            pairs.extend((1, o, n) for o, n in zip_longest(old[i1:i2], new[j1:j2], fillvalue=""))
+    if not pairs:
+        return [[key, _summarize_plan_value(before), _summarize_plan_value(after)]]
+    if len(pairs) > max_items:
+        hidden = sum(count for count, _, _ in pairs[max_items:])
+        label = f"<{hidden} more items>"
+        pairs = pairs[:max_items] + [(hidden, label, label)]
+    rows: list[list[str]] = []
+    for _, o, n in pairs:
+        for old_line, new_line in zip_longest(_wrap_plan_item(o, width), _wrap_plan_item(n, width), fillvalue=""):
+            rows.append(["" if rows else key, old_line, new_line])
+    return rows
+
+
+def _plan_items(value) -> list[str]:
+    if isinstance(value, list):
+        return [_plan_item(item) for item in value]
+    if value is None or value == "":
+        return []
+    return [_plan_item(value)]
+
+
+def _plan_item(item) -> str:
+    if isinstance(item, dict):
+        item = ", ".join(f"{field}: {value}" for field, value in item.items())
+    text = str(item)
+    return _summarize_plan_value(text) if "\n" in text else text
+
+
+def _wrap_plan_item(text: str, width: int) -> list[str]:
+    return textwrap.wrap(text, width, subsequent_indent="  ", break_on_hyphens=False) or [""]
+
+
 def _render_table(rows: list[list[str]], headers: list[str]) -> str:
     """
     Render a table with box-drawing characters.
@@ -1191,14 +1248,7 @@ def _dump_plan_text(plan: Plan) -> str:
                 for key, new_value in change.delta.items():
                     if key.startswith("_"):
                         continue
-                    before = change.before.get(key, "")
-                    rows.append(
-                        [
-                            key,
-                            _summarize_plan_value(before),
-                            _summarize_plan_value(new_value),
-                        ]
-                    )
+                    rows.extend(_plan_value_rows(key, change.before.get(key, ""), new_value))
 
                 if rows:
                     table = _render_table(rows, ["Property", "Before", "After"])
