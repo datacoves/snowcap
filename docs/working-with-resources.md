@@ -1,3 +1,8 @@
+---
+description: >-
+  How Snowcap models Snowflake objects as Python resource classes with runtime type checking, and how to create, reference and nest resources.
+---
+
 # Working with Resources
 
 In the Snowcap framework, anything in Snowflake that can be created with a `CREATE` statement has a corresponding Python class, such as `Warehouse`, `Database`, `Role`, etc. These act as simple wrappers around configuration with built-in runtime type checking.

@@ -1,6 +1,6 @@
 ---
 description: >-
-  A JavaScript user-defined function in Snowflake.
+  A JavaScript user-defined function in Snowflake. Manage it as code with Snowcap: YAML and Python examples and a reference for every field.
 ---
 
 # JavascriptUDF

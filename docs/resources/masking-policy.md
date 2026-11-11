@@ -1,6 +1,6 @@
 ---
 description: >-
-  A masking policy for column-level data protection.
+  A masking policy for column-level data protection. Manage it as code with Snowcap: YAML and Python examples and a reference for every field.
 ---
 
 # MaskingPolicy

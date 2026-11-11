@@ -1,6 +1,6 @@
 ---
 description: >-
-  Grant SELECT / REFERENCES / MONITOR on a Snowflake Semantic View.
+  Grant SELECT / REFERENCES / MONITOR on a Snowflake Semantic View. Manage it as code with Snowcap: YAML and Python examples and a reference for every field.
 ---
 
 # SemanticView
