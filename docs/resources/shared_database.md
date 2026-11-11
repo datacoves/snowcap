@@ -1,6 +1,6 @@
 ---
 description: >-
-  A database created from an inbound Snowflake share.
+  A database created from an inbound Snowflake share. Manage it as code with Snowcap: YAML and Python examples and a reference for every field.
 ---
 
 # SharedDatabase

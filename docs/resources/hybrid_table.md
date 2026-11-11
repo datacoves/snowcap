@@ -1,6 +1,6 @@
 ---
 description: >-
-  A hybrid table in Snowflake.
+  A hybrid table in Snowflake. Manage it as code with Snowcap, with YAML and Python examples and a reference for every field, its type and its default.
 ---
 
 # HybridTable

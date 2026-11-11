@@ -7,11 +7,12 @@
 {% endblock %}
 
 {% block extrahead %}
+  {% set description = (page.meta and page.meta.description) or config.site_description %}
   <!-- Open Graph / Social Media -->
   <meta property="og:type" content="website">
   <meta property="og:url" content="{{ config.site_url }}{{ page.url }}">
   <meta property="og:title" content="{{ page.title }} - {{ config.site_name }}">
-  <meta property="og:description" content="{{ config.site_description }}">
+  <meta property="og:description" content="{{ description }}">
   <meta property="og:image" content="{{ config.site_url }}images/og-image.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
@@ -20,6 +21,22 @@
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:url" content="{{ config.site_url }}{{ page.url }}">
   <meta name="twitter:title" content="{{ page.title }} - {{ config.site_name }}">
-  <meta name="twitter:description" content="{{ config.site_description }}">
+  <meta name="twitter:description" content="{{ description }}">
   <meta name="twitter:image" content="{{ config.site_url }}images/og-image.png">
+
+  {% if page.is_page %}
+  <script type="application/ld+json">
+    {{ {
+      "@context": "https://schema.org",
+      "@type": "TechArticle",
+      "headline": page.title,
+      "description": description,
+      "url": config.site_url ~ page.url,
+      "image": config.site_url ~ "images/og-image.png",
+      "inLanguage": "en",
+      "isPartOf": {"@type": "WebSite", "name": config.site_name, "url": config.site_url},
+      "publisher": {"@type": "Organization", "name": "Datacoves", "url": "https://datacoves.com"}
+    } | tojson }}
+  </script>
+  {% endif %}
 {% endblock %}

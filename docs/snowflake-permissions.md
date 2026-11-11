@@ -1,3 +1,8 @@
+---
+description: >-
+  Which Snowflake privileges Snowcap needs, why it runs as your session role, and how to set up a least-privilege service account for CI/CD deployments.
+---
+
 # Snowflake Permissions
 
 Snowcap runs SQL on your behalf. Whatever role your session uses, that's the role Snowcap uses. It has no elevated access of its own. This means a human operator running `snowcap apply` is doing exactly what they could do by hand in a SQL worksheet, just with reproducibility and version control.
@@ -102,19 +107,20 @@ Service users with `TYPE = SERVICE` cannot log into Snowsight and do not require
 
 ## Resources that require ACCOUNTADMIN
 
-Three resource types in Snowcap are locked to ACCOUNTADMIN by Snowflake. No privilege can be granted that would allow a custom role to create or modify them. This is a platform constraint, not a Snowcap limitation.
+A few resource types in Snowcap are locked to ACCOUNTADMIN by Snowflake. No privilege can be granted that would allow a custom role to create or modify them. This is a platform constraint, not a Snowcap limitation.
 
 | Resource | Why ACCOUNTADMIN is required |
 |---|---|
 | [ResourceMonitor](resources/resource_monitor.md) | `CREATE RESOURCE MONITOR` is not a grantable privilege |
-| [AccountParameter](resources/account_parameter.md) | `ALTER ACCOUNT SET` requires ACCOUNTADMIN for most parameters |
+| [AccountParameter](resources/account_parameter.md) | `ALTER ACCOUNT SET` requires ACCOUNTADMIN for most parameters, `ALLOW_ID_TOKEN` among them |
 | [FailoverGroup](resources/failover_group.md) / [ReplicationGroup](resources/replication_group.md) | Failover and replication management is restricted to ACCOUNTADMIN |
+| [SAML2SecurityIntegration](resources/saml2_security_integration.md) | Federated authentication setup is restricted to ACCOUNTADMIN |
 
 If your configuration includes any of these, you have two options:
 
 **Option A:** Run the pipeline with ACCOUNTADMIN for the full resource set. Simpler, but the service account holds more privilege than it needs for everything else.
 
-**Option B:** Run the pipeline with SNOWCAP_ADMIN for all standard resources, and handle resource monitors, account parameters, and failover groups through a separate process (a restricted manual workflow, a separate pipeline step that uses ACCOUNTADMIN only for those resource types, etc.).
+**Option B:** Run the pipeline with SNOWCAP_ADMIN for all standard resources, and handle resource monitors, account parameters, failover groups, and SAML2 integrations through a separate process (a restricted manual workflow, a separate pipeline step that uses ACCOUNTADMIN only for those resource types, etc.).
 
 Most teams choose Option B as they mature their setup.
 

@@ -24,8 +24,10 @@ from snowcap.parse import (
     parse_region,
     parse_view_ddl,
     resolve_resource_class,
+    StringLiteral,
 )
 from snowcap.enums import ResourceType, Scope
+from snowcap.props import quote_value
 from snowcap.scope import DatabaseScope, SchemaScope
 
 # =============================================================================
@@ -443,6 +445,13 @@ class TestSplitStatements:
         sql = "INSERT INTO t VALUES ('a'); SELECT * FROM t;"
         result = _split_statements(sql)
         assert len(result) == 2
+
+    def test_split_with_backslash_escaped_quote(self):
+        assert _split_statements(r"SELECT 'a\';b'; SELECT 1;") == [r"SELECT 'a\';b'", "SELECT 1"]
+
+    def test_split_with_glued_and_doubled_quotes(self):
+        sql = "ALTER TABLE t SET TAG x='a;b'; SELECT f('a;b'); SELECT 'it''s';"
+        assert _split_statements(sql) == ["ALTER TABLE t SET TAG x='a;b'", "SELECT f('a;b')", "SELECT 'it''s'"]
 
     def test_split_with_dollar_quotes(self):
         """Test splitting handles dollar-quoted strings."""
@@ -930,3 +939,13 @@ class TestConvertMatch:
         lex = Lexicon({"PREFIX": my_action})
         result = convert_match(lex, "PREFIX some text")
         assert "processed:" in result
+
+
+@pytest.mark.parametrize("value", ["$$ it's", '$$ say "hi"', "$$ a\nb\tc", "$$ C:\\tmp", "$$\0\x01", "it's $"])
+def test_string_literal_decodes_quote_value_fallback(value):
+    assert StringLiteral.parse_string(quote_value(value), parse_all=True)[0] == value
+
+
+@pytest.mark.parametrize("value", [r"C:\Users\foo", r"a\nb\tc\rd\fe", "plain value"])
+def test_string_literal_keeps_backslashes_in_dollar_quotes(value):
+    assert StringLiteral.parse_string(quote_value(value), parse_all=True)[0] == value

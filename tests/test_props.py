@@ -11,6 +11,7 @@ from pyparsing import ParseException
 from snowcap.enums import DataType
 from snowcap.resources import Database
 from snowcap.props import (
+    _single_quote,
     quote_value,
     Props,
     AlertConditionProp,
@@ -37,6 +38,7 @@ from snowcap.props import (
     ColumnNamesProp,
     SchemaProp,
     FromProp,
+    TagOnConflictProp,
 )
 
 
@@ -124,28 +126,81 @@ class TestProps(unittest.TestCase):
 # ============================================================================
 
 
-class TestQuoteValue:
-    """Tests for the quote_value helper function."""
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        ("hello world", "$$hello world$$"),
+        ("", "''"),
+        (None, "''"),
+        ('it\'s a "test"', '$$it\'s a "test"$$'),
+        ("line1\nline2", "$$line1\nline2$$"),
+        # $$ in the value forces the single-quoted fallback
+        ("costs $$ and it's dear", "'costs $$ and it''s dear'"),
+        ('$$ say "hi"', "'$$ say \\\"hi\\\"'"),
+        ("$$ path C:\\tmp", "'$$ path C:\\\\tmp'"),
+        ("costs $$\nper line", "'costs $$\\nper line'"),
+        ("$$\r\tx", "'$$\\r\\tx'"),
+        ("$$\b\fx", "'$$\\b\\fx'"),
+        ("$$\0x", "'$$\\u0000x'"),
+        ("$$\x01x", "'$$\\u0001x'"),
+        # Single $ not at the end uses dollar quoting
+        ("costs $5", "$$costs $5$$"),
+        ("$100", "$$$100$$"),
+        # Trailing $ combines with the closing $$ so forces single-quoted fallback
+        ("abc$", "'abc$'"),
+        ("$", "'$'"),
+        ("it's dear and ends with $", "'it''s dear and ends with $'"),
+    ],
+)
+def test_quote_value(value, expected):
+    assert quote_value(value) == expected
 
-    def test_quote_value_normal_string(self):
-        result = quote_value("hello world")
-        assert result == "$$hello world$$"
 
-    def test_quote_value_empty_string(self):
-        result = quote_value("")
-        assert result == "''"
+def test_quote_value_rejects_lone_surrogate():
+    with pytest.raises(UnicodeEncodeError):
+        quote_value("bad \ud800$")
 
-    def test_quote_value_none(self):
-        result = quote_value(None)
-        assert result == "''"
 
-    def test_quote_value_with_quotes(self):
-        result = quote_value('it\'s a "test"')
-        assert result == '$$it\'s a "test"$$'
+def test_enum_prop_quoted_render_escapes_apostrophe():
+    class Kind(Enum):
+        APOSTROPHE = "it's"
 
-    def test_quote_value_multiline(self):
-        result = quote_value("line1\nline2")
-        assert result == "$$line1\nline2$$"
+    prop = EnumProp("type", [Kind.APOSTROPHE], quoted=True)
+    assert prop.render(Kind.APOSTROPHE) == "type = 'it''s'"
+
+
+def test_single_quote_rejects_lone_surrogate():
+    with pytest.raises(UnicodeEncodeError):
+        _single_quote("bad \ud800")
+
+
+def test_tags_prop_round_trips_apostrophe():
+    rendered = TagsProp().render({"cost_center": "ops's budget"})
+    assert rendered == "TAG (cost_center = 'ops''s budget')"
+    assert TagsProp().parse(rendered) == {"cost_center": "ops's budget"}
+
+
+def test_from_prop_escapes_apostrophe():
+    assert FromProp().render("https://example.com/it's.git") == "FROM 'https://example.com/it''s.git'"
+    assert FromProp().parse("FROM = 'https://example.com/it''s.git'") == "https://example.com/it's.git"
+
+
+def test_column_names_prop_round_trips_apostrophe():
+    columns = [{"name": "id", "comment": "it's the key"}]
+    rendered = ColumnNamesProp().render(columns)
+    assert rendered == "(id COMMENT 'it''s the key')"
+    assert ColumnNamesProp().parse(rendered) == columns
+
+
+def test_tag_on_conflict_prop_round_trips_apostrophe():
+    rendered = TagOnConflictProp().render("ops's rule")
+    assert rendered == "ON_CONFLICT = 'ops''s rule'"
+    assert TagOnConflictProp().parse(rendered) == "ops's rule"
+
+
+def test_schema_prop_escapes_default_and_comment():
+    columns = [{"name": "id", "data_type": "VARCHAR", "not_null": False, "default": "it's", "comment": "o'clock"}]
+    assert SchemaProp().render(columns) == "(id VARCHAR DEFAULT 'it''s' COMMENT 'o''clock')"
 
 
 class TestBoolPropExtended:
@@ -427,7 +482,12 @@ class TestDictPropExtended:
     def test_render_dict(self):
         prop = DictProp("HEADERS", parens=True)
         result = prop.render({"Content-Type": "application/json"})
-        assert result == "HEADERS = ('Content-Type' = 'application/json')"
+        assert result == "HEADERS = ($$Content-Type$$ = $$application/json$$)"
+
+    def test_render_dict_with_apostrophe(self):
+        prop = DictProp("HEADERS", parens=True)
+        result = prop.render({"X-Note": "it's fine"})
+        assert result == "HEADERS = ($$X-Note$$ = $$it's fine$$)"
 
     def test_render_none(self):
         prop = DictProp("HEADERS")
@@ -614,7 +674,7 @@ class TestTimeTravelPropExtended:
     def test_render_stream(self):
         prop = TimeTravelProp("AT")
         result = prop.render({"STREAM": "my_stream"})
-        assert result == "AT (STREAM => 'my_stream')"
+        assert result == "AT (STREAM => $$my_stream$$)"
 
     def test_render_none(self):
         prop = TimeTravelProp("AT")
@@ -772,8 +832,7 @@ class TestFromPropExtended:
     def test_parse_url(self):
         prop = FromProp()
         result = prop.parse("FROM = 'https://github.com/user/repo.git'")
-        # Parser keeps quotes on single-quoted strings
-        assert result == "'https://github.com/user/repo.git'"
+        assert result == "https://github.com/user/repo.git"
 
     def test_typecheck_list_joins(self):
         prop = FromProp()
