@@ -2933,22 +2933,24 @@ class TestResourceMonitorPlanning:
         row.update(overrides)
         return row
 
-    def _monitor(self) -> res.ResourceMonitor:
-        return res.ResourceMonitor(
-            name="WH_MONITOR",
-            owner=self.OWNER,
-            credit_quota=1000,
-            notify_users=["ALICE", "BOB"],
-            triggers=[
+    def _monitor(self, **overrides) -> res.ResourceMonitor:
+        fields = {
+            "name": "WH_MONITOR",
+            "owner": self.OWNER,
+            "credit_quota": 1000,
+            "notify_users": ["ALICE", "BOB"],
+            "triggers": [
                 {"threshold": 110, "action": "SUSPEND_IMMEDIATE"},
                 {"threshold": 75, "action": "NOTIFY"},
                 {"threshold": 100, "action": "SUSPEND"},
             ],
-        )
+        }
+        fields.update(overrides)
+        return res.ResourceMonitor(**fields)
 
-    def _plan(self, session_ctx, remote_state, show_row):
+    def _plan(self, session_ctx, remote_state, show_row, monitor=None):
         owner = res.Role(name=self.OWNER)
-        monitor = self._monitor()
+        monitor = monitor or self._monitor()
         manifest = Blueprint(resources=[owner, monitor]).generate_manifest(session_ctx)
         remote_state = remote_state.copy()
         remote_state[URN.from_resource(account_locator="ABCD123", resource=owner)] = owner.to_dict()
@@ -2965,6 +2967,26 @@ class TestResourceMonitorPlanning:
 
     def test_a_monitor_that_matches_snowflake_plans_no_change(self, session_ctx, remote_state):
         assert self._plan(session_ctx, remote_state, self._show_row()) == []
+
+    @pytest.mark.parametrize(
+        "notify_users, show_notify_users",
+        [
+            # SHOW reports an unquoted user name in uppercase.
+            (["alice", "bob"], "BOB, ALICE"),
+            # A user created with a quoted lowercase name keeps its case.
+            (['"alice"', "bob"], "BOB, alice"),
+        ],
+    )
+    def test_notify_users_match_snowflake_whatever_their_case_in_config(
+        self, session_ctx, remote_state, notify_users, show_notify_users
+    ):
+        plan = self._plan(
+            session_ctx,
+            remote_state,
+            self._show_row(notify_users=show_notify_users),
+            monitor=self._monitor(notify_users=notify_users),
+        )
+        assert plan == []
 
     @pytest.mark.parametrize(
         "show_overrides, alter",
@@ -2998,3 +3020,30 @@ class TestResourceMonitorPlanning:
             " TRIGGERS ON 75 PERCENT DO NOTIFY ON 100 PERCENT DO SUSPEND ON 110 PERCENT DO SUSPEND_IMMEDIATE",
             f"GRANT OWNERSHIP ON RESOURCE MONITOR WH_MONITOR TO ROLE {self.OWNER} COPY CURRENT GRANTS",
         ]
+
+    def test_a_change_and_a_new_owner_in_one_apply_alter_before_the_transfer(
+        self, monkeypatch, session_ctx, remote_state
+    ):
+        """The ALTER runs as the current owner and the transfer as ACCOUNTADMIN, at the same
+        dependency level. A transfer that ran first would leave the ALTER without ownership,
+        and Snowflake would refuse it with error 003001."""
+        plan = self._plan(
+            session_ctx,
+            remote_state,
+            self._show_row(owner="OLD_OWNER", suspend_at="90%"),
+        )
+        assert {type(change) for change in plan} == {UpdateResource, TransferOwnership}
+
+        executed: list[str] = []
+        monitor_session_ctx = {**session_ctx, "available_roles": session_ctx["available_roles"] + ["OLD_OWNER"]}
+        monkeypatch.setattr("snowcap.blueprint.data_provider.fetch_session", lambda session: monitor_session_ctx)
+        monkeypatch.setattr("snowcap.blueprint.execute", lambda session, sql: executed.append(sql))
+        # A plan lists the transfer first, so only the apply loop can put it last.
+        plan.sort(key=lambda change: not isinstance(change, TransferOwnership))
+        Blueprint(resources=[]).apply(session=None, plan=plan)
+
+        alter = next(i for i, sql in enumerate(executed) if sql.startswith("ALTER RESOURCE MONITOR"))
+        transfer = next(i for i, sql in enumerate(executed) if sql.startswith("GRANT OWNERSHIP"))
+        assert executed[alter - 1] == "USE ROLE OLD_OWNER"
+        assert executed[transfer - 1] == "USE ROLE ACCOUNTADMIN"
+        assert alter < transfer

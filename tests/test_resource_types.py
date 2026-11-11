@@ -1076,11 +1076,41 @@ class TestResourceMonitor:
             # Snowflake reads a threshold as a whole percentage.
             [{"threshold": 75.5, "action": "NOTIFY"}],
             [{"threshold": "75", "action": "NOTIFY"}],
+            # YAML reads `yes` as True, and bool is an int.
+            [{"threshold": True, "action": "NOTIFY"}],
+            # Snowflake rejects a negative threshold as a syntax error.
+            [{"threshold": -5, "action": "NOTIFY"}],
+            # A typo in a key, or a key Snowcap would drop, is reported, not ignored.
+            [{"action": "NOTIFY"}],
+            [{"threshold": 75}],
+            [{"threshold": 75, "action": "NOTIFY", "actoin": "SUSPEND"}],
         ],
     )
     def test_resource_monitor_rejects_triggers_snowflake_cannot_hold(self, triggers):
         with pytest.raises(ValueError, match="trigger"):
             res.ResourceMonitor(name="test_rm", triggers=triggers)
+
+    def test_resource_monitor_rejects_a_trigger_that_is_not_a_mapping(self):
+        with pytest.raises(TypeError, match="triggers"):
+            res.ResourceMonitor(name="test_rm", triggers=["75 NOTIFY"])
+
+    def test_resource_monitor_accepts_a_zero_threshold(self):
+        rm = res.ResourceMonitor(name="test_rm", triggers=[{"threshold": 0, "action": "NOTIFY"}])
+        assert rm._data.triggers[0]["threshold"] == 0
+
+    @pytest.mark.parametrize(
+        "notify_users, stored",
+        [
+            # Snowflake stores an unquoted user name in uppercase and matches the
+            # NOTIFY_USERS string exactly, so the config name is uppercased to match.
+            (["bob", "alice"], ["ALICE", "BOB"]),
+            # A quoted name keeps its case.
+            (['"alice"', "BOB"], ["BOB", "alice"]),
+        ],
+    )
+    def test_resource_monitor_names_notify_users_as_snowflake_stores_them(self, notify_users, stored):
+        rm = res.ResourceMonitor(name="test_rm", notify_users=notify_users)
+        assert rm._data.notify_users == stored
 
 
 class TestTag:

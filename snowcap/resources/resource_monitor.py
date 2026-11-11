@@ -47,17 +47,23 @@ class _ResourceMonitor(ResourceSpec):
         if self.start_timestamp and self.frequency is None:
             self.frequency = ResourceMonitorFrequency.MONTHLY
         # Snowflake reports both lists in its own order, and neither order carries meaning,
-        # so both sides of a diff are sorted the same way.
+        # so both sides of a diff are sorted the same way. A user is named by a string that
+        # Snowflake matches exactly, so an unquoted name is uppercased as an identifier would be.
         if self.notify_users:
-            self.notify_users = sorted(self.notify_users)
+            self.notify_users = sorted(ResourceName(user).unquoted for user in self.notify_users)
         if self.triggers is not None:
             if not self.triggers:
                 raise ValueError(
                     "triggers cannot be empty: Snowflake has no statement that removes every trigger "
                     "from a resource monitor. Omit triggers to leave them unmanaged."
                 )
-            if any(not isinstance(trigger["threshold"], int) for trigger in self.triggers):
-                raise ValueError("trigger thresholds must be whole percentages, for example 75")
+            for trigger in self.triggers:
+                if set(trigger) != {"threshold", "action"}:
+                    raise ValueError(f"each trigger must have exactly a threshold and an action, got {trigger!r}")
+                threshold = trigger["threshold"]
+                # bool is a subclass of int, so YAML `threshold: yes` would pass an int check.
+                if not isinstance(threshold, int) or isinstance(threshold, bool) or threshold < 0:
+                    raise ValueError(f"trigger thresholds must be whole percentages, for example 75, got {threshold!r}")
             self.triggers = sorted(
                 (
                     {"threshold": trigger["threshold"], "action": ResourceMonitorAction(trigger["action"])}
@@ -82,12 +88,8 @@ class ResourceMonitor(NamedResource, Resource):
         start_timestamp (string): The start time for the monitoring period. Defaults to None.
         end_timestamp (string): The end time for the monitoring period. Defaults to None.
         notify_users (list): A list of users to notify when thresholds are reached. Defaults to None.
-        triggers (list): The actions to take at a percentage of the credit quota. Each trigger has a
-            `threshold` (an integer percentage, which can exceed 100) and an `action` (NOTIFY,
-            SUSPEND or SUSPEND_IMMEDIATE). Snowflake replaces every trigger whenever one changes.
-            Defaults to None, which leaves the triggers unmanaged.
-        owner (string or Role): The role that owns the monitor. Snowcap creates the monitor as
-            ACCOUNTADMIN and transfers it to this role. Defaults to "ACCOUNTADMIN".
+        triggers (list): The actions to take at a percentage of the credit quota. Each trigger has a `threshold` (a whole percentage of 0 or more, which can exceed 100) and an `action` (NOTIFY, SUSPEND or SUSPEND_IMMEDIATE). Snowflake replaces every trigger whenever one changes. Defaults to None, which leaves the triggers unmanaged.
+        owner (string or Role): The role that owns the monitor. Snowcap creates the monitor as ACCOUNTADMIN and transfers it to this role. Defaults to "ACCOUNTADMIN".
 
     Python:
 

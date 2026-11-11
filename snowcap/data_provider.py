@@ -3743,7 +3743,11 @@ def fetch_resource_monitor(session: SnowflakeConnection, fqn: FQN):
         "frequency": data["frequency"],
         "start_timestamp": _convert_to_gmt(data["start_time"], "%Y-%m-%d %H:%M"),
         "end_timestamp": _convert_to_gmt(data["end_time"], "%Y-%m-%d %H:%M"),
-        "notify_users": [user.strip() for user in data["notify_users"].split(",")] if data["notify_users"] else None,
+        "notify_users": (
+            [_quote_snowflake_identifier(user.strip()) for user in data["notify_users"].split(",")]
+            if data["notify_users"]
+            else None
+        ),
         "triggers": triggers or None,
     }
 
