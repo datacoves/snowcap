@@ -772,6 +772,9 @@ class ResourcePointer(NamedResource, Resource, ResourceContainer):
         self._resource_type: ResourceType = resource_type
         self.scope = RESOURCE_SCOPES[resource_type]
         super().__init__(name)
+        # A function is identified by its argument types as well as its name, and
+        # NamedResource keeps only the name.
+        self._arg_types = parse_identifier(name)["arg_types"] if isinstance(name, str) and "(" in name else None
 
         # Don't want to do this for all implicit resources but making an exception for PUBLIC schema
         # If this points to a database, assume it includes a PUBLIC schema
@@ -787,10 +790,14 @@ class ResourcePointer(NamedResource, Resource, ResourceContainer):
     def __eq__(self, other):
         if not isinstance(other, ResourcePointer):
             return False
-        return self.name == other.name and self.resource_type == other.resource_type
+        return (
+            self.name == other.name
+            and self.resource_type == other.resource_type
+            and self._arg_types == other._arg_types
+        )
 
     def __hash__(self):
-        return hash((self._name, self._resource_type))
+        return hash((self._name, self._resource_type, tuple(self._arg_types or [])))
 
     @property
     def container(self):
@@ -805,7 +812,9 @@ class ResourcePointer(NamedResource, Resource, ResourceContainer):
 
     @property
     def fqn(self):
-        return self.scope.fully_qualified_name(self.container, self.name)
+        fqn = self.scope.fully_qualified_name(self.container, self.name)
+        fqn.arg_types = self._arg_types
+        return fqn
 
     @property
     def resource_type(self):

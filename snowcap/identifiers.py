@@ -228,7 +228,7 @@ def parse_identifier(identifier: str, is_db_scoped=False) -> dict:
         else:
             scoped_name, args_str = scoped_name[:args_start], scoped_name[args_start:]
         args_str = ":".join(smart_split(args_str, ":")[:-1]) if ":" in args_str else args_str  # Strip return type
-        arg_types = [arg.strip() for arg in smart_split(args_str.strip("()"), ",")]
+        arg_types = [arg.strip() for arg in smart_split(args_str.strip("()"), ",") if arg.strip()]
 
     try:
         name_parts = list(FullyQualifiedIdentifier.parse_string(scoped_name, parse_all=True))

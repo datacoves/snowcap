@@ -341,6 +341,104 @@ def test_blueprint_sync_remote_state_contains_extra_resource(cursor, suffix):
         cursor.execute(f"DROP DATABASE IF EXISTS {db_name}")
 
 
+def test_blueprint_external_function_lifecycle(cursor, suffix):
+    """
+    External functions plan end to end. Overloads are separate resources, a grant on one
+    overload matches what SHOW GRANTS reports, an owner change transfers ownership, and sync
+    drops an undeclared overload. Every statement except CREATE must name the function as
+    FUNCTION <name>(<arg types>), or Snowflake rejects it.
+    """
+    session = cursor.connection
+    db_name = f"BLUEPRINT_EXTERNAL_FUNCTION_{suffix}".upper()
+    api_name = f"BLUEPRINT_EXTERNAL_FUNCTION_API_{suffix}".upper()
+    role_name = f"BLUEPRINT_EXTERNAL_FUNCTION_ROLE_{suffix}".upper()
+    translator = f"{db_name}.PUBLIC.TRANSLATOR"
+
+    def external_function(*data_types, owner=TEST_ROLE, **kwargs):
+        return res.ExternalFunction(
+            name="ECHO",
+            database=db_name,
+            schema="PUBLIC",
+            args=[{"name": f"ARG{i}", "data_type": data_type} for i, data_type in enumerate(data_types)],
+            returns="VARIANT",
+            api_integration=api_name,
+            as_="https://abc123.execute-api.us-west-2.amazonaws.com/prod/echo",
+            owner=owner,
+            **kwargs,
+        )
+
+    def declared(owner=TEST_ROLE):
+        return [
+            external_function(
+                "VARCHAR",
+                owner=owner,
+                secure=True,
+                comment="echo a string",
+                null_handling="RETURNS NULL ON NULL INPUT",
+                volatility="IMMUTABLE",
+                headers={"volume-measure": "liters"},
+                max_batch_rows=50,
+                compression="NONE",
+                request_translator=translator,
+                response_translator=translator,
+            ),
+            external_function("NUMBER", "VARCHAR"),
+            external_function(),
+            res.Grant(priv="USAGE", on_external_function=f"{db_name}.PUBLIC.ECHO(VARCHAR)", to=role_name),
+        ]
+
+    try:
+        cursor.execute(f"CREATE DATABASE {db_name}")
+        cursor.execute(
+            f"CREATE FUNCTION {translator}(EVENT OBJECT) RETURNS OBJECT LANGUAGE JAVASCRIPT AS 'return EVENT'"
+        )
+        cursor.execute(
+            f"CREATE API INTEGRATION {api_name} API_PROVIDER = AWS_API_GATEWAY "
+            "API_AWS_ROLE_ARN = 'arn:aws:iam::123456789012:role/snowcap-test' "
+            "API_ALLOWED_PREFIXES = ('https://abc123.execute-api.us-west-2.amazonaws.com/') ENABLED = TRUE"
+        )
+        cursor.execute(f"CREATE ROLE {role_name}")
+        # Snowcap requires every owner role to be available to the session.
+        cursor.execute(f"GRANT ROLE {role_name} TO ROLE {TEST_ROLE}")
+
+        blueprint = Blueprint(name="external_functions", resources=declared())
+        plan = blueprint.plan(session)
+        assert len(plan) == 4
+        blueprint.apply(session, plan)
+
+        reset_cache()
+        assert Blueprint(name="external_functions", resources=declared()).plan(session) == []
+
+        reset_cache()
+        blueprint = Blueprint(name="external_functions", resources=declared(owner=role_name))
+        plan = blueprint.plan(session)
+        assert len(plan) == 1
+        blueprint.apply(session, plan)
+        reset_cache()
+        assert Blueprint(name="external_functions", resources=declared(owner=role_name)).plan(session) == []
+
+        reset_cache()
+        blueprint = Blueprint(
+            name="external_functions",
+            resources=declared(owner=role_name)[:1],
+            sync_resources=[ResourceType.EXTERNAL_FUNCTION],
+            scope="DATABASE",
+            database=db_name,
+        )
+        plan = blueprint.plan(session)
+        assert {str(change.urn.fqn) for change in plan if isinstance(change, DropResource)} == {
+            f"{db_name}.PUBLIC.ECHO(NUMBER, VARCHAR)",
+            f"{db_name}.PUBLIC.ECHO()",
+        }
+        blueprint.apply(session, plan)
+        remaining = cursor.execute(f"SHOW EXTERNAL FUNCTIONS IN DATABASE {db_name}").fetchall()
+        assert [row["arguments"] for row in remaining] == ["ECHO(VARCHAR) RETURN VARIANT"]
+    finally:
+        cursor.execute(f"DROP DATABASE IF EXISTS {db_name}")
+        cursor.execute(f"DROP INTEGRATION IF EXISTS {api_name}")
+        cursor.execute(f"DROP ROLE IF EXISTS {role_name}")
+
+
 def test_blueprint_quoted_references(cursor):
     session = cursor.connection
     try:
