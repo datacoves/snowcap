@@ -119,6 +119,11 @@ class _Grant(ResourceSpec):
             self.priv = self.priv.upper()
         if self.on_type is None:
             raise ValueError("on_type must be set")
+        if self.on_type == ResourceType.EXTERNAL_FUNCTION:
+            # GRANT ... ON EXTERNAL FUNCTION is a syntax error, and SHOW GRANTS reports these
+            # grants as granted_on FUNCTION. Grant.__init__ keeps its dependency pointer typed
+            # EXTERNAL_FUNCTION, so the plan still orders the grant after the function.
+            self.on_type = ResourceType.FUNCTION
         if "," in self.priv:
             raise ValueError("priv must be a single privilege, not a list")
         if not self._privs:
@@ -355,9 +360,6 @@ class Grant(Resource):
         else:
             if on is None:
                 raise ValueError("You must specify an 'on' parameter")
-            elif isinstance(on, ResourcePointer):
-                on_type = on.resource_type
-                on = str(on.name)
             elif isinstance(on, NamedResource):
                 # It might make sense to explicitly fail if we can't fully resolve the resource
                 on_type = on.resource_type
@@ -502,10 +504,9 @@ class Grant(Resource):
         )
         if granted_in_ref:
             self.requires(granted_in_ref)
-        granted_on = None
-        if on_type:
-            granted_on = ResourcePointer(name=on, resource_type=on_type)
-            self.requires(granted_on)
+        # _Grant names an external function as FUNCTION, so the target keeps the declared type.
+        self._target = ResourcePointer(name=on, resource_type=on_type)
+        self.requires(self._target)
 
     def __repr__(self):  # pragma: no cover
         priv = getattr(self._data, "priv", "")
@@ -529,6 +530,12 @@ class Grant(Resource):
     @property
     def on_type(self) -> ResourceType:
         return self._data.on_type
+
+    @property
+    def target_type(self) -> ResourceType:
+        """The declared type of the granted-on object. It differs from on_type, the type GRANT
+        SQL names, only for an external function."""
+        return self._target.resource_type
 
     @property
     def items_type(self) -> ResourceType:

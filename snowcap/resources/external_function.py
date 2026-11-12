@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+from .function import udf_fqn
 from .resource import Resource, ResourceSpec, Arg, NamedResource
 from ..role_ref import RoleRef
 from ..enums import DataType, NullHandling, Volatility, ResourceType
@@ -103,7 +104,8 @@ class ExternalFunction(NamedResource, Resource):
             api_integration=api_integration,
             as_=as_,
             secure=secure,
-            args=args,
+            # Snowflake identifies a function by its argument types, so no arguments is an empty signature.
+            args=args or [],
             not_null=not_null,
             null_handling=null_handling,
             volatility=volatility,
@@ -115,3 +117,7 @@ class ExternalFunction(NamedResource, Resource):
             response_translator=response_translator,
             owner=owner,
         )
+
+    @property
+    def fqn(self):
+        return udf_fqn(self)

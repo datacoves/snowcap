@@ -738,14 +738,7 @@ class NamedResource:
             super().__init__(**kwargs)
             return
 
-        try:
-            identifier = parse_identifier(name, is_db_scoped=isinstance(self.scope, DatabaseScope))
-        except pp.ParseException:
-            # Allow identifiers that should be quoted, so long as they aren't insane
-            if "." in name:
-                raise ValueError(f"Resource name not supported {name}")
-            identifier = parse_identifier(f'"{name}"', is_db_scoped=isinstance(self.scope, DatabaseScope))
-
+        identifier = self._parse_name(name)
         self._name = ResourceName(identifier["name"])
         if "database" in identifier and "database" in kwargs:
             raise ValueError("Multiple database names found")
@@ -758,6 +751,15 @@ class NamedResource:
             **kwargs,
         )
 
+    def _parse_name(self, name: str) -> dict:
+        try:
+            return parse_identifier(name, is_db_scoped=isinstance(self.scope, DatabaseScope))
+        except pp.ParseException:
+            # Allow identifiers that should be quoted, so long as they aren't insane
+            if "." in name:
+                raise ValueError(f"Resource name not supported {name}")
+            return parse_identifier(f'"{name}"', is_db_scoped=isinstance(self.scope, DatabaseScope))
+
     @property
     def name(self):
         return self._name
@@ -767,16 +769,28 @@ class NamedResource:
         return self.scope.fully_qualified_name(self.container, self.name)
 
 
+_SIGNATURE_RESOURCE_TYPES = frozenset({ResourceType.FUNCTION, ResourceType.PROCEDURE, ResourceType.EXTERNAL_FUNCTION})
+
+
 class ResourcePointer(NamedResource, Resource, ResourceContainer):
     def __init__(self, name: Union[str, ResourceName], resource_type: ResourceType):
         self._resource_type: ResourceType = resource_type
         self.scope = RESOURCE_SCOPES[resource_type]
+        self._arg_types: Optional[list] = None
         super().__init__(name)
 
         # Don't want to do this for all implicit resources but making an exception for PUBLIC schema
         # If this points to a database, assume it includes a PUBLIC schema
         if self._resource_type == ResourceType.DATABASE and self._name != "SNOWFLAKE":
             self.add(ResourcePointer(name="PUBLIC", resource_type=ResourceType.SCHEMA))
+
+    def _parse_name(self, name: str) -> dict:
+        identifier = super()._parse_name(name)
+        # A function is identified by its argument types as well as its name, and
+        # NamedResource keeps only the name.
+        if self._resource_type in _SIGNATURE_RESOURCE_TYPES:
+            self._arg_types = identifier["arg_types"]
+        return identifier
 
     def __repr__(self):  # pragma: no cover
         resource_type = getattr(self, "resource_type", None)
@@ -787,10 +801,14 @@ class ResourcePointer(NamedResource, Resource, ResourceContainer):
     def __eq__(self, other):
         if not isinstance(other, ResourcePointer):
             return False
-        return self.name == other.name and self.resource_type == other.resource_type
+        return (
+            self.name == other.name
+            and self.resource_type == other.resource_type
+            and self._arg_types == other._arg_types
+        )
 
     def __hash__(self):
-        return hash((self._name, self._resource_type))
+        return hash((self._name, self._resource_type, tuple(self._arg_types or [])))
 
     @property
     def container(self):
@@ -805,7 +823,9 @@ class ResourcePointer(NamedResource, Resource, ResourceContainer):
 
     @property
     def fqn(self):
-        return self.scope.fully_qualified_name(self.container, self.name)
+        fqn = self.scope.fully_qualified_name(self.container, self.name)
+        fqn.arg_types = self._arg_types
+        return fqn
 
     @property
     def resource_type(self):
