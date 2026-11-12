@@ -3724,6 +3724,18 @@ def fetch_resource_monitor(session: SnowflakeConnection, fqn: FQN):
     if len(resource_monitors) > 1:
         raise Exception(f"Found multiple resource monitors matching {fqn}")
     data = resource_monitors[0]
+    # SHOW reports each action's thresholds as a comma-separated list of percentages
+    # ("50%,75%"), and the notify users as one comma-separated string.
+    triggers = [
+        {"threshold": int(percent.rstrip("%")), "action": action}
+        for column, action in (
+            ("notify_at", "NOTIFY"),
+            ("suspend_at", "SUSPEND"),
+            ("suspend_immediately_at", "SUSPEND_IMMEDIATE"),
+        )
+        if data[column]
+        for percent in data[column].split(",")
+    ]
     return {
         "name": _quote_snowflake_identifier(data["name"]),
         "owner": _get_owner_identifier(data),
@@ -3731,7 +3743,12 @@ def fetch_resource_monitor(session: SnowflakeConnection, fqn: FQN):
         "frequency": data["frequency"],
         "start_timestamp": _convert_to_gmt(data["start_time"], "%Y-%m-%d %H:%M"),
         "end_timestamp": _convert_to_gmt(data["end_time"], "%Y-%m-%d %H:%M"),
-        "notify_users": data["notify_users"] or None,
+        "notify_users": (
+            [_quote_snowflake_identifier(user.strip()) for user in data["notify_users"].split(",")]
+            if data["notify_users"]
+            else None
+        ),
+        "triggers": triggers or None,
     }
 
 

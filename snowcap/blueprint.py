@@ -2302,16 +2302,23 @@ class Blueprint:
             levels = {c["change"].urn: self._levels.get(c["change"].urn, 0) for c in commands}
             max_level = max(levels.values()) if levels else 0
 
-            # Execute changes by level
+            # Execute changes by level. A change and the transfer of the same resource share a
+            # level, and the change runs as the current owner, so transfers run last: a transfer
+            # that ran first would take away the ownership the change needs.
             for level in range(max_level + 1):
                 commands_at_level = [c for c in commands if levels.get(c["change"].urn, 0) == level]
-                for role in roles:
-                    # Execute changes in current level by role
-                    commands_at_role_level = [c for c in commands_at_level if c["role"] == role]
-                    if commands_at_role_level:
-                        logger.debug(f"Executing level {level} role {role} with {len(commands_at_role_level)} changes")
-                        execute(session, f"USE ROLE {role}")
-                        execute_commands_in_parallel(commands_at_role_level)
+                transfers_at_level = [c for c in commands_at_level if isinstance(c["change"], TransferOwnership)]
+                others_at_level = [c for c in commands_at_level if not isinstance(c["change"], TransferOwnership)]
+                for batch in (others_at_level, transfers_at_level):
+                    for role in roles:
+                        # Execute changes in current level by role
+                        commands_at_role_level = [c for c in batch if c["role"] == role]
+                        if commands_at_role_level:
+                            logger.debug(
+                                f"Executing level {level} role {role} with {len(commands_at_role_level)} changes"
+                            )
+                            execute(session, f"USE ROLE {role}")
+                            execute_commands_in_parallel(commands_at_role_level)
 
         # TODO: cursor setup, including query tag
 
@@ -2592,10 +2599,15 @@ def execution_strategy_for_change(
         return default_role, False
 
     elif change.urn.resource_type == ResourceType.RESOURCE_MONITOR:
-        # For some reason Snowflake chose to not have a priv type for resource monitors.
-        # Only ACCOUNTADMIN can create them.
+        # Snowflake has no privilege for creating resource monitors: only ACCOUNTADMIN can, and
+        # it can hand one to another role. Once it has, only that owning role can alter or drop
+        # it -- ACCOUNTADMIN is refused -- so those changes run as the owner. ACCOUNTADMIN can
+        # still transfer a monitor that any role owns.
+        if isinstance(change, (UpdateResource, DropResource)) and change_owner:
+            return change_owner, False
         if "ACCOUNTADMIN" in available_roles:
-            return ResourceName("ACCOUNTADMIN"), False
+            transfer_ownership = isinstance(change, CreateResource) and change_owner != "ACCOUNTADMIN"
+            return ResourceName("ACCOUNTADMIN"), transfer_ownership
         raise MissingPrivilegeException(
             "ACCOUNTADMIN role is required to manage resource monitors.\n"
             "  Grant ACCOUNTADMIN to your user or use a different connection."

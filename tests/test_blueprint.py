@@ -2905,3 +2905,145 @@ def test_alert_body_under_ignore_changes_leaves_only_state(session_ctx):
     updates = [c for c in diff(remote_state, manifest) if isinstance(c, UpdateResource)]
     assert len(updates) == 1
     assert updates[0].delta == {"state": "SUSPENDED"}
+
+
+class TestResourceMonitorPlanning:
+    """A resource monitor round-trips through SHOW RESOURCE MONITORS with its triggers, the
+    users it notifies, and the role that owns it, and changes to any of them apply."""
+
+    OWNER = "MONITOR_ADMIN"
+
+    def _show_row(self, **overrides) -> dict:
+        # The shape Snowflake returns for a warehouse monitor with three triggers and two
+        # notify users: thresholds come back as percent strings, users as one string.
+        row = {
+            "name": "WH_MONITOR",
+            "owner": self.OWNER,
+            "owner_role_type": "ROLE",
+            "credit_quota": "1000.00",
+            "frequency": "MONTHLY",
+            "start_time": None,
+            "end_time": None,
+            "notify_at": "75%",
+            "suspend_at": "100%",
+            "suspend_immediately_at": "110%",
+            "notify_users": "BOB, ALICE",
+            "level": "WAREHOUSE",
+        }
+        row.update(overrides)
+        return row
+
+    def _monitor(self, **overrides) -> res.ResourceMonitor:
+        fields = {
+            "name": "WH_MONITOR",
+            "owner": self.OWNER,
+            "credit_quota": 1000,
+            "notify_users": ["ALICE", "BOB"],
+            "triggers": [
+                {"threshold": 110, "action": "SUSPEND_IMMEDIATE"},
+                {"threshold": 75, "action": "NOTIFY"},
+                {"threshold": 100, "action": "SUSPEND"},
+            ],
+        }
+        fields.update(overrides)
+        return res.ResourceMonitor(**fields)
+
+    def _plan(self, session_ctx, remote_state, show_row, monitor=None):
+        owner = res.Role(name=self.OWNER)
+        monitor = monitor or self._monitor()
+        manifest = Blueprint(resources=[owner, monitor]).generate_manifest(session_ctx)
+        remote_state = remote_state.copy()
+        remote_state[URN.from_resource(account_locator="ABCD123", resource=owner)] = owner.to_dict()
+        if show_row is not None:
+            with patch("snowcap.data_provider.execute", return_value=[show_row]):
+                fetched = data_provider.fetch_resource_monitor(MagicMock(), monitor.fqn)
+            urn = URN.from_resource(account_locator="ABCD123", resource=monitor)
+            remote_state[urn] = res.ResourceMonitor.spec(**fetched).to_dict(AccountEdition.ENTERPRISE)
+        return diff(remote_state, manifest)
+
+    def _sql(self, session_ctx, plan) -> list[str]:
+        session_ctx = {**session_ctx, "available_roles": session_ctx["available_roles"] + [self.OWNER]}
+        return flatten_sql_commands(compile_plan_to_sql(session_ctx, plan))
+
+    def test_a_monitor_that_matches_snowflake_plans_no_change(self, session_ctx, remote_state):
+        assert self._plan(session_ctx, remote_state, self._show_row()) == []
+
+    @pytest.mark.parametrize(
+        "notify_users, show_notify_users",
+        [
+            # SHOW reports an unquoted user name in uppercase.
+            (["alice", "bob"], "BOB, ALICE"),
+            # A user created with a quoted lowercase name keeps its case.
+            (['"alice"', "bob"], "BOB, alice"),
+        ],
+    )
+    def test_notify_users_match_snowflake_whatever_their_case_in_config(
+        self, session_ctx, remote_state, notify_users, show_notify_users
+    ):
+        plan = self._plan(
+            session_ctx,
+            remote_state,
+            self._show_row(notify_users=show_notify_users),
+            monitor=self._monitor(notify_users=notify_users),
+        )
+        assert plan == []
+
+    @pytest.mark.parametrize(
+        "show_overrides, alter",
+        [
+            (
+                {"suspend_at": "90%"},
+                "ALTER RESOURCE MONITOR WH_MONITOR"
+                " TRIGGERS ON 75 PERCENT DO NOTIFY ON 100 PERCENT DO SUSPEND ON 110 PERCENT DO SUSPEND_IMMEDIATE",
+            ),
+            (
+                {"credit_quota": "500.00", "notify_at": None},
+                "ALTER RESOURCE MONITOR WH_MONITOR SET CREDIT_QUOTA = 1000"
+                " TRIGGERS ON 75 PERCENT DO NOTIFY ON 100 PERCENT DO SUSPEND ON 110 PERCENT DO SUSPEND_IMMEDIATE",
+            ),
+        ],
+    )
+    def test_a_changed_trigger_replaces_the_whole_set_as_the_owner(
+        self, session_ctx, remote_state, show_overrides, alter
+    ):
+        """Snowflake's TRIGGERS clause replaces every trigger and cannot follow SET, and only
+        the owning role can alter a monitor, even when that role is not ACCOUNTADMIN."""
+        sql = self._sql(session_ctx, self._plan(session_ctx, remote_state, self._show_row(**show_overrides)))
+        assert sql[-2:] == [f"USE ROLE {self.OWNER}", alter]
+
+    def test_a_new_monitor_is_created_by_accountadmin_and_handed_to_its_owner(self, session_ctx, remote_state):
+        sql = self._sql(session_ctx, self._plan(session_ctx, remote_state, show_row=None))
+        assert sql[-3:] == [
+            "USE ROLE ACCOUNTADMIN",
+            "CREATE RESOURCE MONITOR WH_MONITOR CREDIT_QUOTA = 1000"
+            " NOTIFY_USERS = ($$ALICE$$, $$BOB$$)"
+            " TRIGGERS ON 75 PERCENT DO NOTIFY ON 100 PERCENT DO SUSPEND ON 110 PERCENT DO SUSPEND_IMMEDIATE",
+            f"GRANT OWNERSHIP ON RESOURCE MONITOR WH_MONITOR TO ROLE {self.OWNER} COPY CURRENT GRANTS",
+        ]
+
+    def test_a_change_and_a_new_owner_in_one_apply_alter_before_the_transfer(
+        self, monkeypatch, session_ctx, remote_state
+    ):
+        """The ALTER runs as the current owner and the transfer as ACCOUNTADMIN, at the same
+        dependency level. A transfer that ran first would leave the ALTER without ownership,
+        and Snowflake would refuse it with error 003001."""
+        plan = self._plan(
+            session_ctx,
+            remote_state,
+            self._show_row(owner="OLD_OWNER", suspend_at="90%"),
+        )
+        assert {type(change) for change in plan} == {UpdateResource, TransferOwnership}
+
+        executed: list[str] = []
+        monitor_session_ctx = {**session_ctx, "available_roles": session_ctx["available_roles"] + ["OLD_OWNER"]}
+        monkeypatch.setattr("snowcap.blueprint.data_provider.fetch_session", lambda session: monitor_session_ctx)
+        monkeypatch.setattr("snowcap.blueprint.execute", lambda session, sql: executed.append(sql))
+        # A plan lists the transfer first, so only the apply loop can put it last.
+        plan.sort(key=lambda change: not isinstance(change, TransferOwnership))
+        Blueprint(resources=[]).apply(session=None, plan=plan)
+
+        alter = next(i for i, sql in enumerate(executed) if sql.startswith("ALTER RESOURCE MONITOR"))
+        transfer = next(i for i, sql in enumerate(executed) if sql.startswith("GRANT OWNERSHIP"))
+        assert executed[alter - 1] == "USE ROLE OLD_OWNER"
+        assert executed[transfer - 1] == "USE ROLE ACCOUNTADMIN"
+        assert alter < transfer
