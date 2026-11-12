@@ -437,16 +437,36 @@ def _update_with_separate_clauses(
     from the new value. Each of those fields gets its own statement, and the rest of the delta
     goes to update__default, so every field in the delta is applied.
 
-    A rename goes to update__default whole, which refuses to combine it with other fields:
-    any ALTER ordered after the RENAME TO would target the old name.
+    A rename or an owner change goes to update__default whole, which refuses to combine
+    either with other fields: any ALTER ordered after the RENAME TO would target the old name.
     """
-    if "name" in data:
+    if "name" in data or "owner" in data:
         return update__default(urn, data, props)
     commands = [render(data[attr]) for attr, render in clauses.items() if attr in data]
     other_fields = {attr: value for attr, value in data.items() if attr not in clauses}
     if other_fields:
         default_commands = update__default(urn, other_fields, props)
         commands.extend(default_commands if isinstance(default_commands, list) else [default_commands])
+    return commands[0] if len(commands) == 1 else commands
+
+
+def _update_with_state_change(
+    urn: URN, data: dict, props: Props, clauses: dict[str, Callable[[Any], str]]
+) -> Union[str, list[str]]:
+    """
+    The SQL for a task or alert delta. A state change is its own ALTER ... RESUME or
+    ALTER ... SUSPEND, and the rest of the delta goes to _update_with_separate_clauses.
+    A suspend runs first and a resume runs last, so the object never runs with part of its
+    new definition. Snowflake also refuses an alert change while the alert is started.
+    """
+    if "state" not in data or "name" in data or "owner" in data:
+        return _update_with_separate_clauses(urn, data, props, clauses)
+    resume = data["state"] == "STARTED"
+    state_command = tidy_sql("ALTER", urn.resource_type, urn.fqn, "RESUME" if resume else "SUSPEND")
+    other_fields = {attr: value for attr, value in data.items() if attr != "state"}
+    commands = _update_with_separate_clauses(urn, other_fields, props, clauses) if other_fields else []
+    commands = commands if isinstance(commands, list) else [commands]
+    commands = commands + [state_command] if resume else [state_command] + commands
     return commands[0] if len(commands) == 1 else commands
 
 
@@ -585,47 +605,43 @@ def update_table(urn: URN, data: dict, props: Props) -> Union[str, list[str]]:
 # This is a problem because we don't have a concept of "current value" for lifecycle updates
 # and so we can't know what value to set.
 def update_task(urn: URN, data: dict, props: Props) -> Union[str, list[str]]:
-    # as_ (MODIFY AS), when (MODIFY/REMOVE WHEN), and state (RESUME/SUSPEND) each need
-    # bespoke ALTER syntax that can't be combined with a SET, so they must arrive on their
-    # own. Everything else flows through update__default, which renders multi-field deltas
-    # in one ALTER without dropping any (an arbitrary popitem() here would silently lose the
-    # rest of the delta).
-    special = [attr for attr in ("as_", "when", "state") if attr in data]
-    if not special:
-        return update__default(urn, data, props)
-    if len(data) > 1:
+    # as_ (MODIFY AS) and when (MODIFY/REMOVE WHEN) need bespoke ALTER syntax that Snowflake
+    # rejects in the same statement as any other clause, so each gets its own ALTER.
+    # Refuse before any SQL is rendered, so a plan never applies part of a delta.
+    if "after" in data:
         raise NotImplementedError(
-            f"update_task cannot combine {special!r} with other fields in one ALTER for {urn}; "
+            f"update_task cannot change 'after' for {urn}: ALTER TASK has no SET AFTER; "
             f"got delta keys {sorted(data.keys())!r}"
         )
-    attr = special[0]
-    new_value = data[attr]
-    if attr == "as_":
-        return tidy_sql("ALTER TASK", urn.fqn, "MODIFY", "AS", new_value)
-    if attr == "when":
-        if new_value is None:
-            return tidy_sql("ALTER TASK", urn.fqn, "REMOVE", "WHEN")
-        return tidy_sql("ALTER TASK", urn.fqn, "MODIFY", "WHEN", new_value)
-    # attr == "state"
-    change_verb = "RESUME" if new_value == "STARTED" else "SUSPEND"
-    return tidy_sql("ALTER TASK", urn.fqn, change_verb)
+    if "as_" in data and not data["as_"]:
+        raise NotImplementedError(f"update_task cannot remove the body (as_) of {urn}: a task must have a body")
+    return _update_with_state_change(
+        urn,
+        data,
+        props,
+        {
+            "as_": lambda as_: tidy_sql("ALTER TASK", urn.fqn, "MODIFY AS", as_),
+            "when": lambda when: (
+                tidy_sql("ALTER TASK", urn.fqn, "MODIFY WHEN", when)
+                if when
+                else tidy_sql("ALTER TASK", urn.fqn, "REMOVE WHEN")
+            ),
+        },
+    )
 
 
 def update_alert(urn: URN, data: dict, props: Props) -> Union[str, list[str]]:
-    # Alerts, like tasks, reach STARTED via ALTER ALERT ... RESUME rather than a CREATE
-    # clause, and RESUME/SUSPEND can't be combined with a SET in one statement. Handle state
-    # on its own; delegate every other field to update__default, which renders multi-field
-    # deltas without dropping any (an arbitrary popitem() here would silently lose the rest).
-    # Read data without mutating it: it is the live change.delta, passed by reference.
-    if "state" not in data:
-        return update__default(urn, data, props)
-    if len(data) > 1:
-        raise NotImplementedError(
-            f"update_alert cannot combine 'state' (RESUME/SUSPEND) with other fields in one "
-            f"ALTER for {urn}; got delta keys {sorted(data.keys())!r}"
-        )
-    change_verb = "RESUME" if data["state"] == "STARTED" else "SUSPEND"
-    return tidy_sql("ALTER ALERT", urn.fqn, change_verb)
+    return _update_with_state_change(
+        urn,
+        data,
+        props,
+        {
+            "condition": lambda condition: tidy_sql(
+                "ALTER ALERT", urn.fqn, "MODIFY CONDITION EXISTS (", condition, ")"
+            ),
+            "then": lambda then: tidy_sql("ALTER ALERT", urn.fqn, "MODIFY ACTION", then),
+        },
+    )
 
 
 update_iceberg_table = update_table

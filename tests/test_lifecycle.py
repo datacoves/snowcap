@@ -1140,11 +1140,84 @@ class TestUpdateTask:
         result = update_task(urn, {"comment": "hi"}, res.Task.props)
         assert result == "ALTER TASK MY_DB.MY_SCHEMA.MY_TASK SET COMMENT = $$hi$$"
 
-    def test_state_combined_with_other_fields_raises_rather_than_dropping(self):
-        """RESUME/SUSPEND can't be combined with a SET; the delta must not be silently truncated."""
+    @pytest.mark.parametrize(
+        "delta, expected",
+        [
+            (
+                {"comment": "hi", "as_": "SELECT 2"},
+                [
+                    "ALTER TASK MY_DB.MY_SCHEMA.MY_TASK MODIFY AS SELECT 2",
+                    "ALTER TASK MY_DB.MY_SCHEMA.MY_TASK SET COMMENT = $$hi$$",
+                ],
+            ),
+            (
+                {"as_": "SELECT 2", "when": "SYSTEM$STREAM_HAS_DATA('MY_STREAM')"},
+                [
+                    "ALTER TASK MY_DB.MY_SCHEMA.MY_TASK MODIFY AS SELECT 2",
+                    "ALTER TASK MY_DB.MY_SCHEMA.MY_TASK MODIFY WHEN SYSTEM$STREAM_HAS_DATA('MY_STREAM')",
+                ],
+            ),
+            (
+                {"state": "STARTED", "when": None, "comment": "hi", "schedule": None},
+                [
+                    "ALTER TASK MY_DB.MY_SCHEMA.MY_TASK REMOVE WHEN",
+                    "ALTER TASK MY_DB.MY_SCHEMA.MY_TASK SET COMMENT = $$hi$$",
+                    "ALTER TASK MY_DB.MY_SCHEMA.MY_TASK UNSET schedule",
+                    "ALTER TASK MY_DB.MY_SCHEMA.MY_TASK RESUME",
+                ],
+            ),
+            (
+                {"state": "SUSPENDED", "as_": "SELECT 2", "comment": "hi"},
+                [
+                    "ALTER TASK MY_DB.MY_SCHEMA.MY_TASK SUSPEND",
+                    "ALTER TASK MY_DB.MY_SCHEMA.MY_TASK MODIFY AS SELECT 2",
+                    "ALTER TASK MY_DB.MY_SCHEMA.MY_TASK SET COMMENT = $$hi$$",
+                ],
+            ),
+        ],
+    )
+    def test_combined_delta_renders_one_alter_per_clause(self, delta, expected):
+        """Snowflake rejects MODIFY AS, MODIFY/REMOVE WHEN and RESUME/SUSPEND combined with any
+        other clause, so each gets its own ALTER and every field in the delta is applied. A
+        suspend runs first and a resume runs last, so the task never runs part of its new
+        definition."""
         urn = make_urn(ResourceType.TASK, "MY_TASK", database="MY_DB", schema="MY_SCHEMA")
-        with pytest.raises(NotImplementedError, match="cannot combine"):
-            update_task(urn, {"state": "STARTED", "comment": "hi"}, res.Task.props)
+        assert update_task(urn, delta, res.Task.props) == expected
+
+    def test_empty_when_removes_the_condition(self):
+        """An empty WHEN has no MODIFY WHEN form, so it removes the condition."""
+        urn = make_urn(ResourceType.TASK, "MY_TASK", database="MY_DB", schema="MY_SCHEMA")
+        assert update_task(urn, {"when": ""}, res.Task.props) == "ALTER TASK MY_DB.MY_SCHEMA.MY_TASK REMOVE WHEN"
+
+    @pytest.mark.parametrize("as_", [None, ""])
+    def test_empty_body_raises(self, as_):
+        """A task must have a body, and a bare MODIFY AS is a syntax error."""
+        urn = make_urn(ResourceType.TASK, "MY_TASK", database="MY_DB", schema="MY_SCHEMA")
+        with pytest.raises(NotImplementedError, match="cannot remove the body"):
+            update_task(urn, {"as_": as_, "comment": "hi"}, res.Task.props)
+
+    @pytest.mark.parametrize("other_field", [{}, {"as_": "SELECT 2"}, {"state": "STARTED"}])
+    def test_after_raises_before_any_statement(self, other_field):
+        """ALTER TASK has no SET AFTER, so an AFTER change must fail the plan. Rendering the
+        other fields first would apply them and then fail on the AFTER change."""
+        urn = make_urn(ResourceType.TASK, "MY_TASK", database="MY_DB", schema="MY_SCHEMA")
+        with pytest.raises(NotImplementedError, match="cannot change 'after'"):
+            update_task(urn, {"after": ["MY_DB.MY_SCHEMA.T1"], **other_field}, res.Task.props)
+
+    @pytest.mark.parametrize("other_field", [{"state": "STARTED"}, {"as_": "SELECT 2"}, {"when": None}])
+    def test_rename_combined_with_other_fields_raises(self, other_field):
+        """Every other ALTER targets the task's current name, so any of them ordered after a
+        RENAME TO would fail. A rename must arrive on its own."""
+        urn = make_urn(ResourceType.TASK, "MY_TASK", database="MY_DB", schema="MY_SCHEMA")
+        with pytest.raises(NotImplementedError, match="cannot combine 'name'"):
+            update_task(urn, {"name": "NEW_TASK", **other_field}, res.Task.props)
+
+    @pytest.mark.parametrize("other_field", [{"state": "STARTED"}, {"as_": "SELECT 2"}, {"when": None}])
+    def test_owner_combined_with_other_fields_raises(self, other_field):
+        """An owner change has no ALTER form, so the error must name the conflicting fields."""
+        urn = make_urn(ResourceType.TASK, "MY_TASK", database="MY_DB", schema="MY_SCHEMA")
+        with pytest.raises(NotImplementedError, match="cannot combine 'owner'"):
+            update_task(urn, {"owner": "SOME_ROLE", **other_field}, res.Task.props)
 
 
 class TestUpdateIcebergTable:
@@ -1677,11 +1750,39 @@ class TestUpdateMCPServer:
         result = update_resource(urn, {"comment": "hi"}, res.Alert.props)
         assert result == "ALTER ALERT MY_DB.MY_SCHEMA.MY_ALERT SET COMMENT = $$hi$$"
 
-    def test_update_alert_state_with_other_fields_raises_rather_than_dropping(self):
-        """state can't be combined with a SET; the other field must not be silently dropped."""
+    @pytest.mark.parametrize(
+        "delta, expected",
+        [
+            (
+                {"state": "STARTED", "comment": "hi"},
+                [
+                    "ALTER ALERT MY_DB.MY_SCHEMA.MY_ALERT SET COMMENT = $$hi$$",
+                    "ALTER ALERT MY_DB.MY_SCHEMA.MY_ALERT RESUME",
+                ],
+            ),
+            (
+                {"state": "SUSPENDED", "condition": "SELECT 2", "then": "SELECT 3", "comment": "hi"},
+                [
+                    "ALTER ALERT MY_DB.MY_SCHEMA.MY_ALERT SUSPEND",
+                    "ALTER ALERT MY_DB.MY_SCHEMA.MY_ALERT MODIFY CONDITION EXISTS ( SELECT 2 )",
+                    "ALTER ALERT MY_DB.MY_SCHEMA.MY_ALERT MODIFY ACTION SELECT 3",
+                    "ALTER ALERT MY_DB.MY_SCHEMA.MY_ALERT SET COMMENT = $$hi$$",
+                ],
+            ),
+        ],
+    )
+    def test_update_alert_combined_delta_renders_one_alter_per_clause(self, delta, expected):
+        """Snowflake refuses an alert change while the alert is started, and RESUME/SUSPEND,
+        MODIFY CONDITION and MODIFY ACTION each need their own ALTER. A suspend runs first
+        and a resume runs last."""
         urn = make_urn(ResourceType.ALERT, "MY_ALERT", database="MY_DB", schema="MY_SCHEMA")
-        with pytest.raises(NotImplementedError, match="cannot combine"):
-            update_resource(urn, {"state": "STARTED", "comment": "hi"}, res.Alert.props)
+        assert update_resource(urn, delta, res.Alert.props) == expected
+
+    def test_update_alert_rename_combined_with_state_raises(self):
+        """A RESUME ordered after a RENAME TO would target the old name."""
+        urn = make_urn(ResourceType.ALERT, "MY_ALERT", database="MY_DB", schema="MY_SCHEMA")
+        with pytest.raises(NotImplementedError, match="cannot combine 'name'"):
+            update_resource(urn, {"name": "NEW_ALERT", "state": "STARTED"}, res.Alert.props)
 
 
 class TestCreateMCPServer:
