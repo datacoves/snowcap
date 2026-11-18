@@ -253,6 +253,7 @@ def _parse_priv_grant(sql: str):
 def _parse_role_grant(sql: str):
     """
     GRANT ROLE <name> TO { ROLE <parent_role_name> | USER <user_name> }
+      [ { FOR INTERVAL <interval> | UNTIL <timestamp> } [ RESET EXPIRATION ] ]
     """
 
     grant = (
@@ -262,17 +263,29 @@ def _parse_role_grant(sql: str):
         + TO
         + pp.MatchFirst([Keyword("ROLE"), Keyword("USER")])("to_type")
         + Identifier("to")
+        + pp.Opt(
+            (Keywords("FOR INTERVAL").suppress() + StringLiteral("for_interval"))
+            | (Keyword("UNTIL").suppress() + (StringLiteral | pp.Word(pp.alphanums + "-:.+"))("until"))
+        )
+        # RESET EXPIRATION only matters relative to an existing grant; the desired state
+        # it leaves behind is just the expiration in the same statement.
+        + pp.Opt(Keywords("RESET EXPIRATION").suppress())
     )
     grant = grant.ignore(pp.c_style_comment | snowflake_sql_comment)
 
     try:
         results = grant.parse_string(sql, parse_all=True)
         results = results.as_dict()
-        return {
+        parsed = {
             "role": results["role"],
             "to_role": results["to"] if results["to_type"] == "ROLE" else None,
             "to_user": results["to"] if results["to_type"] == "USER" else None,
         }
+        if "for_interval" in results:
+            parsed["for_interval"] = results["for_interval"]
+        if "until" in results:
+            parsed["until"] = results["until"]
+        return parsed
     except pp.ParseException as err:
         raise pp.ParseException("Failed to parse grant") from err
 

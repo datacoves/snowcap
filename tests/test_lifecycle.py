@@ -2121,3 +2121,71 @@ class TestSAML2SecurityIntegration:
         data = {"saml2_x509_cert": "MIIDnewcert"}
         result = update_resource(urn, data, res.SAML2SecurityIntegration.props)
         assert result == "ALTER SECURITY INTEGRATION SSO_SAML SET SAML2_X509_CERT = $$MIIDnewcert$$"
+
+
+class TestCreateRoleGrantExpiration:
+    """Tests for FOR INTERVAL / UNTIL on create_role_grant."""
+
+    def test_grant_to_user_for_interval(self):
+        urn = make_urn(ResourceType.ROLE_GRANT, "GRANT")
+        data = {
+            "role": "ONCALL",
+            "to_role": None,
+            "to_user": "ALICE",
+            "for_interval": "24 HOURS",
+            "until": None,
+        }
+        result = create_role_grant(urn, data, MockProps(""))
+        assert result == "GRANT ROLE ONCALL TO USER ALICE FOR INTERVAL '24 HOURS'"
+
+    def test_grant_to_user_until(self):
+        urn = make_urn(ResourceType.ROLE_GRANT, "GRANT")
+        data = {
+            "role": "ONCALL",
+            "to_role": None,
+            "to_user": "ALICE",
+            "for_interval": None,
+            "until": "2026-12-01T00:00:00Z",
+        }
+        result = create_role_grant(urn, data, MockProps(""))
+        assert result == "GRANT ROLE ONCALL TO USER ALICE UNTIL '2026-12-01T00:00:00Z'"
+
+
+class TestUpdateRoleGrant:
+    """Tests for update_role_grant expiration handling."""
+
+    def _urn(self):
+        return make_urn_with_params(ResourceType.ROLE_GRANT, "ONCALL", params={"user": "ALICE"})
+
+    def _after(self, **overrides):
+        after = {
+            "role": "ONCALL",
+            "to_user": "ALICE",
+            "for_interval": None,
+            "until": None,
+        }
+        after.update(overrides)
+        return after
+
+    def test_temporary_to_permanent(self):
+        """A grant losing its expiration is re-granted without a clause, which
+        Snowflake treats as permanent."""
+        result = update_role_grant(self._urn(), {"has_expiration": False}, MockProps(""), self._after())
+        assert result == "GRANT ROLE ONCALL TO USER ALICE"
+
+    def test_permanent_to_for_interval(self):
+        """Making a permanent grant temporary requires RESET EXPIRATION; without it
+        Snowflake keeps the longer (permanent) lifetime."""
+        after = self._after(for_interval="24 HOURS")
+        result = update_role_grant(self._urn(), {"has_expiration": True}, MockProps(""), after)
+        assert result == "GRANT ROLE ONCALL TO USER ALICE FOR INTERVAL '24 HOURS' RESET EXPIRATION"
+
+    def test_until_change(self):
+        after = self._after(until="2026-12-01T00:00:00Z")
+        result = update_role_grant(self._urn(), {"until": "2026-12-01T00:00:00Z"}, MockProps(""), after)
+        assert result == "GRANT ROLE ONCALL TO USER ALICE UNTIL '2026-12-01T00:00:00Z' RESET EXPIRATION"
+
+    def test_grant_to_role_has_no_updatable_fields(self):
+        urn = make_urn_with_params(ResourceType.ROLE_GRANT, "ONCALL", params={"role": "PARENT"})
+        with pytest.raises(NotImplementedError):
+            update_role_grant(urn, {"has_expiration": True}, MockProps(""), {"role": "ONCALL"})
