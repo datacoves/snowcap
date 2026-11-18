@@ -34,7 +34,7 @@ def construct_string_on_off(loader, node):
 
 yaml.add_constructor("tag:yaml.org,2002:bool", construct_string_on_off, yaml.SafeLoader)
 
-VALID_ROLE_GRANT_KEYS = {"role", "roles", "to_user", "to_users", "to_role", "to_roles"}
+VALID_ROLE_GRANT_KEYS = {"role", "roles", "to_user", "to_users", "to_role", "to_roles", "for_interval", "until"}
 
 # `roles` is the long-standing plural of `to_role` here, kept for compatibility;
 # `database_roles` is the matching plural of `to_database_role`.
@@ -108,6 +108,9 @@ def _resources_from_role_grants_config(role_grants_config: list) -> list:
         # Check for invalid combinations
         _validate_role_grant_structure(role_grant)
 
+        # Temporary grant options; RoleGrant rejects them unless the grantee is a user.
+        expiration = {key: role_grant[key] for key in ("for_interval", "until") if role_grant.get(key) is not None}
+
         # When only one role is being assigned
         if "role" in role_grant:
             # To one role
@@ -116,6 +119,7 @@ def _resources_from_role_grants_config(role_grants_config: list) -> list:
                     RoleGrant(
                         role=role_grant["role"],
                         to_role=role_grant["to_role"],
+                        **expiration,
                     )
                 )
             # To one user
@@ -124,6 +128,7 @@ def _resources_from_role_grants_config(role_grants_config: list) -> list:
                     RoleGrant(
                         role=role_grant["role"],
                         to_user=role_grant["to_user"],
+                        **expiration,
                     )
                 )
             else:
@@ -133,6 +138,7 @@ def _resources_from_role_grants_config(role_grants_config: list) -> list:
                         RoleGrant(
                             role=role_grant["role"],
                             to_user=user,
+                            **expiration,
                         )
                     )
                 # To multiple roles
@@ -141,6 +147,7 @@ def _resources_from_role_grants_config(role_grants_config: list) -> list:
                         RoleGrant(
                             role=role_grant["role"],
                             to_role=to_role,
+                            **expiration,
                         )
                     )
         # When multiple roles are being assigned, to a single user
@@ -150,6 +157,7 @@ def _resources_from_role_grants_config(role_grants_config: list) -> list:
                     RoleGrant(
                         role=role,
                         to_user=role_grant["to_user"],
+                        **expiration,
                     )
                 )
         # When multiple roles are being assigned, to a single role
@@ -159,6 +167,7 @@ def _resources_from_role_grants_config(role_grants_config: list) -> list:
                     RoleGrant(
                         role=role,
                         to_role=role_grant["to_role"],
+                        **expiration,
                     )
                 )
     if len(resources) == 0:

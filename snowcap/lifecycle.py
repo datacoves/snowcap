@@ -302,6 +302,13 @@ def create_role_grant(urn: URN, data: dict, props: Props, if_not_exists: bool = 
     else:
         to = data["to_user"]
         to_type = "USER"
+    # FOR INTERVAL and UNTIL only apply to grants of a role to a user; the spec
+    # rejects them on a grant to a role before SQL is ever rendered.
+    expiration = ""
+    if data.get("for_interval"):
+        expiration = f"FOR INTERVAL {_single_quote(data['for_interval'])}"
+    elif data.get("until"):
+        expiration = f"UNTIL {_single_quote(data['until'])}"
     return tidy_sql(
         "GRANT",
         "ROLE",
@@ -309,6 +316,7 @@ def create_role_grant(urn: URN, data: dict, props: Props, if_not_exists: bool = 
         "TO",
         to_type,
         to,
+        expiration,
     )
 
 
@@ -404,7 +412,7 @@ def update_resource(urn: URN, data: dict, props: Props, after: Optional[dict] = 
     it as a fingerprint change, and the new public key only exists in the desired state.
     """
     handler = getattr(__this__, f"update_{urn.resource_label}", update__default)
-    if handler is update_user_key_pair:
+    if handler in (update_user_key_pair, update_role_grant):
         return handler(urn, data, props, after or {})
     return handler(urn, data, props)
 
@@ -576,8 +584,40 @@ def update_procedure(urn: URN, data: dict, props: Props) -> Union[str, list[str]
     )
 
 
-def update_role_grant(urn: URN, data: dict, props: Props) -> str:
-    raise NotImplementedError
+def update_role_grant(urn: URN, data: dict, props: Props, after: dict) -> str:
+    """
+    The SQL for a role grant's expiration delta.
+
+    GRANT ROLE ... TO USER doubles as the update: run again with FOR INTERVAL or UNTIL
+    plus RESET EXPIRATION it sets the expiration to exactly the desired value (without
+    RESET EXPIRATION a permanent grant would stay permanent), and run again with no
+    expiration clause it makes a temporary grant permanent. Grants of a role to another
+    role have no updatable fields.
+    """
+    if "user" not in urn.fqn.params:
+        raise NotImplementedError(f"Cannot update {urn}: grants to a role have no updatable fields")
+    role = after["role"]
+    user = after["to_user"]
+    if data.get("has_expiration") is False:
+        # Desired state is a permanent grant; a plain GRANT drops the expiration.
+        return tidy_sql("GRANT", "ROLE", role, "TO", "USER", user)
+    if after.get("for_interval"):
+        return tidy_sql(
+            "GRANT",
+            "ROLE",
+            role,
+            "TO",
+            "USER",
+            user,
+            "FOR INTERVAL",
+            _single_quote(after["for_interval"]),
+            "RESET EXPIRATION",
+        )
+    if after.get("until"):
+        return tidy_sql(
+            "GRANT", "ROLE", role, "TO", "USER", user, "UNTIL", _single_quote(after["until"]), "RESET EXPIRATION"
+        )
+    raise NotImplementedError(f"Cannot update {urn}: got delta keys {sorted(data.keys())!r}")
 
 
 def update_scanner_package(urn: URN, data: dict, props: Props) -> Union[str, list[str]]:

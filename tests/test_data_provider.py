@@ -4025,3 +4025,143 @@ def test_policy_references_escape_apostrophe(mock_execute):
     sql = mock_execute.call_args[0][1]
     assert "REF_ENTITY_NAME => 'GOVERNANCE.TAGS.\\\"ops''s tag\\\"'" in sql
     assert "= 'GOVERNANCE.POLICIES.OPS''S_MASK'" in sql
+
+
+class TestFetchRoleGrantExpiration:
+    """expires_on handling in fetch_role_grant and the ACCOUNT_USAGE path."""
+
+    def _user_grant_fqn(self):
+        return FQN(name=ResourceName("MY_ROLE"), params={"user": "ALICE"})
+
+    @patch("snowcap.data_provider.execute")
+    def test_temporary_grant_until_normalized(self, mock_execute):
+        """SHOW GRANTS OF ROLE reports expires_on; it must land in the fetch as `until`
+        in the same canonical form config uses."""
+        from snowcap.data_provider import fetch_role_grant
+
+        mock_execute.return_value = [
+            {
+                "granted_to": "USER",
+                "grantee_name": "ALICE",
+                "expires_on": datetime.datetime(2026, 12, 1, 10, 0, 0),
+            }
+        ]
+
+        result = fetch_role_grant(MagicMock(), self._user_grant_fqn())
+
+        assert result["to_user"] == "ALICE"
+        assert result["until"] == "2026-12-01T10:00:00Z"
+
+    @patch("snowcap.data_provider.execute")
+    def test_permanent_grant_until_is_none(self, mock_execute):
+        from snowcap.data_provider import fetch_role_grant
+
+        mock_execute.return_value = [
+            {
+                "granted_to": "USER",
+                "grantee_name": "ALICE",
+                "expires_on": None,
+            }
+        ]
+
+        result = fetch_role_grant(MagicMock(), self._user_grant_fqn())
+
+        assert result["until"] is None
+
+    @patch("snowcap.data_provider.execute")
+    def test_row_without_expires_on_column(self, mock_execute):
+        """An account without the temporary-grants preview has no expires_on column."""
+        from snowcap.data_provider import fetch_role_grant
+
+        mock_execute.return_value = [
+            {
+                "granted_to": "USER",
+                "grantee_name": "ALICE",
+            }
+        ]
+
+        result = fetch_role_grant(MagicMock(), self._user_grant_fqn())
+
+        assert result["until"] is None
+
+    @patch("snowcap.data_provider.execute")
+    def test_expired_grant_treated_as_gone(self, mock_execute):
+        """A row whose expiration already passed is a dead grant, not live state."""
+        from snowcap.data_provider import fetch_role_grant
+
+        mock_execute.return_value = [
+            {
+                "granted_to": "USER",
+                "grantee_name": "ALICE",
+                "expires_on": datetime.datetime(2020, 1, 1, 0, 0, 0),
+            }
+        ]
+
+        assert fetch_role_grant(MagicMock(), self._user_grant_fqn()) is None
+
+    @patch("snowcap.data_provider.execute")
+    def test_expired_grant_in_account_usage_cache(self, mock_execute):
+        """The GRANTS_TO_USERS cache path applies the same expired-row rule."""
+        from snowcap.data_provider import _ACCOUNT_USAGE_USER_GRANTS_CACHE, fetch_role_grant
+
+        session = MagicMock()
+        _ACCOUNT_USAGE_USER_GRANTS_CACHE[id(session)] = [
+            {
+                "role": "MY_ROLE",
+                "grantee_name": "ALICE",
+                "expires_on": datetime.datetime(2020, 1, 1, 0, 0, 0),
+            }
+        ]
+        try:
+            assert fetch_role_grant(session, self._user_grant_fqn()) is None
+        finally:
+            del _ACCOUNT_USAGE_USER_GRANTS_CACHE[id(session)]
+
+    @patch("snowcap.data_provider.execute")
+    def test_account_usage_rows_carry_expires_on(self, mock_execute):
+        """GRANTS_TO_USERS rows are normalized with their expires_on value."""
+        from snowcap.data_provider import _fetch_role_grants_to_users_from_account_usage
+
+        expires = datetime.datetime(2026, 12, 1, 10, 0, 0)
+        mock_execute.return_value = [
+            {
+                "CREATED_ON": datetime.datetime(2024, 1, 1, 12, 0, 0),
+                "ROLE": "MY_ROLE",
+                "GRANTED_TO": "USER",
+                "GRANTEE_NAME": "ALICE",
+                "GRANTED_BY": "SECURITYADMIN",
+                "EXPIRES_ON": expires,
+            }
+        ]
+
+        result = _fetch_role_grants_to_users_from_account_usage(MagicMock())
+
+        assert result[0]["expires_on"] == expires
+
+    @patch("snowcap.data_provider.execute")
+    def test_account_usage_retries_without_expires_on(self, mock_execute):
+        """An account lacking the EXPIRES_ON column retries without it and reports
+        permanent grants rather than falling back to SHOW entirely."""
+        from snowflake.connector.errors import ProgrammingError
+
+        from snowcap.client import INVALID_COLUMN_ERR
+        from snowcap.data_provider import _fetch_role_grants_to_users_from_account_usage
+
+        mock_execute.side_effect = [
+            ProgrammingError(errno=INVALID_COLUMN_ERR),
+            [
+                {
+                    "CREATED_ON": datetime.datetime(2024, 1, 1, 12, 0, 0),
+                    "ROLE": "MY_ROLE",
+                    "GRANTED_TO": "USER",
+                    "GRANTEE_NAME": "ALICE",
+                    "GRANTED_BY": "SECURITYADMIN",
+                }
+            ],
+        ]
+
+        result = _fetch_role_grants_to_users_from_account_usage(MagicMock())
+
+        assert mock_execute.call_count == 2
+        assert "EXPIRES_ON" not in mock_execute.call_args_list[1][0][1]
+        assert result[0]["expires_on"] is None

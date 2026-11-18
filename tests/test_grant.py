@@ -1065,3 +1065,86 @@ class TestInheritedGrants:
 
         assert len(grants) == 2
         assert all(g.grant_type == GrantType.INHERITED for g in grants)
+
+
+class TestRoleGrantExpiration:
+    """Temporary role grants to users (GRANT ROLE ... FOR INTERVAL / UNTIL)."""
+
+    def test_for_interval(self):
+        grant = res.RoleGrant(role="oncall", to_user="alice", for_interval="24 hours")
+        assert grant._data.for_interval == "24 HOURS"
+        assert grant._data.has_expiration is True
+        # The expiration is not part of the grant's identity.
+        assert str(URN.from_resource(grant)) == "urn:::role_grant/ONCALL?user=ALICE"
+
+    def test_until_is_normalized(self):
+        grant = res.RoleGrant(role="oncall", to_user="alice", until="2026-12-01 10:00:00+00:00")
+        assert grant._data.until == "2026-12-01T10:00:00Z"
+        assert grant._data.has_expiration is True
+
+    def test_until_converts_offsets_to_utc(self):
+        grant = res.RoleGrant(role="oncall", to_user="alice", until="2026-12-01T10:00:00-07:00")
+        assert grant._data.until == "2026-12-01T17:00:00Z"
+
+    def test_permanent_grant_has_no_expiration(self):
+        grant = res.RoleGrant(role="somerole", to_user="someuser")
+        assert grant._data.has_expiration is False
+        assert grant._data.for_interval is None
+        assert grant._data.until is None
+
+    def test_for_interval_and_until_are_mutually_exclusive(self):
+        with pytest.raises(ValueError, match="Only one of for_interval or until"):
+            res.RoleGrant(role="oncall", to_user="alice", for_interval="1 HOUR", until="2026-01-01T00:00:00Z")
+
+    def test_expiration_rejected_on_grant_to_role(self):
+        with pytest.raises(ValueError, match="only be used on a grant of a role to a user"):
+            res.RoleGrant(role="oncall", to_role="other_role", for_interval="1 HOUR")
+        with pytest.raises(ValueError, match="only be used on a grant of a role to a user"):
+            res.RoleGrant(role="oncall", to_role="other_role", until="2026-01-01T00:00:00Z")
+
+    def test_for_interval_format_is_validated(self):
+        for bad in ("1 DAY 12 HOURS", "0 HOURS", "abc", "-5 MINUTES"):
+            with pytest.raises(ValueError, match="for_interval"):
+                res.RoleGrant(role="oncall", to_user="alice", for_interval=bad)
+
+    def test_for_interval_accepts_singular_units(self):
+        grant = res.RoleGrant(role="oncall", to_user="alice", for_interval="1 DAY")
+        assert grant._data.for_interval == "1 DAY"
+
+    def test_until_requires_a_timezone(self):
+        with pytest.raises(ValueError, match="timezone"):
+            res.RoleGrant(role="oncall", to_user="alice", until="2026-01-01 10:00:00")
+
+    def test_from_sql_for_interval(self):
+        grant = res.RoleGrant.from_sql("GRANT ROLE oncall TO USER alice FOR INTERVAL '24 HOURS'")
+        assert grant._data.for_interval == "24 HOURS"
+        assert grant._data.to_user.name == "alice"
+
+    def test_from_sql_until(self):
+        grant = res.RoleGrant.from_sql("GRANT ROLE oncall TO USER alice UNTIL '2026-12-01T00:00:00Z'")
+        assert grant._data.until == "2026-12-01T00:00:00Z"
+
+    def test_from_sql_reset_expiration_is_tolerated(self):
+        grant = res.RoleGrant.from_sql("GRANT ROLE oncall TO USER alice FOR INTERVAL '24 HOURS' RESET EXPIRATION")
+        assert grant._data.for_interval == "24 HOURS"
+
+    def test_yaml_config_passes_expiration_through(self):
+        from snowcap.gitops import collect_blueprint_config
+
+        config = {
+            "role_grants": [
+                {"role": "oncall", "to_user": "alice", "for_interval": "24 HOURS"},
+                {"role": "oncall", "to_user": "bob", "until": "2026-12-01T00:00:00Z"},
+            ]
+        }
+        blueprint_config = collect_blueprint_config(config)
+        grants = [r for r in blueprint_config.resources if isinstance(r, res.RoleGrant)]
+        assert grants[0]._data.for_interval == "24 HOURS"
+        assert grants[1]._data.until == "2026-12-01T00:00:00Z"
+
+    def test_yaml_config_rejects_expiration_on_grant_to_role(self):
+        from snowcap.gitops import collect_blueprint_config
+
+        config = {"role_grants": [{"role": "oncall", "to_role": "other_role", "for_interval": "1 HOUR"}]}
+        with pytest.raises(ValueError, match="only be used on a grant of a role to a user"):
+            collect_blueprint_config(config)

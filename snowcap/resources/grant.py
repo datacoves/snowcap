@@ -1,5 +1,7 @@
 import logging
+import re
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Union
 
 from inflection import pluralize, singularize
@@ -7,6 +9,7 @@ from inflection import pluralize, singularize
 from ..enums import (
     NON_INHERITABLE_RESOURCE_TYPES,
     NON_INHERITABLE_USAGE_TARGETS,
+    AccountEdition,
     GrantType,
     ParseableEnum,
     ResourceType,
@@ -617,11 +620,68 @@ def grant_yaml(data: dict):
     return yml
 
 
+# A temporary grant's FOR INTERVAL value: '<integer> <unit>', one unit only
+# ('36 HOURS', not '1 DAY 12 HOURS'). Snowflake accepts singular and plural units.
+_GRANT_INTERVAL = re.compile(r"^\s*(\d+)\s+(MINUTES?|HOURS?|DAYS?)\s*$", re.IGNORECASE)
+
+# Canonical spelling of an UNTIL timestamp and of the expires_on value Snowflake
+# reports: UTC, to the second, in one of the formats GRANT ROLE documents.
+GRANT_EXPIRES_ON_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+
+
+def normalize_grant_expiration(value: Union[str, datetime]) -> str:
+    """
+    The canonical string form of a role grant's expiration.
+
+    Config's `until` and the `expires_on` column Snowflake reports are both run through
+    this so a plan can compare them as strings. A datetime (what the connector returns)
+    without a timezone is taken as UTC, matching how Snowflake reports expires_on; a
+    string must carry a timezone, the same rule Snowflake applies to UNTIL.
+    """
+    if isinstance(value, datetime):
+        ts = value
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+    elif isinstance(value, str):
+        text = value.strip()
+        if text.upper().endswith("Z"):
+            text = text[:-1] + "+00:00"
+        try:
+            ts = datetime.fromisoformat(text)
+        except ValueError:
+            raise ValueError(
+                f"until must be a timestamp like '2026-01-01T00:00:00Z' or "
+                f"'2026-01-01 00:00:00+00:00', got {value!r}"
+            )
+        if ts.tzinfo is None:
+            raise ValueError(
+                f"until must include a timezone designator ('Z' or an offset like '+00:00'), got {value!r}"
+            )
+    else:
+        raise ValueError(f"until must be a timestamp, got {value!r}")
+    return ts.astimezone(timezone.utc).strftime(GRANT_EXPIRES_ON_FORMAT)
+
+
+def normalize_grant_interval(value: str) -> str:
+    """The canonical string form of a role grant's FOR INTERVAL value."""
+    match = _GRANT_INTERVAL.match(str(value))
+    if match is None or int(match.group(1)) < 1:
+        raise ValueError(f"for_interval must be '<integer> <MINUTES|HOURS|DAYS>', e.g. '24 HOURS'. Got {value!r}")
+    return f"{int(match.group(1))} {match.group(2).upper()}"
+
+
 @dataclass(unsafe_hash=True)
 class _RoleGrant(ResourceSpec):
     role: Role
     to_role: Role = None
     to_user: User = None
+    # Snowflake reports an absolute expires_on rather than the relative interval a grant
+    # was created with, so for_interval itself can't be compared without reporting drift
+    # on every plan. Config wins, and has_expiration catches the case that matters: an
+    # expiration added to, or dropped from, a grant that already exists.
+    for_interval: str = field(default=None, metadata={"fetchable": False})
+    until: Union[str, datetime] = None
+    has_expiration: bool = False
 
     def __post_init__(self):
         super().__post_init__()
@@ -629,6 +689,31 @@ class _RoleGrant(ResourceSpec):
             raise ValueError("You can only grant to a role or a user, not both")
         if self.to_role is None and self.to_user is None:
             raise ValueError("You must specify a role or a user to grant to")
+
+        # Timed grants are only supported for user-role grants. Snowflake rejects
+        # FOR INTERVAL/UNTIL on a grant to a role or to a database role.
+        if self.for_interval is not None or self.until is not None:
+            if self.to_user is None:
+                raise ValueError("for_interval and until can only be used on a grant of a role to a user")
+            if self.for_interval is not None and self.until is not None:
+                raise ValueError("Only one of for_interval or until can be set")
+            self.has_expiration = True
+        if isinstance(self.for_interval, str):
+            self.for_interval = normalize_grant_interval(self.for_interval)
+        # An until that is still a VarString is a template; it is normalized in
+        # to_dict once vars resolve, same as a raw string or datetime value.
+        if isinstance(self.until, (str, datetime)):
+            self.until = normalize_grant_expiration(self.until)
+
+    def to_dict(self, account_edition: AccountEdition):
+        serialized = super().to_dict(account_edition)
+        until = serialized.get("until")
+        # Vars resolve after __post_init__, so an until that was a template reaches
+        # here as a raw string; remote state is already normalized, so both sides
+        # must agree on the canonical form before a plan compares them.
+        if isinstance(until, str):
+            serialized["until"] = normalize_grant_expiration(until)
+        return serialized
 
 
 class RoleGrant(Resource):
@@ -643,6 +728,13 @@ class RoleGrant(Resource):
         role (string or Role, required): The role to be granted.
         to_role (string or Role): The role to which the role is granted.
         to_user (string or User): The user to which the role is granted.
+        for_interval (string): How long a grant to a user lasts before it expires,
+            e.g. "24 HOURS" or "30 MINUTES". Snowflake reports only the absolute
+            expiration, so the interval itself is not compared: the grant keeps the
+            window it was created with until it lapses, at which point the next apply
+            re-grants it.
+        until (string): When a grant to a user expires, as a timestamp with a timezone,
+            e.g. "2026-01-01T00:00:00Z". Cannot be combined with for_interval.
 
     Python:
 
@@ -654,6 +746,10 @@ class RoleGrant(Resource):
         # Grant to User:
         role_grant = RoleGrant(role="somerole", to_user="someuser")
         role_grant = RoleGrant(role="somerole", to=User(name="someuser"))
+
+        # Grant to User for a limited time (GRANT ROLE ... FOR INTERVAL / UNTIL):
+        role_grant = RoleGrant(role="oncall", to_user="someuser", for_interval="24 HOURS")
+        role_grant = RoleGrant(role="oncall", to_user="someuser", until="2026-01-01T00:00:00Z")
         ```
 
     Yaml:
@@ -664,6 +760,12 @@ class RoleGrant(Resource):
             to_role: someotherrole
           - role: somerole
             to_user: someuser
+          - role: oncall
+            to_user: someuser
+            for_interval: 24 HOURS
+          - role: oncall
+            to_user: someuser
+            until: "2026-01-01T00:00:00Z"
         ```
     """
 
@@ -681,6 +783,8 @@ class RoleGrant(Resource):
         role: Role,
         to_role: Role = None,
         to_user: User = None,
+        for_interval: str = None,
+        until: str = None,
         **kwargs,
     ):
         """
@@ -712,6 +816,8 @@ class RoleGrant(Resource):
             role=role,
             to_role=to_role,
             to_user=to_user,
+            for_interval=for_interval,
+            until=until,
             # owner=owner,
         )
         self.requires(

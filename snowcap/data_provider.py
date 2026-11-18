@@ -55,6 +55,7 @@ from .resource_name import (
     resource_name_from_snowflake_metadata,
 )
 from .resources.authentication_policy import _PAT_POLICY_DEFAULT
+from .resources.grant import GRANT_EXPIRES_ON_FORMAT, normalize_grant_expiration
 from .resources.security_integration import _canonicalize_role_name
 from .public_key import normalize_fingerprint
 from .resources.user_key_pair import RESERVED_KEY_PAIR_NAMES
@@ -1631,27 +1632,46 @@ def _fetch_role_grants_to_users_from_account_usage(session: SnowflakeConnection)
     if session_id in _ACCOUNT_USAGE_USER_GRANTS_CACHE:
         return _ACCOUNT_USAGE_USER_GRANTS_CACHE[session_id]
 
+    # EXPIRES_ON only exists once temporary role grants reach an account; without the
+    # column every grant is permanent, which is what omitting it reports anyway.
     query = """
         SELECT
             CREATED_ON,
             ROLE,
             GRANTED_TO,
             GRANTEE_NAME,
-            GRANTED_BY
+            GRANTED_BY,
+            EXPIRES_ON
         FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_USERS
         WHERE DELETED_ON IS NULL
     """
     try:
         results = execute(session, query, cacheable=True)
     except ProgrammingError as err:
-        if err.errno == ACCESS_CONTROL_ERR:
+        if err.errno in (INVALID_COLUMN_ERR, INVALID_IDENTIFIER):
+            logger.debug("GRANTS_TO_USERS has no EXPIRES_ON column (temporary grants preview) - retrying without it")
+            try:
+                results = execute(
+                    session,
+                    query.replace(",\n            EXPIRES_ON", ""),
+                    cacheable=True,
+                )
+            except Exception as retry_err:
+                logger.warning(
+                    f"ACCOUNT_USAGE GRANTS_TO_USERS query failed unexpectedly: {retry_err} - falling back to SHOW queries"
+                )
+                _mark_account_usage_fallback(session)
+                return None
+        elif err.errno == ACCESS_CONTROL_ERR:
             logger.warning("ACCOUNT_USAGE GRANTS_TO_USERS query failed: access denied - falling back to SHOW queries")
+            _mark_account_usage_fallback(session)
+            return None
         else:
             logger.warning(
                 f"ACCOUNT_USAGE GRANTS_TO_USERS query failed with error {err.errno}: {err.msg} - falling back to SHOW queries"
             )
-        _mark_account_usage_fallback(session)
-        return None
+            _mark_account_usage_fallback(session)
+            return None
     except Exception as err:
         logger.warning(f"ACCOUNT_USAGE GRANTS_TO_USERS query failed unexpectedly: {err} - falling back to SHOW queries")
         _mark_account_usage_fallback(session)
@@ -1667,6 +1687,7 @@ def _fetch_role_grants_to_users_from_account_usage(session: SnowflakeConnection)
                 "granted_to": row["GRANTED_TO"],
                 "grantee_name": row["GRANTEE_NAME"],
                 "granted_by": row["GRANTED_BY"],
+                "expires_on": row.get("EXPIRES_ON"),
             }
         )
 
@@ -3078,6 +3099,30 @@ def fetch_role(session: SnowflakeConnection, fqn: FQN):
     }
 
 
+# Sentinel for "the row exists but its grant has lapsed" -- distinct from None, which
+# means "permanent grant".
+_EXPIRED_GRANT = "<expired>"
+
+
+def _grant_expires_on(grant: dict) -> Optional[str]:
+    """
+    A grant row's expires_on normalized to the form config's `until` takes, or None
+    when the row predates the temporary-grants column or the grant is permanent.
+
+    A row whose expiration has already passed is reported as already gone: the grant
+    no longer gives access, so treating it as present would leave a dead grant looking
+    like drift-free live state.
+    """
+    expires_on = grant.get("expires_on")
+    if expires_on is None:
+        return None
+    expires_on = normalize_grant_expiration(expires_on)
+    now = datetime.datetime.now(datetime.timezone.utc).strftime(GRANT_EXPIRES_ON_FORMAT)
+    if expires_on <= now:
+        return _EXPIRED_GRANT
+    return expires_on
+
+
 def fetch_role_grant(session: SnowflakeConnection, fqn: FQN, use_account_usage: bool = False):
     """
     Fetch a role grant (role granted to another role or user).
@@ -3116,9 +3161,13 @@ def fetch_role_grant(session: SnowflakeConnection, fqn: FQN, use_account_usage: 
     if str(subject).upper() == "USER" and session_id in _ACCOUNT_USAGE_USER_GRANTS_CACHE:
         for grant in _ACCOUNT_USAGE_USER_GRANTS_CACHE[session_id]:
             if grant["role"].upper() == role_name and grant["grantee_name"].upper() == grantee_upper:
+                until = _grant_expires_on(grant)
+                if until == _EXPIRED_GRANT:
+                    return None
                 return {
                     "role": fqn.name,
                     "to_user": _quote_snowflake_identifier(grant["grantee_name"]),
+                    "until": until,
                 }
         # Not found in cache - will fall through to SHOW GRANTS fallback
         logger.debug(f"Role grant {fqn.name} to user {grantee} not found in ACCOUNT_USAGE cache, trying SHOW GRANTS")
@@ -3146,10 +3195,14 @@ def fetch_role_grant(session: SnowflakeConnection, fqn: FQN, use_account_usage: 
                     # "owner": data["granted_by"],
                 }
             elif data["granted_to"] == "USER":
+                until = _grant_expires_on(data)
+                if until == _EXPIRED_GRANT:
+                    return None
                 return {
                     "role": fqn.name,
                     "to_user": _quote_snowflake_identifier(data["grantee_name"]),
                     # "owner": data["granted_by"],
+                    "until": until,
                 }
             else:
                 raise Exception(f"Unexpected role grant for role {fqn.name}")

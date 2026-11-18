@@ -949,3 +949,32 @@ def test_string_literal_decodes_quote_value_fallback(value):
 @pytest.mark.parametrize("value", [r"C:\Users\foo", r"a\nb\tc\rd\fe", "plain value"])
 def test_string_literal_keeps_backslashes_in_dollar_quotes(value):
     assert StringLiteral.parse_string(quote_value(value), parse_all=True)[0] == value
+
+
+class TestParseRoleGrantExpiration:
+    """Parsing FOR INTERVAL / UNTIL / RESET EXPIRATION on GRANT ROLE ... TO USER."""
+
+    def test_for_interval(self):
+        result = parse_grant("GRANT ROLE oncall TO USER alice FOR INTERVAL '24 HOURS'")
+        assert result["role"] == "oncall"
+        assert result["to_user"] == "alice"
+        assert result["to_role"] is None
+        assert result["for_interval"] == "24 HOURS"
+
+    def test_until_quoted(self):
+        result = parse_grant("GRANT ROLE oncall TO USER alice UNTIL '2026-12-01T00:00:00Z'")
+        assert result["until"] == "2026-12-01T00:00:00Z"
+
+    def test_until_bare_timestamp(self):
+        result = parse_grant("GRANT ROLE oncall TO USER alice UNTIL 2026-12-01T00:00:00Z")
+        assert result["until"] == "2026-12-01T00:00:00Z"
+
+    def test_reset_expiration(self):
+        result = parse_grant("GRANT ROLE oncall TO USER alice FOR INTERVAL '24 HOURS' RESET EXPIRATION")
+        assert result["for_interval"] == "24 HOURS"
+
+    def test_grant_to_role_still_parses(self):
+        result = parse_grant("GRANT ROLE analyst TO ROLE admin")
+        assert result["to_role"] == "admin"
+        assert "for_interval" not in result
+        assert "until" not in result

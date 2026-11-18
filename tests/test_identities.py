@@ -80,6 +80,9 @@ def test_data_identity(resource):
     if resource_cls.__name__ == "UserKeyPair":
         serialized.pop("fingerprint", None)
         serialized.pop("has_expiration", None)
+    # A role grant's has_expiration is computed from for_interval/until, not configured
+    if resource_cls.__name__ == "RoleGrant":
+        serialized.pop("has_expiration", None)
     if "name" in serialized:
         assert _resource_names_are_eq(serialized.pop("name"), data.pop("name"))
     if "columns" in serialized:
