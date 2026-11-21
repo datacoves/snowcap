@@ -1,6 +1,6 @@
 ---
 description: >-
-  Grant USAGE / MONITOR on a Snowflake dbt project object (dbt Projects on Snowflake).
+  Grant USAGE / MONITOR on a Snowflake dbt project object (dbt Projects on Snowflake). Manage it as code with Snowcap, with YAML and Python examples.
 ---
 
 # DbtProject

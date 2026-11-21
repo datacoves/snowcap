@@ -1,6 +1,6 @@
 ---
 description: >-
-  A tag for labeling resources in Snowflake.
+  A tag for labeling resources in Snowflake. Manage it as code with Snowcap: YAML and Python examples and a reference for every field.
 ---
 
 # Tag

@@ -1,6 +1,6 @@
 ---
 description: >-
-  An S3 storage integration in Snowflake.
+  An S3 storage integration in Snowflake. Manage it as code with Snowcap, with YAML and Python examples and a reference for every field, its type and its default.
 ---
 
 # S3StorageIntegration

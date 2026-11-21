@@ -17,6 +17,7 @@ from snowcap.lifecycle import (
     create_database,
     create_database_role_grant,
     create_function,
+    create_hybrid_table,
     create_grant,
     create_masking_policy,
     create_procedure,
@@ -645,6 +646,17 @@ class TestCreateTagReference:
         assert "env='prod'" in result
         assert "team='data'" in result
 
+    def test_escapes_apostrophe(self):
+        urn = make_urn(ResourceType.TAG_REFERENCE, "REF")
+        data = {"object_domain": "TABLE", "object_name": "T", "tags": {"cost_center": "ops's budget"}}
+        assert "cost_center='ops''s budget'" in create_tag_reference(urn, data, MockProps(""))
+
+
+def test_create_hybrid_table_escapes_default_and_comment():
+    urn = make_urn(ResourceType.HYBRID_TABLE, "T")
+    data = {"columns": [{"name": "id", "data_type": "VARCHAR", "default": "it's", "comment": "o'clock"}]}
+    assert "(id VARCHAR DEFAULT 'it''s' COMMENT 'o''clock')" in create_hybrid_table(urn, data, MockProps(""))
+
 
 class TestCreateView:
     """Tests for create_view function."""
@@ -1128,11 +1140,84 @@ class TestUpdateTask:
         result = update_task(urn, {"comment": "hi"}, res.Task.props)
         assert result == "ALTER TASK MY_DB.MY_SCHEMA.MY_TASK SET COMMENT = $$hi$$"
 
-    def test_state_combined_with_other_fields_raises_rather_than_dropping(self):
-        """RESUME/SUSPEND can't be combined with a SET; the delta must not be silently truncated."""
+    @pytest.mark.parametrize(
+        "delta, expected",
+        [
+            (
+                {"comment": "hi", "as_": "SELECT 2"},
+                [
+                    "ALTER TASK MY_DB.MY_SCHEMA.MY_TASK MODIFY AS SELECT 2",
+                    "ALTER TASK MY_DB.MY_SCHEMA.MY_TASK SET COMMENT = $$hi$$",
+                ],
+            ),
+            (
+                {"as_": "SELECT 2", "when": "SYSTEM$STREAM_HAS_DATA('MY_STREAM')"},
+                [
+                    "ALTER TASK MY_DB.MY_SCHEMA.MY_TASK MODIFY AS SELECT 2",
+                    "ALTER TASK MY_DB.MY_SCHEMA.MY_TASK MODIFY WHEN SYSTEM$STREAM_HAS_DATA('MY_STREAM')",
+                ],
+            ),
+            (
+                {"state": "STARTED", "when": None, "comment": "hi", "schedule": None},
+                [
+                    "ALTER TASK MY_DB.MY_SCHEMA.MY_TASK REMOVE WHEN",
+                    "ALTER TASK MY_DB.MY_SCHEMA.MY_TASK SET COMMENT = $$hi$$",
+                    "ALTER TASK MY_DB.MY_SCHEMA.MY_TASK UNSET schedule",
+                    "ALTER TASK MY_DB.MY_SCHEMA.MY_TASK RESUME",
+                ],
+            ),
+            (
+                {"state": "SUSPENDED", "as_": "SELECT 2", "comment": "hi"},
+                [
+                    "ALTER TASK MY_DB.MY_SCHEMA.MY_TASK SUSPEND",
+                    "ALTER TASK MY_DB.MY_SCHEMA.MY_TASK MODIFY AS SELECT 2",
+                    "ALTER TASK MY_DB.MY_SCHEMA.MY_TASK SET COMMENT = $$hi$$",
+                ],
+            ),
+        ],
+    )
+    def test_combined_delta_renders_one_alter_per_clause(self, delta, expected):
+        """Snowflake rejects MODIFY AS, MODIFY/REMOVE WHEN and RESUME/SUSPEND combined with any
+        other clause, so each gets its own ALTER and every field in the delta is applied. A
+        suspend runs first and a resume runs last, so the task never runs part of its new
+        definition."""
         urn = make_urn(ResourceType.TASK, "MY_TASK", database="MY_DB", schema="MY_SCHEMA")
-        with pytest.raises(NotImplementedError, match="cannot combine"):
-            update_task(urn, {"state": "STARTED", "comment": "hi"}, res.Task.props)
+        assert update_task(urn, delta, res.Task.props) == expected
+
+    def test_empty_when_removes_the_condition(self):
+        """An empty WHEN has no MODIFY WHEN form, so it removes the condition."""
+        urn = make_urn(ResourceType.TASK, "MY_TASK", database="MY_DB", schema="MY_SCHEMA")
+        assert update_task(urn, {"when": ""}, res.Task.props) == "ALTER TASK MY_DB.MY_SCHEMA.MY_TASK REMOVE WHEN"
+
+    @pytest.mark.parametrize("as_", [None, ""])
+    def test_empty_body_raises(self, as_):
+        """A task must have a body, and a bare MODIFY AS is a syntax error."""
+        urn = make_urn(ResourceType.TASK, "MY_TASK", database="MY_DB", schema="MY_SCHEMA")
+        with pytest.raises(NotImplementedError, match="cannot remove the body"):
+            update_task(urn, {"as_": as_, "comment": "hi"}, res.Task.props)
+
+    @pytest.mark.parametrize("other_field", [{}, {"as_": "SELECT 2"}, {"state": "STARTED"}])
+    def test_after_raises_before_any_statement(self, other_field):
+        """ALTER TASK has no SET AFTER, so an AFTER change must fail the plan. Rendering the
+        other fields first would apply them and then fail on the AFTER change."""
+        urn = make_urn(ResourceType.TASK, "MY_TASK", database="MY_DB", schema="MY_SCHEMA")
+        with pytest.raises(NotImplementedError, match="cannot change 'after'"):
+            update_task(urn, {"after": ["MY_DB.MY_SCHEMA.T1"], **other_field}, res.Task.props)
+
+    @pytest.mark.parametrize("other_field", [{"state": "STARTED"}, {"as_": "SELECT 2"}, {"when": None}])
+    def test_rename_combined_with_other_fields_raises(self, other_field):
+        """Every other ALTER targets the task's current name, so any of them ordered after a
+        RENAME TO would fail. A rename must arrive on its own."""
+        urn = make_urn(ResourceType.TASK, "MY_TASK", database="MY_DB", schema="MY_SCHEMA")
+        with pytest.raises(NotImplementedError, match="cannot combine 'name'"):
+            update_task(urn, {"name": "NEW_TASK", **other_field}, res.Task.props)
+
+    @pytest.mark.parametrize("other_field", [{"state": "STARTED"}, {"as_": "SELECT 2"}, {"when": None}])
+    def test_owner_combined_with_other_fields_raises(self, other_field):
+        """An owner change has no ALTER form, so the error must name the conflicting fields."""
+        urn = make_urn(ResourceType.TASK, "MY_TASK", database="MY_DB", schema="MY_SCHEMA")
+        with pytest.raises(NotImplementedError, match="cannot combine 'owner'"):
+            update_task(urn, {"owner": "SOME_ROLE", **other_field}, res.Task.props)
 
 
 class TestUpdateIcebergTable:
@@ -1445,6 +1530,84 @@ class TestTransferResource:
         # ResourceType.DATABASE_ROLE renders as "DATABASE ROLE"
         assert "TO DATABASE ROLE NEW_OWNER" in result
 
+    @pytest.mark.parametrize(
+        "resource_type,schema,object_type",
+        [
+            (ResourceType.API_INTEGRATION, None, "INTEGRATION"),
+            (ResourceType.CATALOG_INTEGRATION, None, "INTEGRATION"),
+            (ResourceType.EXTERNAL_ACCESS_INTEGRATION, None, "INTEGRATION"),
+            (ResourceType.NOTIFICATION_INTEGRATION, None, "INTEGRATION"),
+            (ResourceType.SECURITY_INTEGRATION, None, "INTEGRATION"),
+            (ResourceType.STORAGE_INTEGRATION, None, "INTEGRATION"),
+            (ResourceType.EXTERNAL_FUNCTION, "MY_SCHEMA", "FUNCTION"),
+            (ResourceType.HYBRID_TABLE, "MY_SCHEMA", "TABLE"),
+            (ResourceType.MATERIALIZED_VIEW, "MY_SCHEMA", "VIEW"),
+            # Types close to the mapped ones keep their own names.
+            (ResourceType.DYNAMIC_TABLE, "MY_SCHEMA", "DYNAMIC TABLE"),
+            (ResourceType.ICEBERG_TABLE, "MY_SCHEMA", "ICEBERG TABLE"),
+            (ResourceType.VIEW, "MY_SCHEMA", "VIEW"),
+        ],
+    )
+    def test_transfer_uses_snowflake_ownership_object_type(self, resource_type, schema, object_type):
+        """GRANT OWNERSHIP names some resource types by a broader object type.
+
+        https://docs.snowflake.com/en/sql-reference/sql/grant-ownership
+        """
+        database = "MY_DB" if schema else None
+        urn = make_urn(resource_type, "MY_OBJECT", database=database, schema=schema)
+        result = transfer_resource(urn, "NEW_OWNER", ResourceType.ROLE, copy_current_grants=True)
+        assert result.startswith(f"GRANT OWNERSHIP ON {object_type} ")
+        assert "MY_OBJECT TO ROLE NEW_OWNER COPY CURRENT GRANTS" in result
+
+
+class TestExternalFunctionStatements:
+    """Snowflake accepts EXTERNAL FUNCTION only in CREATE.
+
+    Every other statement names the function as FUNCTION <name>(<arg types>). Without the
+    argument types Snowflake rejects it with 090208, "Argument types of function must be
+    specified".
+    """
+
+    @pytest.fixture
+    def external_function(self):
+        return res.ExternalFunction(
+            name="MY_FN",
+            database="MY_DB",
+            schema="MY_SCHEMA",
+            args=[{"name": "x", "data_type": "VARCHAR"}, {"name": "y", "data_type": "NUMBER"}],
+            returns="VARIANT",
+            api_integration="MY_API",
+            as_="https://example.com/x",
+        )
+
+    @pytest.fixture
+    def urn(self, external_function):
+        return URN.from_resource(external_function, account_locator="ABC123")
+
+    def test_create_declares_arguments_once(self, external_function, urn):
+        result = create_resource(urn, external_function.to_dict(), external_function.props)
+        assert result.startswith("CREATE EXTERNAL FUNCTION MY_DB.MY_SCHEMA.MY_FN (X VARCHAR, Y NUMBER) ")
+
+    def test_create_secure_puts_secure_before_object_type(self, external_function, urn):
+        data = {**external_function.to_dict(), "secure": True}
+        result = create_resource(urn, data, external_function.props)
+        assert result.startswith("CREATE SECURE EXTERNAL FUNCTION MY_DB.MY_SCHEMA.MY_FN (X VARCHAR, Y NUMBER) ")
+
+    def test_drop(self, urn):
+        assert (
+            drop_resource(urn, {}, if_exists=True) == "DROP FUNCTION IF EXISTS MY_DB.MY_SCHEMA.MY_FN(VARCHAR, NUMBER)"
+        )
+
+    def test_update(self, external_function, urn):
+        result = update_resource(urn, {"comment": "new"}, external_function.props)
+        assert result == "ALTER FUNCTION MY_DB.MY_SCHEMA.MY_FN(VARCHAR, NUMBER) SET COMMENT = $$new$$"
+
+    def test_transfer(self, urn):
+        result = transfer_resource(urn, "NEW_OWNER", ResourceType.ROLE, copy_current_grants=True)
+        assert result == (
+            "GRANT OWNERSHIP ON FUNCTION MY_DB.MY_SCHEMA.MY_FN(VARCHAR, NUMBER) TO ROLE NEW_OWNER COPY CURRENT GRANTS"
+        )
+
 
 # ============================================================================
 # Test tag masking policy reference functions
@@ -1636,11 +1799,39 @@ class TestUpdateMCPServer:
         result = update_resource(urn, {"comment": "hi"}, res.Alert.props)
         assert result == "ALTER ALERT MY_DB.MY_SCHEMA.MY_ALERT SET COMMENT = $$hi$$"
 
-    def test_update_alert_state_with_other_fields_raises_rather_than_dropping(self):
-        """state can't be combined with a SET; the other field must not be silently dropped."""
+    @pytest.mark.parametrize(
+        "delta, expected",
+        [
+            (
+                {"state": "STARTED", "comment": "hi"},
+                [
+                    "ALTER ALERT MY_DB.MY_SCHEMA.MY_ALERT SET COMMENT = $$hi$$",
+                    "ALTER ALERT MY_DB.MY_SCHEMA.MY_ALERT RESUME",
+                ],
+            ),
+            (
+                {"state": "SUSPENDED", "condition": "SELECT 2", "then": "SELECT 3", "comment": "hi"},
+                [
+                    "ALTER ALERT MY_DB.MY_SCHEMA.MY_ALERT SUSPEND",
+                    "ALTER ALERT MY_DB.MY_SCHEMA.MY_ALERT MODIFY CONDITION EXISTS ( SELECT 2 )",
+                    "ALTER ALERT MY_DB.MY_SCHEMA.MY_ALERT MODIFY ACTION SELECT 3",
+                    "ALTER ALERT MY_DB.MY_SCHEMA.MY_ALERT SET COMMENT = $$hi$$",
+                ],
+            ),
+        ],
+    )
+    def test_update_alert_combined_delta_renders_one_alter_per_clause(self, delta, expected):
+        """Snowflake refuses an alert change while the alert is started, and RESUME/SUSPEND,
+        MODIFY CONDITION and MODIFY ACTION each need their own ALTER. A suspend runs first
+        and a resume runs last."""
         urn = make_urn(ResourceType.ALERT, "MY_ALERT", database="MY_DB", schema="MY_SCHEMA")
-        with pytest.raises(NotImplementedError, match="cannot combine"):
-            update_resource(urn, {"state": "STARTED", "comment": "hi"}, res.Alert.props)
+        assert update_resource(urn, delta, res.Alert.props) == expected
+
+    def test_update_alert_rename_combined_with_state_raises(self):
+        """A RESUME ordered after a RENAME TO would target the old name."""
+        urn = make_urn(ResourceType.ALERT, "MY_ALERT", database="MY_DB", schema="MY_SCHEMA")
+        with pytest.raises(NotImplementedError, match="cannot combine 'name'"):
+            update_resource(urn, {"name": "NEW_ALERT", "state": "STARTED"}, res.Alert.props)
 
 
 class TestCreateMCPServer:
@@ -1811,3 +2002,122 @@ class TestUpdateSnowflakeCustomOAuthSecurityIntegration:
         data = {"oauth_refresh_token_validity": 86400}
         result = update_resource(urn, data, res.SnowflakeCustomOAuthSecurityIntegration.props)
         assert result == "ALTER SECURITY INTEGRATION CLAUDE_MCP_OAUTH SET OAUTH_REFRESH_TOKEN_VALIDITY = 86400"
+
+
+# ============================================================================
+# Test SAML2SecurityIntegration lifecycle
+# ============================================================================
+
+
+class TestSAML2SecurityIntegration:
+    """create_sql, update_set_sql, the SAML2 resolver, and field validation for SAML2SecurityIntegration."""
+
+    def _integration(self, **overrides):
+        kwargs = dict(
+            name="SSO_SAML",
+            saml2_issuer="http://www.okta.com/exk1abc",
+            saml2_sso_url="https://example.okta.com/app/snowflake/exk1abc/sso/saml",
+            saml2_provider="OKTA",
+            saml2_x509_cert="MIIDpDCCAoyg",
+        )
+        kwargs.update(overrides)
+        return res.SAML2SecurityIntegration(**kwargs)
+
+    @pytest.mark.parametrize("missing", ["saml2_issuer", "saml2_sso_url", "saml2_provider", "saml2_x509_cert"])
+    def test_missing_required_field_raises(self, missing):
+        """Snowflake rejects a SAML2 integration without these, so fail at parse time instead."""
+        with pytest.raises(ValueError):
+            self._integration(**{missing: None})
+
+    def test_remote_state_with_a_blank_field_does_not_abort_the_plan(self):
+        """blueprint hydrates remote state with spec(**data). Validating the IdP fields on
+        the spec would turn whatever DESC returned into a raise that kills the whole plan
+        instead of reporting drift, so the check belongs on __init__, not the spec."""
+        from snowcap.enums import AccountEdition
+        from snowcap.resources.security_integration import _SAML2SecurityIntegration
+
+        fetched = {
+            "name": "ENTRA_SSO",
+            "type": "SAML2",
+            "enabled": True,
+            "saml2_issuer": "https://sts.windows.net/tid/",
+            "saml2_sso_url": "https://login.microsoftonline.com/tid/saml2",
+            "saml2_provider": None,
+            "saml2_x509_cert": "MIIDcert",
+            "owner": "ACCOUNTADMIN",
+        }
+        assert _SAML2SecurityIntegration(**fetched).to_dict(AccountEdition.ENTERPRISE)["name"] == "ENTRA_SSO"
+
+    def test_private_key_in_the_cert_field_is_rejected(self):
+        """Stripping the armor off a private key would ship it to Snowflake, where DESC
+        hands it back to anyone who can read the integration."""
+        integration = self._integration(
+            saml2_x509_cert="-----BEGIN PRIVATE KEY-----\nMIIabc\n-----END PRIVATE KEY-----"
+        )
+        with pytest.raises(ValueError, match="private key"):
+            integration.to_dict()
+
+    def test_pem_armor_is_stripped(self):
+        """A pasted PEM must normalize to the bare base64 Snowflake stores, or every plan drifts."""
+        integration = self._integration(
+            saml2_x509_cert="-----BEGIN CERTIFICATE-----\nMIIDpDCC\nAoyg\n-----END CERTIFICATE-----\n"
+        )
+        assert integration.to_dict()["saml2_x509_cert"] == "MIIDpDCCAoyg"
+
+    def test_cert_from_a_var_is_accepted_and_normalized(self):
+        """Keeping the cert out of the repo means passing it as a var, which is still an
+        unrendered template at construction time. Normalizing it in __post_init__ would
+        raise AttributeError on the VarString, and normalizing before vars resolve would
+        leave a PEM delivered by var un-stripped, so it drifts."""
+        integration = self._integration(saml2_x509_cert="{{ var.saml2_x509_cert }}")
+        integration._resolve_vars(
+            {"saml2_x509_cert": "-----BEGIN CERTIFICATE-----\nMIIDpDCC\nAoyg\n-----END CERTIFICATE-----"}, []
+        )
+        assert integration.to_dict()["saml2_x509_cert"] == "MIIDpDCCAoyg"
+        assert "SAML2_X509_CERT = $$MIIDpDCCAoyg$$" in integration.create_sql()
+
+    def test_metadata_url_replaces_the_idp_fields(self):
+        """Okta and Entra ID can be described by metadata URL instead of the four IdP fields."""
+        integration = res.SAML2SecurityIntegration(
+            name="ENTRA_SSO",
+            metadata_url="https://login.microsoftonline.com/tid/federationmetadata/2007-06/federationmetadata.xml",
+        )
+        assert "METADATA_URL = $$https://login.microsoftonline.com/tid" in integration.create_sql()
+        # Snowflake derives the IdP fields from the metadata, so a declared metadata_url
+        # must not be reconciled against DESC or it drifts on every plan.
+        assert res.SAML2SecurityIntegration.spec.get_metadata("metadata_url").fetchable is False
+
+    def test_metadata_url_and_idp_fields_are_mutually_exclusive(self):
+        """Snowflake's grammar takes one or the other, so fail at parse time, not on apply."""
+        with pytest.raises(ValueError):
+            res.SAML2SecurityIntegration(
+                name="ENTRA_SSO",
+                metadata_url="https://login.microsoftonline.com/tid/federationmetadata.xml",
+                saml2_issuer="https://sts.windows.net/tid/",
+            )
+
+    def test_create_sql(self):
+        integration = self._integration(
+            saml2_enable_sp_initiated=True,
+            saml2_sp_initiated_login_page_label="Datacoves SSO",
+            allowed_user_domains=["datacoves.com"],
+            comment="test comment",
+        )
+        sql = integration.create_sql()
+        assert sql == (
+            "CREATE SECURITY INTEGRATION SSO_SAML type = SAML2 ENABLED = TRUE "
+            "SAML2_ISSUER = $$http://www.okta.com/exk1abc$$ "
+            "SAML2_SSO_URL = $$https://example.okta.com/app/snowflake/exk1abc/sso/saml$$ "
+            "saml2_provider = 'OKTA' SAML2_X509_CERT = $$MIIDpDCCAoyg$$ "
+            "SAML2_ENABLE_SP_INITIATED = TRUE "
+            "SAML2_SP_INITIATED_LOGIN_PAGE_LABEL = $$Datacoves SSO$$ "
+            "SAML2_FORCE_AUTHN = FALSE SAML2_SIGN_REQUEST = FALSE "
+            "ALLOWED_USER_DOMAINS = ($$datacoves.com$$) COMMENT = $$test comment$$"
+        )
+
+    def test_update_set_sql(self):
+        """A changed IdP cert renders as ALTER ... SET, never a recreate."""
+        urn = make_urn(ResourceType.SECURITY_INTEGRATION, "SSO_SAML")
+        data = {"saml2_x509_cert": "MIIDnewcert"}
+        result = update_resource(urn, data, res.SAML2SecurityIntegration.props)
+        assert result == "ALTER SECURITY INTEGRATION SSO_SAML SET SAML2_X509_CERT = $$MIIDnewcert$$"

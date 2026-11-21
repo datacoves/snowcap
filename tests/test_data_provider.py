@@ -46,7 +46,9 @@ from snowcap.data_provider import (
     fetch_grant,
     fetch_resource,
     fetch_database,
+    fetch_external_function,
     fetch_shared_database,
+    fetch_share,
     fetch_security_integration,
     fetch_task,
     fetch_tag_masking_policy_reference,
@@ -1096,6 +1098,107 @@ class TestFetchTask:
         assert result["when"] is None
 
 
+class TestFetchExternalFunction:
+    """Rows below follow a live account. DESC resolves the overload, and the
+    INFORMATION_SCHEMA row with the same signature supplies what DESC omits."""
+
+    FQN = FQN(
+        name=ResourceName("ECHO"),
+        database=ResourceName("DB"),
+        schema=ResourceName("PUBLIC"),
+        arg_types=["NUMBER", "VARCHAR"],
+    )
+
+    @staticmethod
+    def responses(language="EXTERNAL"):
+        desc = {
+            "signature": "(X NUMBER, Y VARCHAR)",
+            "returns": "VARIANT NOT NULL",
+            "language": language,
+            "null handling": "RETURNS NULL ON NULL INPUT",
+            "volatility": "IMMUTABLE",
+            "body": "https://abc123.execute-api.us-west-2.amazonaws.com/prod/echo",
+            "headers": '{"volume-measure":"liters"}',
+            "context_headers": "null",
+            "max_batch_rows": "not set",
+            "request_translator": "DB.PUBLIC.T",
+            "response_translator": "not set",
+            "compression": "AUTO",
+        }
+
+        def information_schema_row(signature, is_secure, comment, owner):
+            return {
+                "FUNCTION_SCHEMA": "PUBLIC",
+                "FUNCTION_NAME": "ECHO",
+                "ARGUMENT_SIGNATURE": signature,
+                "IS_SECURE": is_secure,
+                "COMMENT": comment,
+                "API_INTEGRATION": "MY_API",
+                "FUNCTION_OWNER": owner,
+            }
+
+        return {
+            "DESC FUNCTION": [{"property": key, "value": value} for key, value in desc.items()],
+            "SELECT * FROM DB.INFORMATION_SCHEMA.FUNCTIONS": [
+                information_schema_row("(X VARCHAR)", "NO", None, "SYSADMIN"),
+                information_schema_row("(X NUMBER, Y VARCHAR)", "YES", "echo a pair", "my role"),
+            ],
+        }
+
+    @staticmethod
+    def fake_execute(responses):
+        def execute(session, sql, **kwargs):
+            return next(rows for prefix, rows in responses.items() if sql.startswith(prefix))
+
+        return execute
+
+    @patch("snowcap.data_provider.execute")
+    def test_reads_the_overload_desc_resolved(self, mock_execute):
+        mock_execute.side_effect = self.fake_execute(self.responses())
+
+        assert fetch_external_function(MagicMock(), self.FQN) == {
+            "name": "ECHO",
+            "secure": True,
+            "args": [{"name": "X", "data_type": "NUMBER"}, {"name": "Y", "data_type": "VARCHAR"}],
+            "returns": "VARIANT",
+            "not_null": True,
+            "null_handling": "RETURNS NULL ON NULL INPUT",
+            "volatility": "IMMUTABLE",
+            "comment": "echo a pair",
+            "api_integration": "MY_API",
+            "headers": {"volume-measure": "liters"},
+            "max_batch_rows": None,
+            "compression": "AUTO",
+            "request_translator": "DB.PUBLIC.T",
+            "response_translator": None,
+            "as_": "https://abc123.execute-api.us-west-2.amazonaws.com/prod/echo",
+            "owner": '"my role"',
+        }
+
+    @patch("snowcap.data_provider.execute")
+    def test_udf_with_the_same_signature_is_not_an_external_function(self, mock_execute):
+        mock_execute.side_effect = self.fake_execute(self.responses(language="JAVASCRIPT"))
+
+        assert fetch_external_function(MagicMock(), self.FQN) is None
+
+    @patch("snowcap.data_provider.execute")
+    def test_no_information_schema_row_for_the_signature_returns_none(self, mock_execute):
+        responses = self.responses()
+        responses["SELECT * FROM DB.INFORMATION_SCHEMA.FUNCTIONS"] = []
+        mock_execute.side_effect = self.fake_execute(responses)
+
+        assert fetch_external_function(MagicMock(), self.FQN) is None
+
+    @patch("snowcap.data_provider.execute")
+    def test_null_owner_degrades_to_empty(self, mock_execute):
+        responses = self.responses()
+        for row in responses["SELECT * FROM DB.INFORMATION_SCHEMA.FUNCTIONS"]:
+            row["FUNCTION_OWNER"] = None
+        mock_execute.side_effect = self.fake_execute(responses)
+
+        assert fetch_external_function(MagicMock(), self.FQN)["owner"] == ""
+
+
 class TestFetchWarehouse:
     """Tests for fetch_warehouse normalization."""
 
@@ -1288,6 +1391,29 @@ def _security_integration_show_row(**overrides):
     return row
 
 
+def _saml2_desc_rows():
+    def row(property, value, property_type):
+        return {"property": property, "property_value": value, "property_type": property_type}
+
+    return [
+        row("SAML2_ISSUER", "http://www.okta.com/exk1abc", "String"),
+        row("SAML2_SSO_URL", "https://example.okta.com/app/snowflake/exk1abc/sso/saml", "String"),
+        row("SAML2_PROVIDER", "OKTA", "String"),
+        row("SAML2_X509_CERT", "MIIDpDCCAoyg", "String"),
+        row("SAML2_SP_INITIATED_LOGIN_PAGE_LABEL", "Datacoves SSO", "String"),
+        row("SAML2_ENABLE_SP_INITIATED", "true", "Boolean"),
+        row("SAML2_SNOWFLAKE_X509_CERT", "MIIDsnowflake", "String"),
+        row("SAML2_SIGN_REQUEST", "false", "Boolean"),
+        row("SAML2_REQUESTED_NAMEID_FORMAT", "", "String"),
+        row("SAML2_POST_LOGOUT_REDIRECT_URL", "", "String"),
+        row("SAML2_FORCE_AUTHN", "false", "Boolean"),
+        row("SAML2_SNOWFLAKE_ISSUER_URL", "https://abc123.snowflakecomputing.com", "String"),
+        row("SAML2_SNOWFLAKE_ACS_URL", "https://abc123.snowflakecomputing.com/fed/login", "String"),
+        row("ALLOWED_USER_DOMAINS", "[]", "List"),
+        row("ALLOWED_EMAIL_PATTERNS", "[]", "List"),
+    ]
+
+
 def _custom_oauth_desc_rows(blocked_roles_list="[]", pre_authorized_roles_list="[]"):
     def row(property, value, property_type):
         return {"property": property, "property_value": value, "property_type": property_type}
@@ -1452,17 +1578,51 @@ class TestFetchSecurityIntegration:
 
     @patch("snowcap.data_provider._fetch_owner")
     @patch("snowcap.data_provider.execute")
+    def test_saml2_round_trips(self, mock_execute, mock_fetch_owner):
+        """SAML2 reads back from DESC so a declared SSO integration doesn't churn a CREATE."""
+        mock_fetch_owner.return_value = "ACCOUNTADMIN"
+        mock_execute.side_effect = self._mock_execute(
+            desc_rows=_saml2_desc_rows(),
+            show_row=_security_integration_show_row(name="SSO_SAML", type="SAML2"),
+        )
+
+        result = fetch_security_integration(MagicMock(), FQN(name=ResourceName("SSO_SAML")))
+
+        assert result == {
+            "name": "SSO_SAML",
+            "type": "SAML2",
+            "enabled": True,
+            "saml2_issuer": "http://www.okta.com/exk1abc",
+            "saml2_sso_url": "https://example.okta.com/app/snowflake/exk1abc/sso/saml",
+            "saml2_provider": "OKTA",
+            "saml2_x509_cert": "MIIDpDCCAoyg",
+            "saml2_enable_sp_initiated": True,
+            "saml2_sp_initiated_login_page_label": "Datacoves SSO",
+            "saml2_snowflake_acs_url": "https://abc123.snowflakecomputing.com/fed/login",
+            "saml2_snowflake_issuer_url": "https://abc123.snowflakecomputing.com",
+            "saml2_force_authn": False,
+            "saml2_requested_nameid_format": None,
+            "saml2_post_logout_redirect_url": None,
+            "saml2_sign_request": False,
+            "allowed_user_domains": None,
+            "allowed_email_patterns": None,
+            "comment": None,
+            "owner": "ACCOUNTADMIN",
+        }
+
+    @patch("snowcap.data_provider._fetch_owner")
+    @patch("snowcap.data_provider.execute")
     def test_unmodeled_type_returns_none_with_warning(self, mock_execute, mock_fetch_owner, caplog):
-        """A type snowcap doesn't model (e.g. SAML2) must not raise: it would break list/export
+        """A type snowcap doesn't model (e.g. SCIM) must not raise: it would break list/export
         whenever the account holds one. Return None and warn instead."""
         mock_fetch_owner.return_value = "ACCOUNTADMIN"
         mock_execute.side_effect = self._mock_execute(
             desc_rows=[],
-            show_row=_security_integration_show_row(name="MY_SAML", type="SAML2"),
+            show_row=_security_integration_show_row(name="MY_SCIM", type="SCIM - GENERIC"),
         )
 
         with caplog.at_level("WARNING", logger="snowcap"):
-            result = fetch_security_integration(MagicMock(), FQN(name=ResourceName("MY_SAML")))
+            result = fetch_security_integration(MagicMock(), FQN(name=ResourceName("MY_SCIM")))
 
         assert result is None
         assert "unsupported security integration type" in caplog.text.lower()
@@ -3796,3 +3956,72 @@ class TestTagMaskingPolicyReferenceMissingDatabase:
         result = list_tag_masking_policy_references(MagicMock())
 
         assert result == []
+
+
+@patch("snowcap.data_provider.execute", return_value=[])
+def test_show_like_escapes_apostrophe(mock_execute):
+    fetch_share(MagicMock(), FQN(name=ResourceName('"ops\'s share"')))
+    assert mock_execute.call_args[0][1] == "SHOW SHARES LIKE 'ops''s share'"
+
+
+@patch("snowcap.data_provider.execute", return_value=[])
+def test_show_like_keeps_escaped_double_quote(mock_execute):
+    fetch_share(MagicMock(), FQN(name=ResourceName('"say ""hi"""')))
+    assert mock_execute.call_args[0][1] == r"""SHOW SHARES LIKE 'say \"hi\"'"""
+
+
+@patch("snowcap.data_provider.execute", return_value=[])
+def test_show_like_escapes_pattern_characters(mock_execute):
+    fetch_share(MagicMock(), FQN(name=ResourceName('"a\\b_c%d"')))
+    assert mock_execute.call_args[0][1] == r"SHOW SHARES LIKE 'a\\\\b\\_c\\%d'"
+
+
+def test_id_lookup_is_not_like_escaped():
+    from snowcap.data_provider import _quote_bare_name
+
+    assert _quote_bare_name(ResourceName('"a_b"')) == "'a_b'"
+
+
+@patch("snowcap.data_provider.execute", return_value=[{"name": "MYXSHARE", "kind": "OUTBOUND"}])
+def test_show_like_ignores_wildcard_matches(mock_execute):
+    assert fetch_share(MagicMock(), FQN(name=ResourceName("MY_SHARE"))) is None
+
+
+@patch("snowcap.data_provider.execute")
+def test_show_resources_large_account_ignores_wildcard_matches(mock_execute):
+    from snowcap.data_provider import _show_resources
+
+    mock_execute.side_effect = [[{"name": f"R{i}"} for i in range(1000)], [{"name": "MYXROLE"}, {"name": "MY_ROLE"}]]
+    assert _show_resources(MagicMock(), "ROLES", FQN(name=ResourceName("MY_ROLE"))) == [{"name": "MY_ROLE"}]
+
+
+@patch("snowcap.data_provider.execute")
+def test_table_column_default_unescapes_literal(mock_execute):
+    from snowcap.data_provider import _fetch_columns_for_table
+
+    row = {
+        "TABLE_SCHEMA": "PUBLIC",
+        "TABLE_NAME": "T",
+        "COLUMN_NAME": "C",
+        "DATA_TYPE": "TEXT",
+        "CHARACTER_MAXIMUM_LENGTH": 10,
+        "IS_NULLABLE": "YES",
+        "COMMENT": None,
+    }
+    mock_execute.return_value = [{**row, "COLUMN_DEFAULT": "'it''s'"}, {**row, "COLUMN_DEFAULT": "CURRENT_USER()"}]
+    fqn = FQN(database=ResourceName("DB"), schema=ResourceName("PUBLIC"), name=ResourceName("T"))
+    assert [c["default"] for c in _fetch_columns_for_table(MagicMock(), fqn)] == ["it's", "CURRENT_USER()"]
+
+
+@patch("snowcap.data_provider.execute", return_value=[])
+def test_policy_references_escape_apostrophe(mock_execute):
+    fqn = FQN(
+        database=ResourceName("GOVERNANCE"),
+        schema=ResourceName("TAGS"),
+        name=ResourceName('"ops\'s tag"'),
+        params={"masking_policy": "governance.policies.ops's_mask"},
+    )
+    fetch_tag_masking_policy_reference(MagicMock(), fqn)
+    sql = mock_execute.call_args[0][1]
+    assert "REF_ENTITY_NAME => 'GOVERNANCE.TAGS.\\\"ops''s tag\\\"'" in sql
+    assert "= 'GOVERNANCE.POLICIES.OPS''S_MASK'" in sql

@@ -37,6 +37,22 @@ TEST_PUBLIC_KEY_2 = (
 )
 TEST_PUBLIC_KEY_2_FINGERPRINT = "SHA256:aZ6V/Bw5b3tKB45HPkGQ/SN91TfLspTzgxYoDH/Sthg="
 
+# A throwaway self-signed certificate for SAML2 integration tests. Only the public
+# half of a key that signs nothing, and Snowflake rejects a certificate it can't parse,
+# so tests that talk to an account need a real one.
+TEST_SAML2_X509_CERT = (
+    "MIIDGTCCAgGgAwIBAgIUHkeXtDT6JLuyMohkOpk9pvLeHNwwDQYJKoZIhvcNAQELBQAwGzEZMBcGA1UEAwwQc25vd2NhcC10ZXN0LWlkcDAg"
+    "Fw0yNjEwMjcxNjAwMDBaGA8yMTI2MTAwMzE2MDAwMFowGzEZMBcGA1UEAwwQc25vd2NhcC10ZXN0LWlkcDCCASIwDQYJKoZIhvcNAQEBBQAD"
+    "ggEPADCCAQoCggEBALcwXKgulfRgySCLZQFrbSKjP5sAnn/aLpFvqQtQ9QufcmcG7jpGkDfFSI05QDjg8Tf/rivK1WcdxNZUPU1jvaW7/WEc"
+    "POMGk7gUgqc9fteVf9wF+8IkJAguwOnN6+l2iDxWDDsdkWRVaKWM11UneN9FjLNS0HhIdOJ4GWDbAr0xgm353HYbGQYyHIaywYUs4yakw7J7"
+    "bZ+OvGDnBHnR80BK5Yj74uyf/ZtevJnijUEOr5mpuWujA4yvwe8HfXGGlCbzy1LeoKLwQiwJ60tGTNmycPpmWe8s/t+UDzUfVYqaMxhX2u3T"
+    "2Q+COsyH5tsT+O32Nqfv4JWk13ufoBd5dFsCAwEAAaNTMFEwHQYDVR0OBBYEFIFEpCTw/+6yKbfmUb6OKJckf4NiMB8GA1UdIwQYMBaAFIFE"
+    "pCTw/+6yKbfmUb6OKJckf4NiMA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggEBAIauKo9rP8h9n7bsfU7YPtKJm9lkHvNFzYZb"
+    "SpxFrqSf81PG3xYlAyqewfuBk9+tBtTFKumYqCnmyVyLv8ftt0pcbKKL4wvygdjG2HeK1o7qhTjIkZdmh2EGxVCYtFWx4UVx+QhL9xDACAKh"
+    "3kcpYc6qyxmEHPejqVoErepQInvhkE5j1InNe3gufb2c2wu/KDUCp+kTnWF1ttGsSlFLa8rqj0joM6rDrYpSGE2yaf65hMUcSD3zoca5h7g5"
+    "6fej004pcUziYvBQ1EJUcIzp4LDDkzZMRiCP7yD+cTNbyTrGhSWCM6ygNShcGcHE8iz8y576OtCdjFu5l/aCLLhkEFI="
+)
+
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
 EXAMPLES_DIR = os.path.join(os.path.dirname(__file__), "../examples")
 
@@ -101,6 +117,7 @@ def _get_resource_cls(resource_name):
 
 def camelcase_to_snakecase(name: str) -> str:
     name = name.replace("OAuth", "OAUTH")
+    name = name.replace("SAML2", "SAML2_")
     pattern = re.compile(r"(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
     name = pattern.sub("_", name).lower()
     return name

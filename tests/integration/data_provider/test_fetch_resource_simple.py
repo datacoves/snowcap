@@ -235,6 +235,12 @@ def resource_fixtures() -> list:
             name="TEST_FETCH_RESOURCE_MONITOR",
             credit_quota=1000,
             start_timestamp="2049-01-01 00:00",
+            triggers=[
+                {"threshold": 50, "action": "NOTIFY"},
+                {"threshold": 75, "action": "NOTIFY"},
+                {"threshold": 100, "action": "SUSPEND"},
+                {"threshold": 110, "action": "SUSPEND_IMMEDIATE"},
+            ],
         ),
         res.Role(
             name="TEST_FETCH_ROLE",

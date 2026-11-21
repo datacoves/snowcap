@@ -1,6 +1,6 @@
 ---
 description: >-
-  Managing secrets and environment variables in Snowcap.
+  Manage passwords, API keys and tokens in Snowcap without committing them: load SNOWCAP_VAR_ environment variables into YAML with Jinja templating.
 ---
 
 # Secrets and Environment Variables

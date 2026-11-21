@@ -1,3 +1,8 @@
+---
+description: >-
+  A recommended pattern for Snowflake role-based access control with Snowcap: composite roles built from fine-grained database and warehouse roles.
+---
+
 # Role-Based Access Control Pattern
 
 This guide describes a recommended pattern for managing Snowflake permissions using Snowcap. The pattern uses **composite roles** to provide fine-grained, maintainable access control.

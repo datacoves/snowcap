@@ -1,3 +1,8 @@
+---
+description: >-
+  Write Snowcap YAML configuration for Snowflake: variables, Jinja templating, for_each loops and reusable patterns that keep large configs maintainable.
+---
+
 # YAML Configuration
 
 Snowcap uses YAML files to define your Snowflake resources. This page covers the templating features that make YAML configurations powerful and reusable.

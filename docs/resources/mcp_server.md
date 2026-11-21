@@ -1,6 +1,6 @@
 ---
 description: >-
-  A Snowflake-managed MCP server exposing tools to MCP clients.
+  A Snowflake-managed MCP server exposing tools to MCP clients. Manage it as code with Snowcap: YAML and Python examples and a reference for every field.
 ---
 
 # MCPServer

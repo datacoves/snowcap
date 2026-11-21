@@ -213,6 +213,34 @@ def test_grant_on_cortex_agent_server_resolves_to_mcp_server():
     assert "USAGE ON MCP SERVER" in grant.create_sql()
 
 
+def test_grant_on_external_function():
+    """A grant names an external function as FUNCTION <name>(<arg types>).
+
+    GRANT ... ON EXTERNAL FUNCTION is a syntax error, and SHOW GRANTS reports the grant with
+    granted_on FUNCTION. The grant still depends on the ExternalFunction, so a plan creates
+    the function before the grant.
+    """
+    external_function = res.ExternalFunction(
+        name="MY_FN",
+        database="MY_DB",
+        schema="MY_SCHEMA",
+        args=[{"name": "x", "data_type": "VARCHAR"}],
+        returns="VARIANT",
+        api_integration="MY_API",
+        as_="https://example.com/x",
+    )
+    grant = res.Grant(priv="USAGE", on=external_function, to="somerole")
+    assert grant.create_sql() == "GRANT USAGE ON FUNCTION MY_DB.MY_SCHEMA.MY_FN(VARCHAR) TO ROLE SOMEROLE"
+
+    pointer_grant = res.Grant(priv="USAGE", on=external_function.to_pointer(), to="somerole")
+    assert pointer_grant.create_sql() == grant.create_sql()
+
+    fetched = res.Grant(priv="USAGE", on_function="MY_DB.MY_SCHEMA.MY_FN(VARCHAR)", to="somerole")
+    assert URN.from_resource(grant) == URN.from_resource(fetched)
+
+    assert URN.from_resource(external_function) in {URN.from_resource(ref) for ref in grant.refs}
+
+
 def test_grant_on_dbt_project():
     """USAGE/MONITOR on a DBT PROJECT parses and renders correctly.
 

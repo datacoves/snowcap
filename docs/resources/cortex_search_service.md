@@ -1,6 +1,6 @@
 ---
 description: >-
-  Grant USAGE / MONITOR on a Snowflake Cortex Search Service.
+  Grant USAGE / MONITOR on a Snowflake Cortex Search Service. Manage it as code with Snowcap: YAML and Python examples and a reference for every field.
 ---
 
 # CortexSearchService

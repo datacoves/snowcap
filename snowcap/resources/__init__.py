@@ -53,6 +53,7 @@ from .schema import Schema
 from .secret import GenericSecret, OAuthSecret, PasswordSecret
 from .security_integration import (
     APIAuthenticationSecurityIntegration,
+    SAML2SecurityIntegration,
     SnowflakeCustomOAuthSecurityIntegration,
     SnowflakePartnerOAuthSecurityIntegration,
     SnowservicesOAuthSecurityIntegration,
@@ -140,6 +141,7 @@ __all__ = [
     "RoleGrant",
     "RowAccessPolicy",
     "S3StorageIntegration",
+    "SAML2SecurityIntegration",
     "ScannerPackage",
     "Schema",
     "Sequence",

@@ -1,6 +1,4 @@
 from dataclasses import dataclass, field
-from typing import Union
-
 from ..enums import Language, NullHandling, ResourceType, Volatility
 from ..identifiers import FQN
 from ..props import (
@@ -327,7 +325,8 @@ class PythonUDF(NamedResource, Resource):
         return udf_fqn(self)
 
 
-def udf_fqn(udf: Union[JavascriptUDF, PythonUDF]):
+def udf_fqn(udf: Resource) -> FQN:
+    """The FQN of a function resource. Snowflake identifies a function by its name and argument types."""
     schema = udf.container
     database = schema.container if schema else None
     return FQN(

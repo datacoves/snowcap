@@ -1,6 +1,6 @@
 ---
 description: >-
-  A grant of a role to another role or user.
+  A grant of a role to another role or user. Manage it as code with Snowcap: YAML and Python examples and a reference for every field.
 ---
 
 # RoleGrant

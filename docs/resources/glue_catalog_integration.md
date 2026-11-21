@@ -1,6 +1,6 @@
 ---
 description: >-
-  An AWS Glue catalog integration in Snowflake.
+  An AWS Glue catalog integration in Snowflake. Manage it as code with Snowcap: YAML and Python examples and a reference for every field.
 ---
 
 # GlueCatalogIntegration

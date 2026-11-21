@@ -4,6 +4,23 @@
     "frequency": "DAILY",
     "start_timestamp": "IMMEDIATELY",
     "end_timestamp": "2049-12-31 23:59",
-    "owner": "ACCOUNTADMIN",
-    "notify_users": null
+    "owner": "SYSADMIN",
+    "notify_users": [
+        "JACK",
+        "JILL"
+    ],
+    "triggers": [
+        {
+            "threshold": 75,
+            "action": "NOTIFY"
+        },
+        {
+            "threshold": 100,
+            "action": "SUSPEND"
+        },
+        {
+            "threshold": 110,
+            "action": "SUSPEND_IMMEDIATE"
+        }
+    ]
 }

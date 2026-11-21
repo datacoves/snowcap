@@ -13,7 +13,7 @@ import re
 
 FINGERPRINT_PREFIX = "SHA256:"
 
-_PEM_DELIMITER = re.compile(r"-{2,}[A-Za-z ]*-{2,}")
+PEM_DELIMITER = re.compile(r"-{2,}[A-Za-z ]*-{2,}")
 
 
 def normalize_public_key(public_key: str) -> str:
@@ -29,7 +29,7 @@ def normalize_public_key(public_key: str) -> str:
     """
     if "PRIVATE KEY" in public_key.upper():
         raise ValueError("public_key contains a private key; provide only the matching public key")
-    return "".join(_PEM_DELIMITER.sub("", public_key).split())
+    return "".join(PEM_DELIMITER.sub("", public_key).split())
 
 
 def public_key_fingerprint(public_key: str) -> str:

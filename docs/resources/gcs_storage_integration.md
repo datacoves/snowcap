@@ -1,6 +1,6 @@
 ---
 description: >-
-  A Google Cloud Storage integration in Snowflake.
+  A Google Cloud Storage integration in Snowflake. Manage it as code with Snowcap: YAML and Python examples and a reference for every field.
 ---
 
 # GCSStorageIntegration

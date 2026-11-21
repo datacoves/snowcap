@@ -1,3 +1,8 @@
+---
+description: >-
+  Implement column-level data masking in Snowflake with Snowcap using tag-based masking policies, so tagged columns are protected automatically.
+---
+
 # Tag-Based Masking Policies
 
 This guide describes a recommended pattern for implementing column-level data masking in Snowflake using Snowcap. The pattern uses **tags** to automatically apply masking policies to columns, providing scalable data protection without manually attaching policies to individual columns.

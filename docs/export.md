@@ -1,3 +1,8 @@
+---
+description: >-
+  Already have a Snowflake account? Use snowcap export to generate YAML config from your existing resources, all of them or only the types you need.
+---
+
 # Export Existing Resources
 
 Already have a Snowflake environment? Generate config from your existing setup:

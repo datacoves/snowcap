@@ -1,6 +1,6 @@
 ---
 description: >-
-  A named key pair registered for a user, used for key-pair authentication.
+  A named key pair registered for a user, used for key-pair authentication. Manage it as code with Snowcap, with YAML and Python examples.
 ---
 
 # UserKeyPair

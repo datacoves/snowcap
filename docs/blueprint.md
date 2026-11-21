@@ -1,3 +1,8 @@
+---
+description: >-
+  How Snowcap's Blueprint compares your configuration to Snowflake, builds an execution plan, and applies the SQL needed to make the account match.
+---
+
 # Blueprint
 
 A Blueprint is the core engine that compares your configuration to Snowflake and generates the SQL to make them match. It validates resources, generates execution plans, and applies changes.

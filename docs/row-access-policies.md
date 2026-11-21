@@ -1,3 +1,8 @@
+---
+description: >-
+  Implement row-level security in Snowflake with Snowcap: define row access policies and attach them to tables and views as code.
+---
+
 # Row Access Policies
 
 This guide describes a pattern for implementing row-level security in Snowflake using Snowcap. The pattern uses **roles** to control which rows users can see, without requiring a separate mapping table.
