@@ -225,6 +225,28 @@ def test_a_value_snowflake_does_not_report_fails_when_a_value_was_expected():
     assert live_audit.landed(account, obj, None, "DB", "comment", "b", "comment")[0] is False
 
 
+def test_snowflake_reporting_none_matches_an_expected_null():
+    # NONE and null both mean no value: Snowflake's NONE confirms an expected null in L2 and L4.
+    obj = warehouse([("comment", ["a", "b"], [None, None])])
+    row = obj["properties"][0]
+    account = ScriptedAccount(reported={"comment": "NONE"})
+
+    live_audit.test_row(account, obj, row, "DB", 0)
+
+    assert row["snowcap"]["levels"]["L2"] == "pass"
+    assert live_audit.landed(account, obj, None, "DB", "comment", None, "comment")[0] is True
+
+
+def test_snowflake_reporting_none_reads_back_as_the_declared_null():
+    # The read-back reference for a reported NONE is the declared null, so a fetch of None passes L3.
+    obj = warehouse([("comment", [None, "b"], [None, "b"])])
+    row = obj["properties"][0]
+
+    live_audit.test_row(ScriptedAccount(reported={"comment": "NONE"}), obj, row, "DB", 0)
+
+    assert row["snowcap"]["levels"]["L3"] == "pass"
+
+
 def test_combined_leaves_out_rows_that_share_a_field():
     obj = warehouse(
         [

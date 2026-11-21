@@ -143,6 +143,14 @@ def means_none(value) -> bool:
     return value is None or norm(value) == "none"
 
 
+def same(reported, expected) -> bool:
+    """Whether a value that Snowflake reports equals an expected value. A reported NONE matches an expected null,
+    because both mean no value. A missing value matches nothing, as in `norm`."""
+    if reported is None:
+        return False
+    return norm(reported) == norm(expected) or (means_none(reported) and means_none(expected))
+
+
 class Account:
     def __init__(self, conn):
         self.conn = conn
@@ -393,7 +401,7 @@ def landed(
         reported = account.truth(obj, resource, database).get(truth_key)
         if reported is None and means_none(expected):
             return None, f"Snowflake reports no {truth_key}"
-        return norm(reported) == norm(expected), f"Snowflake reports {truth_key}={reported!r}"
+        return same(reported, expected), f"Snowflake reports {truth_key}={reported!r}"
     declared, fetched = read_back(account, resource, path)
     return fetched == declared, f"snowcap fetches {fetched!r}"
 
@@ -437,7 +445,7 @@ def test_row(account: Account, obj: dict, row: dict, database: str, index: int) 
         if reported is None and means_none(expect[0]):
             levels["L2"] = "untested"
             evidence["L2"] = f"Snowflake reports no {truth_key}, so the create has no reference"
-        elif norm(reported) == norm(expect[0]):
+        elif same(reported, expect[0]):
             levels["L2"] = "pass"
         else:
             fail("L2", "create", f"declared {before!r}, Snowflake reports {truth_key}={reported!r}")
@@ -456,7 +464,7 @@ def test_row(account: Account, obj: dict, row: dict, database: str, index: int) 
         elif is_plain(path) and reported is not None:
             # Snowflake can spell a value differently from the declaration (warehouse_size 'X-Small' for 'XSMALL'),
             # so a reported value that `expect` lists compares in its sample form.
-            reference = {norm(e): s for e, s in zip(expect, (before, after))}.get(norm(reported), reported)
+            reference = next((s for e, s in zip(expect, (before, after)) if same(reported, e)), reported)
             if norm(fetched) == norm(reference):
                 levels["L3"] = "pass"
             else:
