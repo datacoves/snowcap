@@ -2,7 +2,7 @@
 
 Which Snowflake objects and properties can snowcap manage? This checklist answers that for every object in the Snowflake docs. `report.py` generates it from `inventory.yaml`, so do not edit it by hand. A box is checked when snowcap supports the object, or when every tested level of the property passes. After a fix, commit it, rerun `live_audit.py` for the object and then `report.py`, and commit `inventory.yaml` and this file.
 
-Scope: GA and public preview. Deprecated, private preview, and classes are excluded. Docs read on 2026-10-09. Live results come from a test account with edition ENTERPRISE on AWS US_WEST_2, at snowcap `584e44b`, on 2026-11-10. Each object section names the commit and date of its own run.
+Scope: GA and public preview. Deprecated, private preview, and classes are excluded. Docs read on 2026-10-09. Live results come from a test account with edition ENTERPRISE on AWS US_WEST_2, at snowcap `6ce5c12`, on 2026-11-21. Each object section names the commit and date of its own run.
 
 ## How each property is tested
 
@@ -19,12 +19,12 @@ Scope: GA and public preview. Deprecated, private preview, and classes are exclu
 | | Count |
 |---|---|
 | Objects and variants in scope | 164 |
-| Supported by snowcap | 83 |
-| Not supported | 81 |
-| Properties of supported objects that pass | 279 |
-| Properties that fail L2 to L5 | 268 |
-| Properties snowcap does not model | 600 |
-| Modeled properties without a live sample | 381 |
+| Supported by snowcap | 84 |
+| Not supported | 80 |
+| Properties of supported objects that pass | 299 |
+| Properties that fail L2 to L5 | 260 |
+| Properties snowcap does not model | 601 |
+| Modeled properties without a live sample | 389 |
 
 ## Failures by kind
 
@@ -32,13 +32,14 @@ One fix can close several items when they share a cause.
 
 | What happens | Properties | Objects |
 |---|---|---|
-| snowcap sends change SQL that Snowflake rejects | 60 | [AGGREGATION POLICY](#aggregation-policy) (1), [ALERT](#alert) (3), [API INTEGRATION:aws_api_gateway](#api-integrationaws_api_gateway) (1), [API INTEGRATION:git_https_api](#api-integrationgit_https_api) (1), [API INTEGRATION:google_api_gateway](#api-integrationgoogle_api_gateway) (1), [CATALOG INTEGRATION:glue](#catalog-integrationglue) (3), [DATABASE](#database) (1), [DYNAMIC TABLE](#dynamic-table) (5), [EVENT TABLE](#event-table) (1), [FUNCTION:javascript](#functionjavascript) (5), [GIT REPOSITORY](#git-repository) (1), [ICEBERG TABLE:snowflake](#iceberg-tablesnowflake) (2), [MASKING POLICY](#masking-policy) (4), [MATERIALIZED VIEW](#materialized-view) (2), [NETWORK RULE](#network-rule) (2), [NOTIFICATION INTEGRATION:inbound_azure](#notification-integrationinbound_azure) (1), [NOTIFICATION INTEGRATION:inbound_gcp](#notification-integrationinbound_gcp) (1), [PIPE](#pipe) (2), [PROCEDURE:python](#procedurepython) (5), [RESOURCE MONITOR](#resource-monitor) (2), [ROW ACCESS POLICY](#row-access-policy) (3), [SECURITY INTEGRATION:api_auth_client_credentials](#security-integrationapi_auth_client_credentials) (1), [SEQUENCE](#sequence) (1), [STAGE:external_azure](#stageexternal_azure) (1), [STAGE:external_gcs](#stageexternal_gcs) (1), [STAGE:external_onelake](#stageexternal_onelake) (1), [STAGE:external_s3](#stageexternal_s3) (1), [STAGE:internal](#stageinternal) (1), [TABLE](#table) (3), [TASK](#task) (1), [VIEW](#view) (2) |
-| CREATE leaves out the value or fails | 37 | [CATALOG INTEGRATION:object_storage](#catalog-integrationobject_storage) (1), [EVENT TABLE](#event-table) (1), [FUNCTION:javascript](#functionjavascript) (1), [FUNCTION:python](#functionpython) (2), [ICEBERG TABLE:snowflake](#iceberg-tablesnowflake) (4), [MATERIALIZED VIEW](#materialized-view) (2), [PROCEDURE:python](#procedurepython) (2), [SECURITY INTEGRATION:api_auth_jwt_bearer](#security-integrationapi_auth_jwt_bearer) (8), [STAGE:external_s3compat](#stageexternal_s3compat) (6), [STREAMLIT](#streamlit) (5), [TABLE](#table) (4), [TASK](#task) (1) |
-| snowcap does not read the value back | 59 | [API INTEGRATION:aws_api_gateway](#api-integrationaws_api_gateway) (1), [API INTEGRATION:google_api_gateway](#api-integrationgoogle_api_gateway) (1), [CATALOG INTEGRATION:iceberg_rest](#catalog-integrationiceberg_rest) (1), [EVENT TABLE](#event-table) (2), [EXTERNAL VOLUME](#external-volume) (3), [FUNCTION:javascript](#functionjavascript) (1), [ICEBERG TABLE:snowflake](#iceberg-tablesnowflake) (2), [NOTEBOOK](#notebook) (1), [NOTIFICATION INTEGRATION:inbound_azure](#notification-integrationinbound_azure) (1), [ROLE](#role) (1), [SECRET:generic_string](#secretgeneric_string) (1), [SECRET:oauth2_authorization_code](#secretoauth2_authorization_code) (1), [SECRET:password](#secretpassword) (1), [SECURITY INTEGRATION:api_auth_authorization_code](#security-integrationapi_auth_authorization_code) (1), [SECURITY INTEGRATION:api_auth_client_credentials](#security-integrationapi_auth_client_credentials) (1), [SECURITY INTEGRATION:snowflake_oauth_custom](#security-integrationsnowflake_oauth_custom) (2), [STAGE:external_azure](#stageexternal_azure) (3), [STAGE:external_gcs](#stageexternal_gcs) (3), [STAGE:external_onelake](#stageexternal_onelake) (3), [STAGE:external_s3](#stageexternal_s3) (8), [STAGE:internal](#stageinternal) (1), [STORAGE INTEGRATION:azure](#storage-integrationazure) (1), [STREAM:table](#streamtable) (2), [STREAM:view](#streamview) (2), [TABLE](#table) (8), [USER](#user) (4), [VIEW](#view) (2), [WAREHOUSE](#warehouse) (1) |
+| snowcap sends change SQL that Snowflake rejects | 63 | [AGGREGATION POLICY](#aggregation-policy) (1), [ALERT](#alert) (1), [API INTEGRATION:aws_api_gateway](#api-integrationaws_api_gateway) (1), [API INTEGRATION:git_https_api](#api-integrationgit_https_api) (1), [API INTEGRATION:google_api_gateway](#api-integrationgoogle_api_gateway) (1), [CATALOG INTEGRATION:glue](#catalog-integrationglue) (3), [DATABASE](#database) (1), [DYNAMIC TABLE](#dynamic-table) (5), [EVENT TABLE](#event-table) (1), [EXTERNAL FUNCTION](#external-function) (6), [FUNCTION:javascript](#functionjavascript) (5), [GIT REPOSITORY](#git-repository) (1), [ICEBERG TABLE:snowflake](#iceberg-tablesnowflake) (2), [MASKING POLICY](#masking-policy) (4), [MATERIALIZED VIEW](#materialized-view) (2), [NETWORK RULE](#network-rule) (2), [NOTIFICATION INTEGRATION:inbound_azure](#notification-integrationinbound_azure) (1), [NOTIFICATION INTEGRATION:inbound_gcp](#notification-integrationinbound_gcp) (1), [PIPE](#pipe) (2), [PROCEDURE:python](#procedurepython) (5), [RESOURCE MONITOR](#resource-monitor) (2), [ROW ACCESS POLICY](#row-access-policy) (3), [SECURITY INTEGRATION:api_auth_client_credentials](#security-integrationapi_auth_client_credentials) (1), [SEQUENCE](#sequence) (1), [STAGE:external_azure](#stageexternal_azure) (1), [STAGE:external_gcs](#stageexternal_gcs) (1), [STAGE:external_onelake](#stageexternal_onelake) (1), [STAGE:external_s3](#stageexternal_s3) (1), [STAGE:internal](#stageinternal) (1), [TABLE](#table) (3), [VIEW](#view) (2) |
+| CREATE leaves out the value or fails | 41 | [CATALOG INTEGRATION:object_storage](#catalog-integrationobject_storage) (1), [EVENT TABLE](#event-table) (1), [FUNCTION:javascript](#functionjavascript) (1), [FUNCTION:python](#functionpython) (2), [ICEBERG TABLE:snowflake](#iceberg-tablesnowflake) (4), [MATERIALIZED VIEW](#materialized-view) (2), [NOTEBOOK](#notebook) (4), [PROCEDURE:python](#procedurepython) (2), [SECURITY INTEGRATION:api_auth_jwt_bearer](#security-integrationapi_auth_jwt_bearer) (8), [STAGE:external_s3compat](#stageexternal_s3compat) (6), [STREAMLIT](#streamlit) (5), [TABLE](#table) (4), [TASK](#task) (1) |
+| snowcap does not read the value back | 58 | [API INTEGRATION:aws_api_gateway](#api-integrationaws_api_gateway) (1), [API INTEGRATION:google_api_gateway](#api-integrationgoogle_api_gateway) (1), [CATALOG INTEGRATION:iceberg_rest](#catalog-integrationiceberg_rest) (1), [EVENT TABLE](#event-table) (2), [EXTERNAL VOLUME](#external-volume) (3), [FUNCTION:javascript](#functionjavascript) (1), [ICEBERG TABLE:snowflake](#iceberg-tablesnowflake) (2), [NOTIFICATION INTEGRATION:inbound_azure](#notification-integrationinbound_azure) (1), [ROLE](#role) (1), [SECRET:generic_string](#secretgeneric_string) (1), [SECRET:oauth2_authorization_code](#secretoauth2_authorization_code) (1), [SECRET:password](#secretpassword) (1), [SECURITY INTEGRATION:api_auth_authorization_code](#security-integrationapi_auth_authorization_code) (1), [SECURITY INTEGRATION:api_auth_client_credentials](#security-integrationapi_auth_client_credentials) (1), [SECURITY INTEGRATION:snowflake_oauth_custom](#security-integrationsnowflake_oauth_custom) (2), [STAGE:external_azure](#stageexternal_azure) (3), [STAGE:external_gcs](#stageexternal_gcs) (3), [STAGE:external_onelake](#stageexternal_onelake) (3), [STAGE:external_s3](#stageexternal_s3) (8), [STAGE:internal](#stageinternal) (1), [STORAGE INTEGRATION:azure](#storage-integrationazure) (1), [STREAM:table](#streamtable) (2), [STREAM:view](#streamview) (2), [TABLE](#table) (8), [USER](#user) (4), [VIEW](#view) (2), [WAREHOUSE](#warehouse) (1) |
 | A change to the value plans nothing | 21 | [CATALOG INTEGRATION:iceberg_rest](#catalog-integrationiceberg_rest) (8), [ICEBERG TABLE:snowflake](#iceberg-tablesnowflake) (5), [MATERIALIZED VIEW](#materialized-view) (1), [TABLE](#table) (5), [VIEW](#view) (2) |
 | snowcap crashes while it plans the change | 2 | [SECRET:oauth2_authorization_code](#secretoauth2_authorization_code) (2) |
-| snowcap fails while it reads the object | 66 | [AUTHENTICATION POLICY](#authentication-policy) (8), [DATABASE ROLE](#database-role) (1), [EXTERNAL FUNCTION](#external-function) (15), [FUNCTION:python](#functionpython) (12), [HYBRID TABLE](#hybrid-table) (18), [MATERIALIZED VIEW](#materialized-view) (1), [SECRET:oauth2_client_credentials](#secretoauth2_client_credentials) (3), [SECURITY INTEGRATION:api_auth_client_credentials](#security-integrationapi_auth_client_credentials) (1), [SECURITY INTEGRATION:snowflake_oauth_partner](#security-integrationsnowflake_oauth_partner) (6), [VIEW](#view) (1) |
+| snowcap fails while it reads the object | 51 | [AUTHENTICATION POLICY](#authentication-policy) (8), [DATABASE ROLE](#database-role) (1), [FUNCTION:python](#functionpython) (12), [HYBRID TABLE](#hybrid-table) (18), [MATERIALIZED VIEW](#materialized-view) (1), [SECRET:oauth2_client_credentials](#secretoauth2_client_credentials) (3), [SECURITY INTEGRATION:api_auth_client_credentials](#security-integrationapi_auth_client_credentials) (1), [SECURITY INTEGRATION:snowflake_oauth_partner](#security-integrationsnowflake_oauth_partner) (6), [VIEW](#view) (1) |
 | The change runs but does not land | 6 | [EXTERNAL VOLUME](#external-volume) (6) |
+| snowcap refuses a change that ALTER supports | 1 | [TASK](#task) (1) |
 | Plan is not empty after create or change | 17 | [EXTERNAL VOLUME](#external-volume) (2), [FUNCTION:javascript](#functionjavascript) (1), [NOTIFICATION INTEGRATION:inbound_azure](#notification-integrationinbound_azure) (2), [USER](#user) (12) |
 
 ## Objects
@@ -170,7 +171,7 @@ One fix can close several items when they share a cause.
 - [ ] SECURITY INTEGRATION:oidc_custom: not supported, 22 properties ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-security-integration-oidc))
 - [ ] SECURITY INTEGRATION:oidc_google: not supported, 12 properties ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-security-integration-oidc))
 - [ ] SECURITY INTEGRATION:oidc_microsoft: not supported, 12 properties ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-security-integration-oidc))
-- [ ] SECURITY INTEGRATION:saml2: not supported, 25 properties ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-security-integration-saml2))
+- [x] [SECURITY INTEGRATION:saml2](#security-integrationsaml2)
 - [ ] SECURITY INTEGRATION:scim: not supported, 12 properties ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-security-integration-scim))
 - [x] [SECURITY INTEGRATION:snowflake_oauth_custom](#security-integrationsnowflake_oauth_custom)
 - [x] [SECURITY INTEGRATION:snowflake_oauth_partner](#security-integrationsnowflake_oauth_partner)
@@ -212,7 +213,7 @@ One fix can close several items when they share a cause.
 
 ### ACCOUNT
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 5 pass, 0 fail, 38 not modeled, 153 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-account) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-account) [show](https://docs.snowflake.com/en/sql-reference/sql/show-accounts) [describe](None)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 5 pass, 0 fail, 38 not modeled, 153 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-account) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-account) [show](https://docs.snowflake.com/en/sql-reference/sql/show-accounts) [describe](None)
 
 - Combined change: untested (needs two or more fields, and rows that share value cannot combine)
 - [ ] Model `drop_old_url`: `DROP OLD URL` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-account))
@@ -263,7 +264,7 @@ Modeled, without a live sample: `network_policy`, `account_level_file_extensions
 
 ### AGGREGATION POLICY
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 0 pass, 1 fail, 2 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-aggregation-policy) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-aggregation-policy) [show](https://docs.snowflake.com/en/sql-reference/sql/show-aggregation-policies) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-aggregation-policy)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 0 pass, 1 fail, 2 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-aggregation-policy) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-aggregation-policy) [show](https://docs.snowflake.com/en/sql-reference/sql/show-aggregation-policies) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-aggregation-policy)
 
 - [ ] `body` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 001003 (42000): SQL compilation error: syntax error line 1 at position 82 unexpected '->'. on: ALTER AGGREGATION POLICY <db>.PUBLIC.R00_BODY SET -> AGGREGATION_CONSTRAINT(MIN_GROUP_SIZE => 10)` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-aggregation-policy#parameters))
   - snowcap sent: `ALTER AGGREGATION POLICY <db>.PUBLIC.R00_BODY SET -> AGGREGATION_CONSTRAINT(MIN_GROUP_SIZE => 10)`
@@ -275,12 +276,8 @@ Modeled, without a live sample: `owner`
 
 ### ALERT
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 3 pass, 3 fail, 5 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-alert) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-alert) [show](https://docs.snowflake.com/en/sql-reference/sql/show-alerts) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-alert)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 5 pass, 1 fail, 5 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-alert) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-alert) [show](https://docs.snowflake.com/en/sql-reference/sql/show-alerts) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-alert)
 
-- [ ] `condition` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 001003 (42000): SQL compilation error: syntax error line 1 at position 63 unexpected '('. on: ALTER ALERT <db>.PUBLIC.R03_CONDITION SET IF(EXISTS( SELECT 2 ))` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-alert))
-  - snowcap sent: `ALTER ALERT <db>.PUBLIC.R03_CONDITION SET IF(EXISTS( SELECT 2 ))`
-- [ ] `action` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 001003 (42000): SQL compilation error: syntax error line 1 at position 58 unexpected 'then'. on: ALTER ALERT <db>.PUBLIC.R04_ACTION SET then SELECT 2` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-alert))
-  - snowcap sent: `ALTER ALERT <db>.PUBLIC.R04_ACTION SET then SELECT 2`
 - [ ] `tags` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 001003 (42000): SQL compilation error: syntax error line 1 at position 20 unexpected '<db>'. on: ALTER TAG REFERENCE <db>.PUBLIC.R05_TAGS?domain=ALERT SET` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-alert))
   - snowcap sent: `ALTER TAG REFERENCE <db>.PUBLIC.R05_TAGS?domain=ALERT SET`
 - [x] Combined change of `comment`, `schedule`, `warehouse` in one plan
@@ -292,12 +289,14 @@ Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 3 pass, 3 f
 - [x] `warehouse`
 - [x] `schedule`
 - [x] `comment`
+- [x] `condition`
+- [x] `action`
 
 Modeled, without a live sample: `state`, `owner`
 
 ### API INTEGRATION:aws_api_gateway
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 5 pass, 2 fail, 1 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-api-integration) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-api-integration) [show](https://docs.snowflake.com/en/sql-reference/sql/show-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-integration)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 5 pass, 2 fail, 1 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-api-integration) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-api-integration) [show](https://docs.snowflake.com/en/sql-reference/sql/show-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-integration)
 
 - [ ] `api_provider` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 001420 (22023): SQL compilation error: invalid property 'API_PROVIDER' for 'INTEGRATION - EXTERNAL_API' on: ALTER API INTEGRATION <db>_R00_API_PROVIDER SET api_provider = AWS_PRIVATE_API_GATEWAY` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-api-integration#for-amazon-api-gateway))
   - snowcap sent: `ALTER API INTEGRATION <db>_R00_API_PROVIDER SET api_provider = AWS_PRIVATE_API_GATEWAY`
@@ -322,7 +321,7 @@ Modeled, without a live sample: `api_provider`, `azure_tenant_id`, `azure_ad_app
 
 ### API INTEGRATION:git_https_api
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 4 pass, 1 fail, 13 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-api-integration) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-api-integration) [show](https://docs.snowflake.com/en/sql-reference/sql/show-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-integration)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 4 pass, 1 fail, 13 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-api-integration) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-api-integration) [show](https://docs.snowflake.com/en/sql-reference/sql/show-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-integration)
 
 - [ ] `api_provider` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 001420 (22023): SQL compilation error: invalid property 'API_PROVIDER' for 'INTEGRATION - EXTERNAL_API' on: ALTER API INTEGRATION <db>_R00_API_PROVIDER SET api_provider = AWS_API_GATEWAY` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-api-integration#for-git-repository))
   - snowcap sent: `ALTER API INTEGRATION <db>_R00_API_PROVIDER SET api_provider = AWS_API_GATEWAY`
@@ -349,7 +348,7 @@ Modeled, without a live sample: `api_key`, `owner`
 
 ### API INTEGRATION:google_api_gateway
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 5 pass, 2 fail, 1 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-api-integration) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-api-integration) [show](https://docs.snowflake.com/en/sql-reference/sql/show-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-integration)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 5 pass, 2 fail, 1 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-api-integration) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-api-integration) [show](https://docs.snowflake.com/en/sql-reference/sql/show-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-integration)
 
 - [ ] `api_provider` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 001420 (22023): SQL compilation error: invalid property 'API_PROVIDER' for 'INTEGRATION - EXTERNAL_API' on: ALTER API INTEGRATION <db>_R00_API_PROVIDER SET api_provider = AWS_API_GATEWAY` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-api-integration#for-google-cloud-api-gateway))
   - snowcap sent: `ALTER API INTEGRATION <db>_R00_API_PROVIDER SET api_provider = AWS_API_GATEWAY`
@@ -366,7 +365,7 @@ Modeled, without a live sample: `owner`
 
 ### AUTHENTICATION POLICY
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 0 pass, 8 fail, 9 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-authentication-policy) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-authentication-policy) [show](https://docs.snowflake.com/en/sql-reference/sql/show-authentication-policies) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-authentication-policy)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 0 pass, 8 fail, 9 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-authentication-policy) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-authentication-policy) [show](https://docs.snowflake.com/en/sql-reference/sql/show-authentication-policies) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-authentication-policy)
 
 - [ ] `authentication_methods[]` fails L3, L4, L5: `snowcap's fetch fails: KeyError: 'mfa_authentication_methods'` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-authentication-policy#optional-parameters))
 - [ ] `client_types[]` fails L3, L4, L5: `snowcap's fetch fails: KeyError: 'mfa_authentication_methods'` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-authentication-policy#optional-parameters))
@@ -391,7 +390,7 @@ Modeled, without a live sample: `security_integrations[]`, `owner`
 
 ### CATALOG INTEGRATION:glue
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 3 pass, 3 fail, 1 not modeled, 3 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-catalog-integration-glue) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-catalog-integration) [show](https://docs.snowflake.com/en/sql-reference/sql/show-catalog-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-catalog-integration)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 3 pass, 3 fail, 1 not modeled, 3 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-catalog-integration-glue) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-catalog-integration) [show](https://docs.snowflake.com/en/sql-reference/sql/show-catalog-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-catalog-integration)
 
 - [ ] `glue_aws_role_arn` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 001420 (22023): SQL compilation error: invalid property 'GLUE_AWS_ROLE_ARN' for 'INTEGRATION - CATALOG' on: ALTER CATALOG INTEGRATION <db>_R00_GLUE_AWS_ROLE_ARN SET GLUE_AWS_ROLE_ARN = $$arn:aws:iam::1234567890 ...` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-catalog-integration-glue#required-parameters))
   - snowcap sent: `ALTER CATALOG INTEGRATION <db>_R00_GLUE_AWS_ROLE_ARN SET GLUE_AWS_ROLE_ARN = $$arn:aws:iam::123456789012:role/coverage2$$`
@@ -409,7 +408,7 @@ Modeled, without a live sample: `catalog_source`, `table_format`, `owner`
 
 ### CATALOG INTEGRATION:iceberg_rest
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 4 pass, 9 fail, 1 not modeled, 8 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-catalog-integration-rest) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-catalog-integration) [show](https://docs.snowflake.com/en/sql-reference/sql/show-catalog-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-catalog-integration)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 4 pass, 9 fail, 1 not modeled, 8 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-catalog-integration-rest) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-catalog-integration) [show](https://docs.snowflake.com/en/sql-reference/sql/show-catalog-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-catalog-integration)
 
 - [ ] `rest_config.catalog_uri` fails L4, L5: `a change to {'catalog_uri': 'https://catalog2.example.com/api/catalog', 'catalog_api_type': 'AWS_API_GATEWAY', 'catalog_name': 'coverage'} plans nothing` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-catalog-integration-rest#rest-configuration-parameters-restconfigparams))
 - [ ] `rest_config.prefix` fails L4, L5: `a change to {'catalog_uri': 'https://catalog.example.com/api/catalog', 'catalog_api_type': 'AWS_API_GATEWAY', 'catalog_name': 'coverage', 'prefix': 'p2'} plans nothing` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-catalog-integration-rest#rest-configuration-parameters-restconfigparams))
@@ -431,7 +430,7 @@ Modeled, without a live sample: `catalog_source`, `table_format`, `rest_authenti
 
 ### CATALOG INTEGRATION:object_storage
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 2 pass, 1 fail, 1 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-catalog-integration-object-storage) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-catalog-integration) [show](https://docs.snowflake.com/en/sql-reference/sql/show-catalog-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-catalog-integration)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 2 pass, 1 fail, 1 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-catalog-integration-object-storage) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-catalog-integration) [show](https://docs.snowflake.com/en/sql-reference/sql/show-catalog-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-catalog-integration)
 
 - [ ] `table_format` fails L2: `create failed: Crashed: snowcap rejects the declaration: TypeError: Expected ObjectStoreCatalogIntegration.table_format to be one of (ICEBERG), got 'DELTA' instead` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-catalog-integration-object-storage#required-parameters))
 - Combined change: untested (needs two or more fields)
@@ -455,7 +454,7 @@ Modeled, without a live sample: `min_nodes`, `max_nodes`, `instance_family`, `au
 
 ### DATABASE
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 5 pass, 1 fail, 45 not modeled, 3 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-database) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-database) [show](https://docs.snowflake.com/en/sql-reference/sql/show-databases) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-database)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 5 pass, 1 fail, 45 not modeled, 3 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-database) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-database) [show](https://docs.snowflake.com/en/sql-reference/sql/show-databases) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-database)
 
 - [ ] `tags` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 001003 (42000): SQL compilation error: syntax error line 1 at position 20 unexpected '<db>_R02_TAGS'. on: ALTER TAG REFERENCE <db>_R02_TAGS?domain=DATABASE SET` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-database))
   - snowcap sent: `ALTER TAG REFERENCE <db>_R02_TAGS?domain=DATABASE SET`
@@ -515,7 +514,7 @@ Modeled, without a live sample: `owner`, `external_volume`, `catalog`
 
 ### DATABASE ROLE
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 1 pass, 1 fail, 1 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-database-role) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-database-role) [show](https://docs.snowflake.com/en/sql-reference/sql/show-database-roles) [describe](None)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 1 pass, 1 fail, 1 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-database-role) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-database-role) [show](https://docs.snowflake.com/en/sql-reference/sql/show-database-roles) [describe](None)
 
 - [ ] `tags` fails L3: `snowcap's read fails while it plans the create: ProgrammingError: 001003 (42000): SQL compilation error: syntax error line 2 at position 86 unexpected '.'. syntax error line 4 at position 18 unexpected '<EOF>'. on: SELECT * FROM table(<db>.R01_TAGS.information_schema.tag_references( '<db>.R01_TAGS', ...` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-database-role))
 - Combined change: untested (needs two or more fields)
@@ -526,7 +525,7 @@ Modeled, without a live sample: `database`, `owner`
 
 ### DATABASE:from_share
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 1 pass, 0 fail, 1 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-database) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-database) [show](https://docs.snowflake.com/en/sql-reference/sql/show-databases) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-database)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 1 pass, 0 fail, 1 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-database) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-database) [show](https://docs.snowflake.com/en/sql-reference/sql/show-databases) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-database)
 
 - Combined change: untested (needs two or more fields)
 - [ ] Model `comment`: `COMMENT` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-database))
@@ -536,7 +535,7 @@ Modeled, without a live sample: `owner`
 
 ### DYNAMIC TABLE
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 3 pass, 5 fail, 35 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-dynamic-table) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-dynamic-table) [show](https://docs.snowflake.com/en/sql-reference/sql/show-dynamic-tables) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-dynamic-table)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 3 pass, 5 fail, 35 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-dynamic-table) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-dynamic-table) [show](https://docs.snowflake.com/en/sql-reference/sql/show-dynamic-tables) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-dynamic-table)
 
 - [ ] `query` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 001003 (42000): SQL compilation error: syntax error line 1 at position 73 unexpected 'as'. on: ALTER DYNAMIC TABLE <db>.PUBLIC.R00_QUERY SET as SELECT ID, NAME FROM <db>.PUBLIC.COVE ...` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-dynamic-table#required-parameters))
   - snowcap sent: `ALTER DYNAMIC TABLE <db>.PUBLIC.R00_QUERY SET as SELECT ID, NAME FROM <db>.PUBLIC.COVERAGE_T WHERE ID > 0`
@@ -592,7 +591,7 @@ Modeled, without a live sample: `initialize`, `owner`
 
 ### EVENT TABLE
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 3 pass, 4 fail, 8 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-event-table) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-table-event-table) [show](https://docs.snowflake.com/en/sql-reference/sql/show-event-tables) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-event-table)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 3 pass, 4 fail, 8 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-event-table) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-table-event-table) [show](https://docs.snowflake.com/en/sql-reference/sql/show-event-tables) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-event-table)
 
 - [ ] `cluster_by` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 001003 (42000): SQL compilation error: syntax error line 1 at position 76 unexpected 'BY'. syntax error line 1 at position 98 unexpected ')'. on: ALTER TABLE <db>.PUBLIC.R00_CLUSTER_BY SET CLUSTER BY (OBSERVED_TIMESTAMP)` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-table-event-table#clustering-actions-clusteringaction))
   - snowcap sent: `ALTER TABLE <db>.PUBLIC.R00_CLUSTER_BY SET CLUSTER BY (OBSERVED_TIMESTAMP)`
@@ -600,7 +599,7 @@ Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 3 pass, 4 f
 - [ ] `default_ddl_collation` fails L3, L4, L5: `Snowflake reports default_ddl_collation='en-ci' (declared form 'en-ci'), snowcap fetches None` ([docs](https://docs.snowflake.com/en/sql-reference/parameters#label-default-ddl-collation))
   - snowcap sent: `ALTER TABLE <db>.PUBLIC.R04_DEFAULT_DDL_COLLATION SET DEFAULT_DDL_COLLATION = $$en-cs$$`
 - [ ] `tags` fails L2: `create failed: ProgrammingError: 001003 (42000): SQL compilation error: syntax error line 1 at position 12 unexpected 'TABLE'. on: ALTER EVENT TABLE <db>.PUBLIC.R06_TAGS SET TAG <db>.PUBLIC.COVERAGE_TAG='a'` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-table-event-table#data-governance-policy-and-tag-actions-datagovnpolicytagaction))
-  - snowcap sent: `ALTER EVENT TABLE <db>.PUBLIC.R06_TAGS SET TAG <db>.PUBLIC.COVERAGE_TAG='a' ; CREATE EVENT TABLE <db>.PUBLIC.R06_TAGS CHANGE_TRACKING = FALSE`
+  - snowcap sent: `CREATE EVENT TABLE <db>.PUBLIC.R06_TAGS CHANGE_TRACKING = FALSE ; ALTER EVENT TABLE <db>.PUBLIC.R06_TAGS SET TAG <db>.PUBLIC.COVERAGE_TAG='a'`
 - [x] Combined change of `change_tracking`, `comment`, `data_retention_time_in_days`, `max_data_extension_time_in_days` in one plan
 - [ ] Model `automatic_clustering`: `SUSPEND | RESUME RECLUSTER` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-table-event-table#clustering-actions-clusteringaction))
 - [ ] Model `row_access_policy`: `ROW ACCESS POLICY <policy_name> ON ( <col_name> [ , ... ] )` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-table-event-table#data-governance-policy-and-tag-actions-datagovnpolicytagaction))
@@ -618,7 +617,7 @@ Modeled, without a live sample: `copy_grants`, `owner`
 
 ### EXTERNAL ACCESS INTEGRATION
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 5 pass, 0 fail, 1 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-external-access-integration) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-external-access-integration) [show](https://docs.snowflake.com/en/sql-reference/sql/show-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-integration)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 5 pass, 0 fail, 1 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-external-access-integration) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-external-access-integration) [show](https://docs.snowflake.com/en/sql-reference/sql/show-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-integration)
 
 - [x] Combined change of `allowed_api_authentication_integrations`, `allowed_authentication_secrets`, `allowed_network_rules`, `comment`, `enabled` in one plan
 - [ ] Model `tags`: `TAG` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-external-access-integration#parameters))
@@ -632,32 +631,38 @@ Modeled, without a live sample: `owner`
 
 ### EXTERNAL FUNCTION
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 0 pass, 15 fail, 2 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-external-function) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-function) [show](https://docs.snowflake.com/en/sql-reference/sql/show-external-functions) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-function)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 9 pass, 6 fail, 2 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-external-function) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-function) [show](https://docs.snowflake.com/en/sql-reference/sql/show-external-functions) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-function)
 
-- [ ] `arguments[].name` fails L3: `snowcap's read fails while it plans the create: AttributeError: module 'snowcap.data_provider' has no attribute 'fetch_external_function'` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-external-function#required-parameters))
-- [ ] `arguments[].data_type` fails L3: `snowcap's read fails while it plans the create: AttributeError: module 'snowcap.data_provider' has no attribute 'fetch_external_function'` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-external-function#required-parameters))
-- [ ] `returns` fails L3: `snowcap's read fails while it plans the create: AttributeError: module 'snowcap.data_provider' has no attribute 'fetch_external_function'` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-external-function#required-parameters))
-- [ ] `return_not_null` fails L3: `snowcap's read fails while it plans the create: AttributeError: module 'snowcap.data_provider' has no attribute 'fetch_external_function'` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-external-function#optional-parameters))
-- [ ] `null_handling` fails L3: `snowcap's read fails while it plans the create: AttributeError: module 'snowcap.data_provider' has no attribute 'fetch_external_function'` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-external-function#optional-parameters))
-- [ ] `volatility` fails L3: `snowcap's read fails while it plans the create: AttributeError: module 'snowcap.data_provider' has no attribute 'fetch_external_function'` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-external-function#optional-parameters))
-- [ ] `secure` fails L3: `snowcap's read fails while it plans the create: AttributeError: module 'snowcap.data_provider' has no attribute 'fetch_external_function'` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-function))
-- [ ] `comment` fails L3: `snowcap's read fails while it plans the create: AttributeError: module 'snowcap.data_provider' has no attribute 'fetch_external_function'` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-function))
-- [ ] `api_integration` fails L3: `snowcap's read fails while it plans the create: AttributeError: module 'snowcap.data_provider' has no attribute 'fetch_external_function'` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-function#external-functions))
-- [ ] `url` fails L3: `snowcap's read fails while it plans the create: AttributeError: module 'snowcap.data_provider' has no attribute 'fetch_external_function'` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-external-function#required-parameters))
-- [ ] `headers[]` fails L3: `snowcap's read fails while it plans the create: AttributeError: module 'snowcap.data_provider' has no attribute 'fetch_external_function'` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-external-function#optional-parameters))
-- [ ] `max_batch_rows` fails L3: `snowcap's read fails while it plans the create: AttributeError: module 'snowcap.data_provider' has no attribute 'fetch_external_function'` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-external-function#optional-parameters))
-- [ ] `compression` fails L3: `snowcap's read fails while it plans the create: AttributeError: module 'snowcap.data_provider' has no attribute 'fetch_external_function'` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-external-function#optional-parameters))
-- [ ] `request_translator` fails L3: `snowcap's read fails while it plans the create: AttributeError: module 'snowcap.data_provider' has no attribute 'fetch_external_function'` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-function#external-functions))
-- [ ] `response_translator` fails L3: `snowcap's read fails while it plans the create: AttributeError: module 'snowcap.data_provider' has no attribute 'fetch_external_function'` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-function#external-functions))
+- [ ] `arguments[].name` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 001003 (42000): SQL compilation error: syntax error line 1 at position 100 unexpected '('. on: ALTER FUNCTION <db>.PUBLIC.R00_ARGUMENTS___NAME(VARCHAR, NUMBER) SET (VAL VARCHAR, C2 NUMBER)` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-external-function#required-parameters))
+  - snowcap sent: `ALTER FUNCTION <db>.PUBLIC.R00_ARGUMENTS___NAME(VARCHAR, NUMBER) SET (VAL VARCHAR, C2 NUMBER)`
+- [ ] `returns` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 001003 (42000): SQL compilation error: syntax error line 1 at position 99 unexpected 'OBJECT'. on: ALTER FUNCTION <db>.PUBLIC.R02_RETURNS(VARCHAR, NUMBER) SET returns OBJECT` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-external-function#required-parameters))
+  - snowcap sent: `ALTER FUNCTION <db>.PUBLIC.R02_RETURNS(VARCHAR, NUMBER) SET returns OBJECT`
+- [ ] `return_not_null` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 001003 (42000): SQL compilation error: syntax error line 1 at position 98 unexpected '<EOF>'. on: ALTER FUNCTION <db>.PUBLIC.R03_RETURN_NOT_NULL(VARCHAR, NUMBER) SET` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-external-function#optional-parameters))
+  - snowcap sent: `ALTER FUNCTION <db>.PUBLIC.R03_RETURN_NOT_NULL(VARCHAR, NUMBER) SET`
+- [ ] `null_handling` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 001003 (42000): SQL compilation error: syntax error line 1 at position 105 unexpected 'NULL'. syntax error line 1 at position 110 unexpected 'ON'. on: ALTER FUNCTION <db>.PUBLIC.R04_NULL_HANDLING(VARCHAR, NUMBER) SET RETURNS NULL ON NULL INPUT` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-external-function#optional-parameters))
+  - snowcap sent: `ALTER FUNCTION <db>.PUBLIC.R04_NULL_HANDLING(VARCHAR, NUMBER) SET RETURNS NULL ON NULL INPUT`
+- [ ] `volatility` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 001003 (42000): SQL compilation error: syntax error line 1 at position 103 unexpected '<EOF>'. on: ALTER FUNCTION <db>.PUBLIC.R05_VOLATILITY(VARCHAR, NUMBER) SET IMMUTABLE` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-external-function#optional-parameters))
+  - snowcap sent: `ALTER FUNCTION <db>.PUBLIC.R05_VOLATILITY(VARCHAR, NUMBER) SET IMMUTABLE`
+- [ ] `url` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 001003 (42000): SQL compilation error: syntax error line 1 at position 87 unexpected 'AS'. on: ALTER FUNCTION <db>.PUBLIC.R09_URL(VARCHAR, NUMBER) SET AS $$https://example.execute-api.us-west-2.amazonaws. ...` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-external-function#required-parameters))
+  - snowcap sent: `ALTER FUNCTION <db>.PUBLIC.R09_URL(VARCHAR, NUMBER) SET AS $$https://example.execute-api.us-west-2.amazonaws.com/prod/g$$`
 - Combined change: untested (needs two or more fields)
 - [ ] Model `context_headers[]`: `CONTEXT_HEADERS` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-external-function#optional-parameters))
 - [ ] Model `tags`: `SET TAG` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-function))
+- [x] `arguments[].data_type`
+- [x] `secure`
+- [x] `comment`
+- [x] `api_integration`
+- [x] `headers[]`
+- [x] `max_batch_rows`
+- [x] `compression`
+- [x] `request_translator`
+- [x] `response_translator`
 
 Modeled, without a live sample: `owner`
 
 ### EXTERNAL VOLUME
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 0 pass, 11 fail, 5 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-external-volume) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-external-volume) [show](https://docs.snowflake.com/en/sql-reference/sql/show-external-volumes) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-external-volume)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 0 pass, 11 fail, 5 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-external-volume) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-external-volume) [show](https://docs.snowflake.com/en/sql-reference/sql/show-external-volumes) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-external-volume)
 
 - [ ] `add_storage_location` fails L3, L4, L5: `declared [{'name': 'loc1', 'storage_provider': 'S3', 'storage_base_url': 's3://coverage-audit-bucket/a/', 'encryption': {'type': 'NONE'}, 'storage_aws_role_arn': 'arn:aws:iam::001234567890:role/coverage', 'storage_aws_external_id': None}], snowcap fetches [{'name': 'loc1', 'storage_provider': 'S3',  ...` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-external-volume#parameters))
   - snowcap sent: `ALTER EXTERNAL VOLUME <db>_R00_ADD_STORAGE_LOCATION SET storage_locations = ((NAME = $$loc1$$ storage_provider = 'S3' STORAGE_BASE_URL = $$s3://coverage-audit-bucket/a/$$ encryption = (type = 'NONE') STORAGE_AWS_ROLE_ARN = $$arn:aws:iam::001234567890:role/coverage$$), (NAME = $$loc2$$ storage_provid ...`
@@ -707,7 +712,7 @@ Modeled, without a live sample: `object_types`, `allowed_databases`, `allowed_da
 
 ### FILE FORMAT:csv
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 22 pass, 0 fail, 2 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-file-format) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-file-format) [show](https://docs.snowflake.com/en/sql-reference/sql/show-file-formats) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-file-format)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 22 pass, 0 fail, 2 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-file-format) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-file-format) [show](https://docs.snowflake.com/en/sql-reference/sql/show-file-formats) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-file-format)
 
 - [x] Combined change of `binary_format`, `comment`, `compression`, `date_format`, `empty_field_as_null`, `encoding`, `error_on_column_count_mismatch`, `escape`, `escape_unenclosed_field`, `field_delimiter`, `field_optionally_enclosed_by`, `file_extension`, `null_if`, `parse_header`, `record_delimiter`, `replace_invalid_characters`, `skip_blank_lines`, `skip_byte_order_mark`, `skip_header`, `time_format`, `timestamp_format`, `trim_space` in one plan
 - [ ] Model `temporary`: `TEMP | TEMPORARY | VOLATILE` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-file-format))
@@ -739,7 +744,7 @@ Modeled, without a live sample: `type`, `owner`
 
 ### FILE FORMAT:json
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 16 pass, 0 fail, 2 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-file-format) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-file-format) [show](https://docs.snowflake.com/en/sql-reference/sql/show-file-formats) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-file-format)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 16 pass, 0 fail, 2 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-file-format) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-file-format) [show](https://docs.snowflake.com/en/sql-reference/sql/show-file-formats) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-file-format)
 
 - [x] Combined change of `allow_duplicate`, `binary_format`, `comment`, `compression`, `date_format`, `enable_octal`, `file_extension`, `ignore_utf8_errors`, `null_if`, `replace_invalid_characters`, `skip_byte_order_mark`, `strip_null_values`, `strip_outer_array`, `time_format`, `timestamp_format`, `trim_space` in one plan
 - [ ] Model `temporary`: `TEMP | TEMPORARY | VOLATILE` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-file-format))
@@ -765,7 +770,7 @@ Modeled, without a live sample: `type`, `owner`
 
 ### FILE FORMAT:parquet
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 6 pass, 0 fail, 3 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-file-format) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-file-format) [show](https://docs.snowflake.com/en/sql-reference/sql/show-file-formats) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-file-format)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 6 pass, 0 fail, 3 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-file-format) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-file-format) [show](https://docs.snowflake.com/en/sql-reference/sql/show-file-formats) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-file-format)
 
 - [x] Combined change of `binary_as_text`, `comment`, `compression`, `null_if`, `replace_invalid_characters`, `trim_space` in one plan
 - [ ] Model `temporary`: `TEMP | TEMPORARY | VOLATILE` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-file-format))
@@ -782,7 +787,7 @@ Modeled, without a live sample: `type`, `owner`
 
 ### FUNCTION:javascript
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 1 pass, 8 fail, 8 not modeled, 3 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-function) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-function) [show](https://docs.snowflake.com/en/sql-reference/sql/show-user-functions) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-function)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 1 pass, 8 fail, 8 not modeled, 3 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-function) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-function) [show](https://docs.snowflake.com/en/sql-reference/sql/show-user-functions) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-function)
 
 - [ ] `arguments[].name` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 001003 (42000): SQL compilation error: syntax error line 1 at position 101 unexpected '('. on: ALTER FUNCTION <db>.PUBLIC.R00_ARGUMENTS___NAME(VARCHAR, FLOAT) SET (X VARCHAR, C2 FLOAT)` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-function#all-languages))
   - snowcap sent: `ALTER FUNCTION <db>.PUBLIC.R00_ARGUMENTS___NAME(VARCHAR, FLOAT) SET (X VARCHAR, C2 FLOAT)`
@@ -814,7 +819,7 @@ Modeled, without a live sample: `language`, `copy_grants`, `owner`
 
 ### FUNCTION:python
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 0 pass, 14 fail, 10 not modeled, 4 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-function) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-function) [show](https://docs.snowflake.com/en/sql-reference/sql/show-user-functions) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-function)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 0 pass, 14 fail, 10 not modeled, 4 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-function) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-function) [show](https://docs.snowflake.com/en/sql-reference/sql/show-user-functions) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-function)
 
 - [ ] `arguments[].name` fails L3, L4, L5: `snowcap's fetch fails: TypeError: _PythonUDF.__init__() missing 2 required positional arguments: 'runtime_version' and 'handler'` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-function#all-languages))
 - [ ] `arguments[].data_type` fails L3, L5: `snowcap's fetch fails: TypeError: _PythonUDF.__init__() missing 2 required positional arguments: 'runtime_version' and 'handler'` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-function#all-languages))
@@ -848,7 +853,7 @@ Modeled, without a live sample: `language`, `returns_table[]`, `copy_grants`, `o
 
 ### GIT REPOSITORY
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 2 pass, 1 fail, 1 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-git-repository) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-git-repository) [show](https://docs.snowflake.com/en/sql-reference/sql/show-git-repositories) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-git-repository)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 2 pass, 1 fail, 1 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-git-repository) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-git-repository) [show](https://docs.snowflake.com/en/sql-reference/sql/show-git-repositories) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-git-repository)
 
 - [ ] `origin` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 001420 (22023): SQL compilation error: invalid property 'ORIGIN' for 'GIT_REPOSITORY' on: ALTER GIT REPOSITORY <db>.PUBLIC.R00_ORIGIN SET ORIGIN = $$https://github.com/datacoves/workshop__snowcap.git$$` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-git-repository))
   - snowcap sent: `ALTER GIT REPOSITORY <db>.PUBLIC.R00_ORIGIN SET ORIGIN = $$https://github.com/datacoves/workshop__snowcap.git$$`
@@ -861,7 +866,7 @@ Modeled, without a live sample: `git_credentials`, `owner`
 
 ### HYBRID TABLE
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 0 pass, 18 fail, 9 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-hybrid-table) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-table) [show](https://docs.snowflake.com/en/sql-reference/sql/show-hybrid-tables) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-table)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 0 pass, 18 fail, 9 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-hybrid-table) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-table) [show](https://docs.snowflake.com/en/sql-reference/sql/show-hybrid-tables) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-table)
 
 - [ ] `columns[].name` fails L3: `snowcap's read fails while it plans the create: AttributeError: module 'snowcap.data_provider' has no attribute 'fetch_hybrid_table'` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-hybrid-table#required-parameters))
 - [ ] `columns[]` fails L3: `snowcap's read fails while it plans the create: AttributeError: module 'snowcap.data_provider' has no attribute 'fetch_hybrid_table'` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-table))
@@ -896,7 +901,7 @@ Modeled, without a live sample: `owner`
 
 ### ICEBERG TABLE:snowflake
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 3 pass, 13 fail, 21 not modeled, 4 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-iceberg-table-snowflake) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-iceberg-table) [show](https://docs.snowflake.com/en/sql-reference/sql/show-iceberg-tables) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-iceberg-table)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 3 pass, 13 fail, 21 not modeled, 4 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-iceberg-table-snowflake) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-iceberg-table) [show](https://docs.snowflake.com/en/sql-reference/sql/show-iceberg-tables) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-iceberg-table)
 
 - [ ] `external_volume` fails L2: `create failed: Refused: MissingResourceException: External Volume "SNOWFLAKE_MANAGED" not found. Referenced by: iceberg table "<db>.PUBLIC.R00_EXTERNAL_VOLUME"` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-iceberg-table-snowflake#optional-parameters))
 - [ ] `columns[].name` fails L4, L5: `a change to [{'name': 'ID', 'data_type': 'NUMBER(10,0)'}, {'name': 'NAME2', 'data_type': 'VARCHAR(134217728)'}] plans nothing` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-iceberg-table#table-column-actions-tablecolumnaction))
@@ -946,7 +951,7 @@ Modeled, without a live sample: `catalog`, `base_location`, `catalog_sync`, `own
 
 ### IMAGE REPOSITORY
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 0 pass, 0 fail, 3 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-image-repository) [alter](None) [show](https://docs.snowflake.com/en/sql-reference/sql/show-image-repositories) [describe](None)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 0 pass, 0 fail, 3 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-image-repository) [alter](None) [show](https://docs.snowflake.com/en/sql-reference/sql/show-image-repositories) [describe](None)
 
 - Combined change: untested (needs two or more fields)
 - [ ] Model `encryption.type`: `ENCRYPTION = ( TYPE = ... )` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-image-repository))
@@ -957,7 +962,7 @@ Modeled, without a live sample: `owner`
 
 ### MASKING POLICY
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 2 pass, 4 fail, 1 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-masking-policy) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-masking-policy) [show](https://docs.snowflake.com/en/sql-reference/sql/show-masking-policies) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-masking-policy)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 2 pass, 4 fail, 1 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-masking-policy) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-masking-policy) [show](https://docs.snowflake.com/en/sql-reference/sql/show-masking-policies) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-masking-policy)
 
 - [ ] `signature[].arg_name` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 001003 (42000): SQL compilation error: syntax error line 1 at position 90 unexpected '('. on: ALTER MASKING POLICY <db>.PUBLIC.R00_SIGNATURE___ARG_NAME SET (VAL VARCHAR, C2 NUMBER)` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-masking-policy#required-parameters))
   - snowcap sent: `ALTER MASKING POLICY <db>.PUBLIC.R00_SIGNATURE___ARG_NAME SET (VAL VARCHAR, C2 NUMBER)`
@@ -976,11 +981,11 @@ Modeled, without a live sample: `owner`
 
 ### MATERIALIZED VIEW
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 1 pass, 6 fail, 12 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-materialized-view) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-materialized-view) [show](https://docs.snowflake.com/en/sql-reference/sql/show-materialized-views) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-materialized-view)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 1 pass, 6 fail, 12 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-materialized-view) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-materialized-view) [show](https://docs.snowflake.com/en/sql-reference/sql/show-materialized-views) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-materialized-view)
 
 - [ ] `as` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 001003 (42000): SQL compilation error: syntax error line 1 at position 78 unexpected 'as'. on: ALTER MATERIALIZED VIEW <db>.PUBLIC.R00_AS SET as SELECT ID, NAME FROM <db>.PU ...` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-materialized-view#required-parameters))
   - snowcap sent: `ALTER MATERIALIZED VIEW <db>.PUBLIC.R00_AS SET as SELECT ID, NAME FROM <db>.PUBLIC.COVERAGE_T WHERE ID > 0`
-- [ ] `secure` fails L2: `create failed: ProgrammingError: 001003 (42000): SQL compilation error: syntax error line 1 at position 86 unexpected 'as'. on: CREATE MATERIALIZED VIEW <db>.PUBLIC.R01_SECURE SECURE as SELECT ID, NAME FROM COVERAGE_MATERIALIZED_VIEW_937 ...` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-materialized-view#parameters))
+- [ ] `secure` fails L2: `create failed: ProgrammingError: 001003 (42000): SQL compilation error: syntax error line 1 at position 86 unexpected 'as'. on: CREATE MATERIALIZED VIEW <db>.PUBLIC.R01_SECURE SECURE as SELECT ID, NAME FROM COVERAGE_MATERIALIZED_VIEW_C10 ...` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-materialized-view#parameters))
   - snowcap sent: `CREATE MATERIALIZED VIEW <db>.PUBLIC.R01_SECURE SECURE as SELECT ID, NAME FROM <db>.PUBLIC.COVERAGE_T`
 - [ ] `columns[].name` fails L4, L5: `a change to [{'name': 'ID2', 'data_type': 'NUMBER(38,0)'}, {'name': 'NAME', 'data_type': 'VARCHAR(16777216)'}] plans nothing` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-materialized-view#optional-parameters))
 - [ ] `columns[].tags` fails L2, L4, L5: `declared [{'name': 'ID', 'data_type': 'NUMBER(38,0)', 'tags': {'<db>.PUBLIC.COVERAGE_TAG': 'a'}}, {'name': 'NAME', 'data_type': 'VARCHAR(16777216)'}], Snowflake reports id_tag=None` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-materialized-view#usage-notes))
@@ -1007,7 +1012,7 @@ Modeled, without a live sample: `copy_grants`, `owner`
 
 ### MCP SERVER
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 7 pass, 0 fail, 0 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-mcp-server) [alter](None) [show](https://docs.snowflake.com/en/sql-reference/sql/show-mcp-servers) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-mcp-server)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 7 pass, 0 fail, 0 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-mcp-server) [alter](None) [show](https://docs.snowflake.com/en/sql-reference/sql/show-mcp-servers) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-mcp-server)
 
 - Combined change: untested (needs two or more fields)
 - [x] `specification`
@@ -1022,7 +1027,7 @@ Modeled, without a live sample: `owner`
 
 ### NETWORK POLICY
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 7 pass, 0 fail, 1 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-network-policy) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-network-policy) [show](https://docs.snowflake.com/en/sql-reference/sql/show-network-policies) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-network-policy)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 7 pass, 0 fail, 1 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-network-policy) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-network-policy) [show](https://docs.snowflake.com/en/sql-reference/sql/show-network-policies) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-network-policy)
 
 - [x] Combined change of `allowed_ip_list`, `allowed_network_rule_list`, `blocked_ip_list`, `blocked_network_rule_list`, `comment` in one plan
 - [ ] Model `tags`: `SET TAG` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-network-policy#syntax))
@@ -1038,7 +1043,7 @@ Modeled, without a live sample: `owner`
 
 ### NETWORK RULE
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 2 pass, 2 fail, 0 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-network-rule) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-network-rule) [show](https://docs.snowflake.com/en/sql-reference/sql/show-network-rules) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-network-rule)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 2 pass, 2 fail, 0 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-network-rule) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-network-rule) [show](https://docs.snowflake.com/en/sql-reference/sql/show-network-rules) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-network-rule)
 
 - [ ] `type` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 001420 (22023): SQL compilation error: invalid property 'type' for 'NETWORK_RULE' on: ALTER NETWORK RULE <db>.PUBLIC.R00_TYPE SET type = AZURELINKID` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-network-rule))
   - snowcap sent: `ALTER NETWORK RULE <db>.PUBLIC.R00_TYPE SET type = AZURELINKID`
@@ -1052,24 +1057,28 @@ Modeled, without a live sample: `owner`
 
 ### NOTEBOOK
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 3 pass, 1 fail, 5 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-notebook) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-notebook) [show](https://docs.snowflake.com/en/sql-reference/sql/show-notebooks) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-notebook)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 0 pass, 4 fail, 5 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-notebook) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-notebook) [show](https://docs.snowflake.com/en/sql-reference/sql/show-notebooks) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-notebook)
 
-- [ ] `from` fails L3, L4, L5: `Snowflake reports default_version_source_location_uri='@<db>.PUBLIC.COVERAGE_STG1' (declared form '@<db>.PUBLIC.COVERAGE_STG1'), snowcap fetches None` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-notebook))
-- [x] Combined change of `comment`, `query_warehouse` in one plan
+- [ ] `from` fails L2: `create failed: ProgrammingError: 505182 (0A000): SQL compilation error: Creation of legacy notebooks has been disabled for this account. on: CREATE NOTEBOOK <db>.PUBLIC.R00_FROM FROM $$@<db>.PUBLIC.COVERAGE_STG1$$ MAIN_FILE = $$coverage_ ...` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-notebook))
+  - snowcap sent: `CREATE NOTEBOOK <db>.PUBLIC.R00_FROM FROM $$@<db>.PUBLIC.COVERAGE_STG1$$ MAIN_FILE = $$coverage_nb_a.ipynb$$ QUERY_WAREHOUSE = STATIC_WAREHOUSE`
+- [ ] `main_file` fails L2: `create failed: ProgrammingError: 505182 (0A000): SQL compilation error: Creation of legacy notebooks has been disabled for this account. on: CREATE NOTEBOOK <db>.PUBLIC.R01_MAIN_FILE FROM $$@<db>.PUBLIC.COVERAGE_STG1$$ MAIN_FILE = $$cove ...` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-notebook))
+  - snowcap sent: `CREATE NOTEBOOK <db>.PUBLIC.R01_MAIN_FILE FROM $$@<db>.PUBLIC.COVERAGE_STG1$$ MAIN_FILE = $$coverage_nb_a.ipynb$$ QUERY_WAREHOUSE = STATIC_WAREHOUSE`
+- [ ] `comment` fails L2: `create failed: ProgrammingError: 505182 (0A000): SQL compilation error: Creation of legacy notebooks has been disabled for this account. on: CREATE NOTEBOOK <db>.PUBLIC.R02_COMMENT FROM $$@<db>.PUBLIC.COVERAGE_STG1$$ MAIN_FILE = $$covera ...` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-notebook))
+  - snowcap sent: `CREATE NOTEBOOK <db>.PUBLIC.R02_COMMENT FROM $$@<db>.PUBLIC.COVERAGE_STG1$$ MAIN_FILE = $$coverage_nb_a.ipynb$$ COMMENT = $$a$$ QUERY_WAREHOUSE = STATIC_WAREHOUSE`
+- [ ] `query_warehouse` fails L2: `create failed: ProgrammingError: 505182 (0A000): SQL compilation error: Creation of legacy notebooks has been disabled for this account. on: CREATE NOTEBOOK <db>.PUBLIC.R03_QUERY_WAREHOUSE FROM $$@<db>.PUBLIC.COVERAGE_STG1$$ MAIN_FILE = ...` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-notebook))
+  - snowcap sent: `CREATE NOTEBOOK <db>.PUBLIC.R03_QUERY_WAREHOUSE FROM $$@<db>.PUBLIC.COVERAGE_STG1$$ MAIN_FILE = $$coverage_nb_a.ipynb$$ QUERY_WAREHOUSE = STATIC_WAREHOUSE`
+- [ ] Combined change of `comment`, `query_warehouse` in one plan: `ProgrammingError: 505182 (0A000): SQL compilation error: Creation of legacy notebooks has been disabled for this account. on: CREATE NOTEBOOK <db>.PUBLIC.COMBINED FROM $$@<db>.PUBLIC.COVERAGE_STG1$$ MAIN_FILE = $$coverage_ ...`
 - [ ] Model `idle_auto_shutdown_time_seconds`: `IDLE_AUTO_SHUTDOWN_TIME_SECONDS` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-notebook))
 - [ ] Model `runtime_name`: `RUNTIME_NAME` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-notebook))
 - [ ] Model `compute_pool`: `COMPUTE_POOL` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-notebook))
 - [ ] Model `warehouse`: `WAREHOUSE` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-notebook))
 - [ ] Model `secrets`: `SECRETS` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-notebook))
-- [x] `main_file`
-- [x] `comment`
-- [x] `query_warehouse`
 
 Modeled, without a live sample: `owner`
 
 ### NOTIFICATION INTEGRATION:email
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 2 pass, 0 fail, 3 not modeled, 3 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-notification-integration-email) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-notification-integration-email) [show](https://docs.snowflake.com/en/sql-reference/sql/show-notification-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-notification-integration)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 2 pass, 0 fail, 3 not modeled, 3 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-notification-integration-email) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-notification-integration-email) [show](https://docs.snowflake.com/en/sql-reference/sql/show-notification-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-notification-integration)
 
 - [x] Combined change of `comment`, `enabled` in one plan
 - [ ] Model `default_recipients`: `DEFAULT_RECIPIENTS` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-notification-integration-email#parameters))
@@ -1082,7 +1091,7 @@ Modeled, without a live sample: `type`, `allowed_recipients`, `owner`
 
 ### NOTIFICATION INTEGRATION:inbound_azure
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 0 pass, 4 fail, 2 not modeled, 4 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-notification-integration-queue-inbound-azure) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-notification-integration-queue-inbound-azure) [show](https://docs.snowflake.com/en/sql-reference/sql/show-notification-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-notification-integration)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 0 pass, 4 fail, 2 not modeled, 4 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-notification-integration-queue-inbound-azure) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-notification-integration-queue-inbound-azure) [show](https://docs.snowflake.com/en/sql-reference/sql/show-notification-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-notification-integration)
 
 - [ ] `azure_storage_queue_primary_uri` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 001420 (22023): SQL compilation error: invalid property 'AZURE_STORAGE_QUEUE_PRIMARY_URI' for 'INTEGRATION - QUEUE - AZURE_STORAGE_QUEUE' on: ALTER NOTIFICATION INTEGRATION <db>_R00_AZURE_STORAGE_QUEUE_PRIMARY_URI SET AZURE_STORAG ...` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-notification-integration-queue-inbound-azure#required-parameters))
   - snowcap sent: `ALTER NOTIFICATION INTEGRATION <db>_R00_AZURE_STORAGE_QUEUE_PRIMARY_URI SET AZURE_STORAGE_QUEUE_PRIMARY_URI = $$https://coverageplaceholder.queue.core.windows.net/coverage-b$$ AZURE_TENANT_ID = $$00000000-0000-0000-0000-000000000001$$`
@@ -1097,7 +1106,7 @@ Modeled, without a live sample: `type`, `notification_provider`, `direction`, `o
 
 ### NOTIFICATION INTEGRATION:inbound_gcp
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 2 pass, 1 fail, 1 not modeled, 4 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-notification-integration-queue-inbound-gcp) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-notification-integration-queue-inbound-gcp) [show](https://docs.snowflake.com/en/sql-reference/sql/show-notification-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-notification-integration)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 2 pass, 1 fail, 1 not modeled, 4 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-notification-integration-queue-inbound-gcp) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-notification-integration-queue-inbound-gcp) [show](https://docs.snowflake.com/en/sql-reference/sql/show-notification-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-notification-integration)
 
 - [ ] `gcp_pubsub_subscription_name` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 001420 (22023): SQL compilation error: invalid property 'GCP_PUBSUB_SUBSCRIPTION_NAME' for 'INTEGRATION - QUEUE - GCP_PUBSUB' on: ALTER NOTIFICATION INTEGRATION <db>_R00_GCP_PUBSUB_SUBSCRIPTION_NAME SET GCP_PUBSUB_SUBSCR ...` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-notification-integration-queue-inbound-gcp#required-parameters))
   - snowcap sent: `ALTER NOTIFICATION INTEGRATION <db>_R00_GCP_PUBSUB_SUBSCRIPTION_NAME SET GCP_PUBSUB_SUBSCRIPTION_NAME = $$projects/coverage-placeholder/subscriptions/coverage-b$$`
@@ -1110,7 +1119,7 @@ Modeled, without a live sample: `type`, `notification_provider`, `direction`, `o
 
 ### NOTIFICATION INTEGRATION:outbound_aws
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 4 pass, 0 fail, 1 not modeled, 4 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-notification-integration-queue-outbound-aws) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-notification-integration-queue-outbound-aws) [show](https://docs.snowflake.com/en/sql-reference/sql/show-notification-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-notification-integration)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 4 pass, 0 fail, 1 not modeled, 4 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-notification-integration-queue-outbound-aws) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-notification-integration-queue-outbound-aws) [show](https://docs.snowflake.com/en/sql-reference/sql/show-notification-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-notification-integration)
 
 - [x] Combined change of `aws_sns_role_arn`, `aws_sns_topic_arn`, `comment`, `enabled` in one plan
 - [ ] Model `tags`: `SET TAG` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-notification-integration-queue-outbound-aws#syntax))
@@ -1139,7 +1148,7 @@ Modeled, without a live sample: `type`, `direction`, `notification_provider`, `g
 
 ### PACKAGES POLICY
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 4 pass, 0 fail, 0 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-packages-policy) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-packages-policy) [show](https://docs.snowflake.com/en/sql-reference/sql/show-packages-policies) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-packages-policy)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 4 pass, 0 fail, 0 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-packages-policy) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-packages-policy) [show](https://docs.snowflake.com/en/sql-reference/sql/show-packages-policies) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-packages-policy)
 
 - [x] Combined change of `additional_creation_blocklist`, `allowlist`, `blocklist`, `comment` in one plan
 - [x] `allowlist`
@@ -1151,7 +1160,7 @@ Modeled, without a live sample: `language`, `owner`
 
 ### PASSWORD POLICY
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 12 pass, 0 fail, 1 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-password-policy) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-password-policy) [show](https://docs.snowflake.com/en/sql-reference/sql/show-password-policies) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-password-policy)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 12 pass, 0 fail, 1 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-password-policy) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-password-policy) [show](https://docs.snowflake.com/en/sql-reference/sql/show-password-policies) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-password-policy)
 
 - [x] Combined change of `comment`, `password_history`, `password_lockout_time_mins`, `password_max_age_days`, `password_max_length`, `password_max_retries`, `password_min_age_days`, `password_min_length`, `password_min_lower_case_chars`, `password_min_numeric_chars`, `password_min_special_chars`, `password_min_upper_case_chars` in one plan
 - [ ] Model `tags`: `SET TAG / UNSET TAG` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-password-policy#parameters))
@@ -1172,9 +1181,9 @@ Modeled, without a live sample: `owner`
 
 ### PIPE
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 1 pass, 2 fail, 3 not modeled, 4 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-pipe) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-pipe) [show](https://docs.snowflake.com/en/sql-reference/sql/show-pipes) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-pipe)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 1 pass, 2 fail, 3 not modeled, 4 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-pipe) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-pipe) [show](https://docs.snowflake.com/en/sql-reference/sql/show-pipes) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-pipe)
 
-- [ ] `copy_statement` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 001003 (42000): SQL compilation error: syntax error line 1 at position 64 unexpected 'as'. on: ALTER PIPE <db>.PUBLIC.R00_COPY_STATEMENT SET as COPY INTO <db>.PUBLIC.COVERAGE_T FROM @COVERAGE_PIPE_63 ...` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-pipe))
+- [ ] `copy_statement` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 001003 (42000): SQL compilation error: syntax error line 1 at position 64 unexpected 'as'. on: ALTER PIPE <db>.PUBLIC.R00_COPY_STATEMENT SET as COPY INTO <db>.PUBLIC.COVERAGE_T FROM @COVERAGE_PIPE_2C ...` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-pipe))
   - snowcap sent: `ALTER PIPE <db>.PUBLIC.R00_COPY_STATEMENT SET as COPY INTO <db>.PUBLIC.COVERAGE_T FROM @<db>.PUBLIC.COVERAGE_STG2`
 - [ ] `error_integration` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 091116 (0A000): Cannot reset ERROR_INTEGRATION property on Pipe R01_ERROR_INTEGRATION. Please create a new one. on: ALTER PIPE <db>.PUBLIC.R01_ERROR_INTEGRATION SET ERROR_INTEGRATION = $$<db>_NI2$$` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-pipe))
   - snowcap sent: `ALTER PIPE <db>.PUBLIC.R01_ERROR_INTEGRATION SET ERROR_INTEGRATION = $$<db>_NI2$$`
@@ -1188,7 +1197,7 @@ Modeled, without a live sample: `auto_ingest`, `aws_sns_topic`, `integration`, `
 
 ### PROCEDURE:python
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 4 pass, 7 fail, 8 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-procedure#python-handler) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-procedure) [show](https://docs.snowflake.com/en/sql-reference/sql/show-procedures) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-procedure)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 4 pass, 7 fail, 8 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-procedure#python-handler) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-procedure) [show](https://docs.snowflake.com/en/sql-reference/sql/show-procedures) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-procedure)
 
 - [ ] `returns` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 001003 (42000): SQL compilation error: syntax error line 1 at position 84 unexpected 'NUMBER'. on: ALTER PROCEDURE <db>.PUBLIC.R00_RETURNS() SET returns NUMBER` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-procedure))
   - snowcap sent: `ALTER PROCEDURE <db>.PUBLIC.R00_RETURNS() SET returns NUMBER`
@@ -1236,23 +1245,23 @@ Modeled, without a live sample: `object_types`, `allowed_databases`, `allowed_da
 
 ### RESOURCE MONITOR
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 2 pass, 2 fail, 2 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-resource-monitor) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-resource-monitor) [show](https://docs.snowflake.com/en/sql-reference/sql/show-resource-monitors) [describe](None)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 3 pass, 2 fail, 1 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-resource-monitor) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-resource-monitor) [show](https://docs.snowflake.com/en/sql-reference/sql/show-resource-monitors) [describe](None)
 
 - [ ] `frequency` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 090259 (42601): Must specify frequency and start time together. on: ALTER RESOURCE MONITOR <db>_R01_FREQUENCY SET frequency = WEEKLY` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-resource-monitor))
   - snowcap sent: `ALTER RESOURCE MONITOR <db>_R01_FREQUENCY SET frequency = WEEKLY`
 - [ ] `start_timestamp` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 090259 (42601): Must specify frequency and start time together. on: ALTER RESOURCE MONITOR <db>_R02_START_TIMESTAMP SET START_TIMESTAMP = $$2049-02-01 00:00$$` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-resource-monitor))
   - snowcap sent: `ALTER RESOURCE MONITOR <db>_R02_START_TIMESTAMP SET START_TIMESTAMP = $$2049-02-01 00:00$$`
 - [x] Combined change of `credit_quota`, `end_timestamp`, `frequency`, `start_timestamp` in one plan
-- [ ] Model `triggers[]`: `TRIGGERS ON <threshold> PERCENT DO { SUSPEND | SUSPEND_IMMEDIATE | NOTIFY }` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-resource-monitor))
 - [ ] Model `account_assignment`: `RESOURCE_MONITOR (on ACCOUNT)` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-account))
 - [x] `credit_quota`
 - [x] `end_timestamp`
+- [x] `triggers[]`
 
 Modeled, without a live sample: `notify_users[]`, `owner`
 
 ### ROLE
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 1 pass, 1 fail, 1 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-role) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-role) [show](https://docs.snowflake.com/en/sql-reference/sql/show-roles) [describe](None)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 1 pass, 1 fail, 1 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-role) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-role) [show](https://docs.snowflake.com/en/sql-reference/sql/show-roles) [describe](None)
 
 - [ ] `tags` fails L3, L5: `declared {'<db>.PUBLIC.COVERAGE_TAG': 'a'}, snowcap fetches None` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-role))
 - Combined change: untested (needs two or more fields)
@@ -1263,7 +1272,7 @@ Modeled, without a live sample: `owner`
 
 ### ROW ACCESS POLICY
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 1 pass, 3 fail, 1 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-row-access-policy) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-row-access-policy) [show](https://docs.snowflake.com/en/sql-reference/sql/show-row-access-policies) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-row-access-policy)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 1 pass, 3 fail, 1 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-row-access-policy) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-row-access-policy) [show](https://docs.snowflake.com/en/sql-reference/sql/show-row-access-policies) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-row-access-policy)
 
 - [ ] `signature[].arg_name` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 001003 (42000): SQL compilation error: syntax error line 1 at position 96 unexpected '('. on: ALTER ROW ACCESS POLICY <db>.PUBLIC.R00_SIGNATURE___ARG_NAME SET (V VARCHAR, W2 NUMBER)` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-row-access-policy#required-parameters))
   - snowcap sent: `ALTER ROW ACCESS POLICY <db>.PUBLIC.R00_SIGNATURE___ARG_NAME SET (V VARCHAR, W2 NUMBER)`
@@ -1279,7 +1288,7 @@ Modeled, without a live sample: `return_type`, `owner`
 
 ### SCHEMA
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 7 pass, 0 fail, 37 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-schema) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-schema) [show](https://docs.snowflake.com/en/sql-reference/sql/show-schemas) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-schema)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 7 pass, 0 fail, 37 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-schema) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-schema) [show](https://docs.snowflake.com/en/sql-reference/sql/show-schemas) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-schema)
 
 - [x] Combined change of `comment`, `data_retention_time_in_days`, `default_ddl_collation`, `max_data_extension_time_in_days` in one plan
 - [ ] Model `contacts`: `WITH CONTACT / CONTACT` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-schema))
@@ -1331,7 +1340,7 @@ Modeled, without a live sample: `tags`
 
 ### SECRET:generic_string
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 1 pass, 1 fail, 0 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-secret) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-secret) [show](https://docs.snowflake.com/en/sql-reference/sql/show-secrets) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-secret)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 1 pass, 1 fail, 0 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-secret) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-secret) [show](https://docs.snowflake.com/en/sql-reference/sql/show-secrets) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-secret)
 
 - [ ] `secret_string` fails L3, L4, L5: `declared '{secret:secret_string_6}', snowcap fetches None` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-secret#generic-string-parameters))
 - [ ] Combined change of `comment`, `secret_string` in one plan: `missed secret_string`
@@ -1341,7 +1350,7 @@ Modeled, without a live sample: `type`, `owner`
 
 ### SECRET:oauth2_authorization_code
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 0 pass, 3 fail, 0 not modeled, 3 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-secret) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-secret) [show](https://docs.snowflake.com/en/sql-reference/sql/show-secrets) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-secret)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 0 pass, 3 fail, 0 not modeled, 3 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-secret) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-secret) [show](https://docs.snowflake.com/en/sql-reference/sql/show-secrets) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-secret)
 
 - [ ] `oauth_refresh_token` fails L3, L4, L5: `declared '{secret:oauth_refresh_token_2}', snowcap fetches None` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-secret#oauth-with-authorization-code-grant-flow-parameters))
 - [ ] `oauth_refresh_token_expiry_time` fails L4, L5: `snowcap crashes: KeyError: 'oauth_scopes'` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-secret#oauth-with-authorization-code-grant-flow-parameters))
@@ -1352,7 +1361,7 @@ Modeled, without a live sample: `type`, `api_authentication`, `owner`
 
 ### SECRET:oauth2_client_credentials
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 0 pass, 3 fail, 0 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-secret) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-secret) [show](https://docs.snowflake.com/en/sql-reference/sql/show-secrets) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-secret)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 0 pass, 3 fail, 0 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-secret) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-secret) [show](https://docs.snowflake.com/en/sql-reference/sql/show-secrets) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-secret)
 
 - [ ] `api_authentication` fails L3, L4, L5: `snowcap's fetch fails: TypeError: Expected OAuthSecret.oauth_scopes to be list[str], got '[read]' instead` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-secret#oauth-with-client-credentials-flow-required-parameters))
 - [ ] `oauth_scopes[]` fails L3, L4, L5: `snowcap's fetch fails: TypeError: Expected OAuthSecret.oauth_scopes to be list[str], got '[read]' instead` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-secret#oauth-with-client-credentials-flow-parameters))
@@ -1363,7 +1372,7 @@ Modeled, without a live sample: `type`, `owner`
 
 ### SECRET:password
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 2 pass, 1 fail, 0 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-secret) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-secret) [show](https://docs.snowflake.com/en/sql-reference/sql/show-secrets) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-secret)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 2 pass, 1 fail, 0 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-secret) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-secret) [show](https://docs.snowflake.com/en/sql-reference/sql/show-secrets) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-secret)
 
 - [ ] `password` fails L3, L4, L5: `declared '{secret:password_2}', snowcap fetches None` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-secret#basic-authentication-parameters))
 - [ ] Combined change of `comment`, `password`, `username` in one plan: `missed password`
@@ -1374,7 +1383,7 @@ Modeled, without a live sample: `type`, `owner`
 
 ### SECURITY INTEGRATION:api_auth_authorization_code
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 7 pass, 1 fail, 3 not modeled, 3 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-security-integration-api-auth) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-security-integration-api-auth) [show](https://docs.snowflake.com/en/sql-reference/sql/show-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-integration)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 7 pass, 1 fail, 3 not modeled, 3 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-security-integration-api-auth) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-security-integration-api-auth) [show](https://docs.snowflake.com/en/sql-reference/sql/show-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-integration)
 
 - [ ] `oauth_client_secret` fails L3, L4, L5: `declared '{secret:oauth_client_secret_1}', snowcap fetches None` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-security-integration-api-auth#optional-parameters))
 - [ ] Combined change of `comment`, `enabled`, `oauth_access_token_validity`, `oauth_client_auth_method`, `oauth_client_id`, `oauth_client_secret`, `oauth_grant`, `oauth_token_endpoint` in one plan: `missed oauth_client_secret`
@@ -1393,7 +1402,7 @@ Modeled, without a live sample: `type`, `auth_type`, `owner`
 
 ### SECURITY INTEGRATION:api_auth_client_credentials
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 7 pass, 3 fail, 1 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-security-integration-api-auth) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-security-integration-api-auth) [show](https://docs.snowflake.com/en/sql-reference/sql/show-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-integration)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 7 pass, 3 fail, 1 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-security-integration-api-auth) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-security-integration-api-auth) [show](https://docs.snowflake.com/en/sql-reference/sql/show-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-integration)
 
 - [ ] `auth_type` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 001420 (22023): SQL compilation error: invalid property 'AUTH_TYPE' for 'INTEGRATION - API_AUTHENTICATION' on: ALTER SECURITY INTEGRATION <db>_R00_AUTH_TYPE SET AUTH_TYPE = $$WORKLOAD_IDENT ...` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-security-integration-api-auth#required-parameters))
   - snowcap sent: `ALTER SECURITY INTEGRATION <db>_R00_AUTH_TYPE SET AUTH_TYPE = $$WORKLOAD_IDENTITY_FEDERATION$$`
@@ -1413,7 +1422,7 @@ Modeled, without a live sample: `type`, `owner`
 
 ### SECURITY INTEGRATION:api_auth_jwt_bearer
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 0 pass, 8 fail, 4 not modeled, 3 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-security-integration-api-auth) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-security-integration-api-auth) [show](https://docs.snowflake.com/en/sql-reference/sql/show-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-integration)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 0 pass, 8 fail, 4 not modeled, 3 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-security-integration-api-auth) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-security-integration-api-auth) [show](https://docs.snowflake.com/en/sql-reference/sql/show-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-integration)
 
 - [ ] `oauth_grant` fails L2: `create failed: ProgrammingError: 002029 (42601): SQL compilation error: Missing option(s): [OAUTH_ASSERTION_ISSUER] on: CREATE SECURITY INTEGRATION <db>_R00_OAUTH_GRANT type = API_AUTHENTICATION AUTH_TYPE = ...` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-security-integration-api-auth#optional-parameters))
   - snowcap sent: `CREATE SECURITY INTEGRATION <db>_R00_OAUTH_GRANT type = API_AUTHENTICATION AUTH_TYPE = $$OAUTH2$$ ENABLED = FALSE OAUTH_TOKEN_ENDPOINT = $$https://example.com/oauth/token$$ OAUTH_CLIENT_AUTH_METHOD = $$CLIENT_SECRET_POST$$ OAUTH_CLIENT_ID = $${secret:oauth_client_id_2}$$ OAUTH_CLIENT_SECRET = $${sec ...`
@@ -1439,9 +1448,30 @@ Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 0 pass, 8 f
 
 Modeled, without a live sample: `type`, `auth_type`, `owner`
 
+### SECURITY INTEGRATION:saml2
+
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 11 pass, 0 fail, 2 not modeled, 8 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-security-integration-saml2) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-security-integration-saml2) [show](https://docs.snowflake.com/en/sql-reference/sql/show-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-integration)
+
+- [x] Combined change of `comment`, `saml2_enable_sp_initiated`, `saml2_force_authn`, `saml2_issuer`, `saml2_post_logout_redirect_url`, `saml2_provider`, `saml2_requested_nameid_format`, `saml2_sign_request`, `saml2_sp_initiated_login_page_label`, `saml2_sso_url`, `saml2_x509_cert` in one plan
+- [ ] Model `saml2_snowflake_x509_cert`: `SAML2_SNOWFLAKE_X509_CERT` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-security-integration-saml2#optional-parameters))
+- [ ] Model `tags`: `SET TAG` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-security-integration-saml2#syntax))
+- [x] `saml2_issuer`
+- [x] `saml2_sso_url`
+- [x] `saml2_provider`
+- [x] `saml2_x509_cert`
+- [x] `saml2_sp_initiated_login_page_label`
+- [x] `saml2_enable_sp_initiated`
+- [x] `saml2_sign_request`
+- [x] `saml2_requested_nameid_format`
+- [x] `saml2_post_logout_redirect_url`
+- [x] `saml2_force_authn`
+- [x] `comment`
+
+Modeled, without a live sample: `type`, `enabled`, `metadata_url`, `allowed_user_domains`, `allowed_email_patterns`, `saml2_snowflake_issuer_url`, `saml2_snowflake_acs_url`, `owner`
+
 ### SECURITY INTEGRATION:snowflake_oauth_custom
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 14 pass, 2 fail, 7 not modeled, 3 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-security-integration-oauth-snowflake) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-security-integration-oauth-snowflake) [show](https://docs.snowflake.com/en/sql-reference/sql/show-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-integration)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 14 pass, 2 fail, 7 not modeled, 3 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-security-integration-oauth-snowflake) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-security-integration-oauth-snowflake) [show](https://docs.snowflake.com/en/sql-reference/sql/show-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-integration)
 
 - [ ] `oauth_alternate_redirect_uris` fails L3, L4, L5: `Snowflake reports alternate_redirect_uris_list="['https://example.com/oauth/alt1']" (declared form ['https://example.com/oauth/alt1']), snowcap fetches None` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-security-integration-oauth-snowflake#additional-optional-parameters-custom-clients))
 - [ ] `oauth_enable_role_selection` fails L3, L4, L5: `declared True, snowcap fetches False` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-security-integration-oauth-snowflake#additional-optional-parameters-custom-clients))
@@ -1472,7 +1502,7 @@ Modeled, without a live sample: `type`, `oauth_client`, `owner`
 
 ### SECURITY INTEGRATION:snowflake_oauth_partner
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 0 pass, 6 fail, 8 not modeled, 3 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-security-integration-oauth-snowflake) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-security-integration-oauth-snowflake) [show](https://docs.snowflake.com/en/sql-reference/sql/show-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-integration)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 0 pass, 6 fail, 8 not modeled, 3 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-security-integration-oauth-snowflake) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-security-integration-oauth-snowflake) [show](https://docs.snowflake.com/en/sql-reference/sql/show-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-integration)
 
 - [ ] `oauth_client` fails L3, L4, L5: `snowcap's fetch fails: Exception: snowcap cannot read back partner OAuth integration Resource:<db>_R00_OAUTH_CLIENT (oauth_client=LOOKER): fetch is not implemented for partner OAuth` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-security-integration-oauth-snowflake#required-parameters-all-oauth-clients))
 - [ ] `oauth_redirect_uri` fails L3, L4, L5: `snowcap's fetch fails: Exception: snowcap cannot read back partner OAuth integration Resource:<db>_R01_OAUTH_REDIRECT_URI (oauth_client=LOOKER): fetch is not implemented for partner OAuth` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-security-integration-oauth-snowflake#required-parameters-all-oauth-clients))
@@ -1494,7 +1524,7 @@ Modeled, without a live sample: `type`, `oauth_client_secret`, `owner`
 
 ### SEQUENCE
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 2 pass, 1 fail, 1 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-sequence) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-sequence) [show](https://docs.snowflake.com/en/sql-reference/sql/show-sequences) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-sequence)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 2 pass, 1 fail, 1 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-sequence) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-sequence) [show](https://docs.snowflake.com/en/sql-reference/sql/show-sequences) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-sequence)
 
 - [ ] `start` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 001420 (22023): SQL compilation error: invalid property 'SEQUENCE_START' for 'SEQUENCE' on: ALTER SEQUENCE <db>.PUBLIC.R00_START SET START 10` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-sequence#optional-parameters))
   - snowcap sent: `ALTER SEQUENCE <db>.PUBLIC.R00_START SET START 10`
@@ -1523,7 +1553,7 @@ Modeled, without a live sample: `compute_pool`, `specification`, `min_instances`
 
 ### SHARE
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 1 pass, 0 fail, 6 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-share) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-share) [show](https://docs.snowflake.com/en/sql-reference/sql/show-shares) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-share)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 1 pass, 0 fail, 6 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-share) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-share) [show](https://docs.snowflake.com/en/sql-reference/sql/show-shares) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-share)
 
 - Combined change: untested (needs two or more fields)
 - [ ] Model `secure_objects_only`: `SECURE_OBJECTS_ONLY` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-share#optional-parameters))
@@ -1538,7 +1568,7 @@ Modeled, without a live sample: `owner`
 
 ### STAGE:external_azure
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 4 pass, 4 fail, 10 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-stage) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-stage) [show](https://docs.snowflake.com/en/sql-reference/sql/show-stages) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-stage)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 4 pass, 4 fail, 10 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-stage) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-stage) [show](https://docs.snowflake.com/en/sql-reference/sql/show-stages) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-stage)
 
 - [ ] `encryption.type` fails L3, L4, L5: `declared 'AZURE_CSE', snowcap fetches None` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-stage#external-stage-parameters-externalstageparams))
 - [ ] `encryption.master_key` fails L3, L4, L5: `declared '{secret:master_key_1}', snowcap fetches None` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-stage#external-stage-parameters-externalstageparams))
@@ -1566,7 +1596,7 @@ Modeled, without a live sample: `owner`
 
 ### STAGE:external_gcs
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 4 pass, 4 fail, 9 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-stage) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-stage) [show](https://docs.snowflake.com/en/sql-reference/sql/show-stages) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-stage)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 4 pass, 4 fail, 9 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-stage) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-stage) [show](https://docs.snowflake.com/en/sql-reference/sql/show-stages) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-stage)
 
 - [ ] `encryption.type` fails L3, L4, L5: `declared 'GCS_SSE_KMS', snowcap fetches None` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-stage#external-stage-parameters-externalstageparams))
 - [ ] `encryption.kms_key_id` fails L3, L4, L5: `declared 'coverage-kms-key1', snowcap fetches None` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-stage#external-stage-parameters-externalstageparams))
@@ -1593,7 +1623,7 @@ Modeled, without a live sample: `owner`
 
 ### STAGE:external_onelake
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 4 pass, 4 fail, 7 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-stage) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-stage) [show](https://docs.snowflake.com/en/sql-reference/sql/show-stages) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-stage)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 4 pass, 4 fail, 7 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-stage) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-stage) [show](https://docs.snowflake.com/en/sql-reference/sql/show-stages) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-stage)
 
 - [ ] `encryption.type` fails L3, L4, L5: `declared 'AZURE_CSE', snowcap fetches None` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-stage#external-stage-parameters-externalstageparams))
 - [ ] `encryption.master_key` fails L3, L4, L5: `declared '{secret:master_key_1}', snowcap fetches None` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-stage#external-stage-parameters-externalstageparams))
@@ -1618,7 +1648,7 @@ Modeled, without a live sample: `owner`
 
 ### STAGE:external_s3
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 4 pass, 9 fail, 10 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-stage) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-stage) [show](https://docs.snowflake.com/en/sql-reference/sql/show-stages) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-stage)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 4 pass, 9 fail, 10 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-stage) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-stage) [show](https://docs.snowflake.com/en/sql-reference/sql/show-stages) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-stage)
 
 - [ ] `credentials.aws_key_id` fails L3, L4, L5: `declared '{secret:aws_key_id_1}', snowcap fetches None` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-stage#external-stage-parameters-externalstageparams))
 - [ ] `credentials.aws_secret_key` fails L3, L4, L5: `declared '{secret:aws_secret_key_1}', snowcap fetches None` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-stage#external-stage-parameters-externalstageparams))
@@ -1651,7 +1681,7 @@ Modeled, without a live sample: `owner`
 
 ### STAGE:external_s3compat
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 0 pass, 6 fail, 7 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-stage) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-stage) [show](https://docs.snowflake.com/en/sql-reference/sql/show-stages) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-stage)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 0 pass, 6 fail, 7 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-stage) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-stage) [show](https://docs.snowflake.com/en/sql-reference/sql/show-stages) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-stage)
 
 - [ ] `url` fails L2: `create failed: ProgrammingError: 002029 (42601): SQL compilation error: Missing option(s): ENDPOINT on: CREATE STAGE <db>.PUBLIC.R00_URL URL = $$s3compat://coverage-audit-bucket/path/$$ credentials = (AWS_KE ...` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-stage))
   - snowcap sent: `CREATE STAGE <db>.PUBLIC.R00_URL URL = $$s3compat://coverage-audit-bucket/path/$$ credentials = (AWS_KEY_ID = $${secret:aws_key_id_1}$$ AWS_SECRET_KEY = $${secret:aws_secret_key_1}$$) directory = (ENABLE = FALSE)`
@@ -1678,7 +1708,7 @@ Modeled, without a live sample: `owner`
 
 ### STAGE:internal
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 2 pass, 2 fail, 7 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-stage) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-stage) [show](https://docs.snowflake.com/en/sql-reference/sql/show-stages) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-stage)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 2 pass, 2 fail, 7 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-stage) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-stage) [show](https://docs.snowflake.com/en/sql-reference/sql/show-stages) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-stage)
 
 - [ ] `encryption.type` fails L3, L4, L5: `declared 'SNOWFLAKE_SSE', snowcap fetches None` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-stage#internal-stage-parameters-internalstageparams))
 - [ ] `tags` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 001003 (42000): SQL compilation error: syntax error line 1 at position 20 unexpected '<db>'. on: ALTER TAG REFERENCE <db>.PUBLIC.R03_TAGS?domain=STAGE SET` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-stage))
@@ -1698,7 +1728,7 @@ Modeled, without a live sample: `owner`
 
 ### STORAGE INTEGRATION:azure
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 4 pass, 1 fail, 2 not modeled, 3 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-storage-integration) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-storage-integration) [show](https://docs.snowflake.com/en/sql-reference/sql/show-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-integration)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 4 pass, 1 fail, 2 not modeled, 3 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-storage-integration) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-storage-integration) [show](https://docs.snowflake.com/en/sql-reference/sql/show-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-integration)
 
 - [ ] `storage_blocked_locations[]` fails L3, L5: `Snowflake reports storage_blocked_locations="['azure://coverageplaceholder.blob.core.windows.net/a/x/']" (declared form ['azure://coverageplaceholder.blob.core.windows.net/a/x/']), snowcap fetches None` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-storage-integration#optional-parameters))
 - [x] Combined change of `azure_tenant_id`, `comment`, `enabled`, `storage_allowed_locations`, `storage_blocked_locations` in one plan
@@ -1713,7 +1743,7 @@ Modeled, without a live sample: `type`, `storage_provider`, `owner`
 
 ### STORAGE INTEGRATION:gcs
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 4 pass, 0 fail, 1 not modeled, 3 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-storage-integration) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-storage-integration) [show](https://docs.snowflake.com/en/sql-reference/sql/show-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-integration)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 4 pass, 0 fail, 1 not modeled, 3 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-storage-integration) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-storage-integration) [show](https://docs.snowflake.com/en/sql-reference/sql/show-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-integration)
 
 - [x] Combined change of `comment`, `enabled`, `storage_allowed_locations`, `storage_blocked_locations` in one plan
 - [ ] Model `tags`: `SET TAG / UNSET TAG` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-storage-integration#parameters))
@@ -1726,7 +1756,7 @@ Modeled, without a live sample: `type`, `storage_provider`, `owner`
 
 ### STORAGE INTEGRATION:s3
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 6 pass, 0 fail, 3 not modeled, 3 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-storage-integration) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-storage-integration) [show](https://docs.snowflake.com/en/sql-reference/sql/show-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-integration)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 6 pass, 0 fail, 3 not modeled, 3 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-storage-integration) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-storage-integration) [show](https://docs.snowflake.com/en/sql-reference/sql/show-integrations) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-integration)
 
 - [x] Combined change of `comment`, `enabled`, `storage_allowed_locations`, `storage_aws_object_acl`, `storage_aws_role_arn`, `storage_blocked_locations` in one plan
 - [ ] Model `storage_aws_external_id`: `STORAGE_AWS_EXTERNAL_ID` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-storage-integration#cloud-provider-parameters-cloudproviderparams))
@@ -1743,7 +1773,7 @@ Modeled, without a live sample: `type`, `storage_provider`, `owner`
 
 ### STREAM:directory_table
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 2 pass, 0 fail, 1 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-stream) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-stream) [show](https://docs.snowflake.com/en/sql-reference/sql/show-streams) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-stream)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 2 pass, 0 fail, 1 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-stream) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-stream) [show](https://docs.snowflake.com/en/sql-reference/sql/show-streams) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-stream)
 
 - Combined change: untested (needs two or more fields)
 - [ ] Model `tags`: `[ WITH ] TAG ( <tag_name> = '<tag_value>' [ , ... ] )` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-stream#parameters))
@@ -1754,7 +1784,7 @@ Modeled, without a live sample: `copy_grants`, `owner`
 
 ### STREAM:dynamic_table
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 2 pass, 0 fail, 1 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-stream) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-stream) [show](https://docs.snowflake.com/en/sql-reference/sql/show-streams) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-stream)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 2 pass, 0 fail, 1 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-stream) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-stream) [show](https://docs.snowflake.com/en/sql-reference/sql/show-streams) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-stream)
 
 - Combined change: untested (needs two or more fields)
 - [ ] Model `tags`: `[ WITH ] TAG ( <tag_name> = '<tag_value>' [ , ... ] )` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-stream#parameters))
@@ -1765,7 +1795,7 @@ Modeled, without a live sample: `copy_grants`, `owner`
 
 ### STREAM:table
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 3 pass, 2 fail, 2 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-stream) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-stream) [show](https://docs.snowflake.com/en/sql-reference/sql/show-streams) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-stream)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 3 pass, 2 fail, 2 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-stream) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-stream) [show](https://docs.snowflake.com/en/sql-reference/sql/show-streams) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-stream)
 
 - [ ] `at_before` fails L3, L4, L5: `declared {'offset': '-1'}, snowcap fetches None` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-stream#optional-parameters))
 - [ ] `show_initial_rows` fails L3, L4, L5: `declared True, snowcap fetches None` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-stream#optional-parameters))
@@ -1780,7 +1810,7 @@ Modeled, without a live sample: `copy_grants`, `owner`
 
 ### STREAM:view
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 3 pass, 2 fail, 1 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-stream) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-stream) [show](https://docs.snowflake.com/en/sql-reference/sql/show-streams) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-stream)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 3 pass, 2 fail, 1 not modeled, 2 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-stream) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-stream) [show](https://docs.snowflake.com/en/sql-reference/sql/show-streams) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-stream)
 
 - [ ] `at_before` fails L3, L4, L5: `declared {'offset': '-1'}, snowcap fetches None` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-stream#optional-parameters))
 - [ ] `show_initial_rows` fails L3, L4, L5: `declared True, snowcap fetches None` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-stream#optional-parameters))
@@ -1794,7 +1824,7 @@ Modeled, without a live sample: `copy_grants`, `owner`
 
 ### STREAMLIT
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 0 pass, 5 fail, 6 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-streamlit) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-streamlit) [show](https://docs.snowflake.com/en/sql-reference/sql/show-streamlits) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-streamlit)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 0 pass, 5 fail, 6 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-streamlit) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-streamlit) [show](https://docs.snowflake.com/en/sql-reference/sql/show-streamlits) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-streamlit)
 
 - [ ] `from` fails L2: `create failed: ProgrammingError: 002003 (02000): SQL compilation error: COMPUTE_POOL 'SYSTEM_COMPUTE_POOL_CPU' does not exist or not authorized.{2} on: CREATE STREAMLIT <db>.PUBLIC.R00_FROM FROM @<db>.PUBLIC.COVERAGE_STG1 MAIN_FILE = $$coverage_a ...` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-streamlit))
   - snowcap sent: `CREATE STREAMLIT <db>.PUBLIC.R00_FROM FROM @<db>.PUBLIC.COVERAGE_STG1 MAIN_FILE = $$coverage_app_a.py$$ QUERY_WAREHOUSE = STATIC_WAREHOUSE`
@@ -1818,7 +1848,7 @@ Modeled, without a live sample: `owner`
 
 ### TABLE
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 5 pass, 20 fail, 29 not modeled, 0 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-table) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-table) [show](https://docs.snowflake.com/en/sql-reference/sql/show-tables) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-table)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 5 pass, 20 fail, 29 not modeled, 0 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-table) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-table) [show](https://docs.snowflake.com/en/sql-reference/sql/show-tables) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-table)
 
 - [ ] `table_type` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 001003 (42000): SQL compilation error: syntax error line 1 at position 61 unexpected '<EOF>'. on: ALTER TABLE <db>.PUBLIC.R00_TABLE_TYPE SET` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-table#optional-parameters))
   - snowcap sent: `ALTER TABLE <db>.PUBLIC.R00_TABLE_TYPE SET`
@@ -1891,9 +1921,9 @@ Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 5 pass, 20 
 
 ### TAG
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 6 pass, 0 fail, 3 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-tag) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-tag) [show](https://docs.snowflake.com/en/sql-reference/sql/show-tags) [describe](None)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 6 pass, 0 fail, 3 not modeled, 1 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-tag) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-tag) [show](https://docs.snowflake.com/en/sql-reference/sql/show-tags) [describe](None)
 
-- [ ] Combined change of `allowed_values`, `comment`, `on_conflict`, `propagate` in one plan: `ProgrammingError: 001003 (42000): SQL compilation error: syntax error line 1 at position 80 unexpected 'propagate'. on: ALTER TAG <db>.PUBLIC.COMBINED SET ALLOWED_VALUES $$a$$, $$c$$ propagate = ON_DEPENDENCY_AND_DATA_MOVEMENT ON_CONFLICT = $$ ...`
+- [ ] Combined change of `allowed_values`, `comment`, `on_conflict`, `propagate` in one plan: `ProgrammingError: 001003 (42000): SQL compilation error: syntax error line 1 at position 80 unexpected 'propagate'. on: ALTER TAG <db>.PUBLIC.COMBINED SET ALLOWED_VALUES $$a$$, $$c$$ propagate = ON_DEPENDENCY_AND_DATA_MOVEMENT ON_CONFLICT = 'a ...`
 - [ ] Model `multi_value`: `MULTI_VALUE` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-tag))
 - [ ] Model `data_movement_policy`: `SET DATA MOVEMENT POLICY` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-tag))
 - [ ] Model `unset_dcm_project`: `UNSET DCM PROJECT` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-tag))
@@ -1908,12 +1938,11 @@ Modeled, without a live sample: `owner`
 
 ### TASK
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 15 pass, 2 fail, 8 not modeled, 3 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-task) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-task) [show](https://docs.snowflake.com/en/sql-reference/sql/show-tasks) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-task)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 15 pass, 2 fail, 8 not modeled, 3 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-task) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-task) [show](https://docs.snowflake.com/en/sql-reference/sql/show-tasks) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-task)
 
 - [ ] `finalize` fails L2: `create failed: ProgrammingError: 091449 (55000): Cannot set parameter SUSPEND_TASK_AFTER_NUM_FAILURES on non-root task R08_FINALIZE. Non-root tasks use the parameter setting from their root task. Please set this on the root task for this task instead. on: CREATE TASK <db>.PUBLIC.R08_FINALIZE user_ta ...` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-task))
   - snowcap sent: `CREATE TASK <db>.PUBLIC.R08_FINALIZE user_task_managed_initial_warehouse_size = MEDIUM ALLOW_OVERLAPPING_EXECUTION = FALSE SUSPEND_TASK_AFTER_NUM_FAILURES = 10 FINALIZE = <db>.PUBLIC.COVERAGE_ROOT1 as SELECT 1`
-- [ ] `after[]` fails L4, L5: `Snowflake rejects the SQL: ProgrammingError: 001003 (42000): SQL compilation error: syntax error line 1 at position 63 unexpected '<db>'. syntax error line 1 at position 131 unexpected '.'. syntax error line 1 at position 138 unexpected '.'. syntax error line 1 at position 153 unexpected '<EOF>'. on ...` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-task))
-  - snowcap sent: `ALTER TASK <db>.PUBLIC.R14_AFTER__ SET AFTER <db>.PUBLIC.COVERAGE_PRED1, <db>.PUBLIC.COVERAGE_PRED2`
+- [ ] `after[]` fails L4, L5: `snowcap refuses a change ALTER supports: NotImplementedError: update_task cannot change 'after' for urn::<account>:task/<db>.PUBLIC.R14_AFTER__: ALTER TASK has no SET AFTER; got delta keys ['after']` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-task))
 - [x] Combined change of `comment`, `config`, `error_integration`, `schedule`, `serverless_task_max_statement_size`, `serverless_task_min_statement_size`, `success_integration`, `suspend_task_after_num_failures`, `target_completion_interval`, `task_auto_retry_attempts`, `user_task_managed_initial_warehouse_size`, `user_task_minimum_trigger_interval_in_seconds`, `user_task_timeout_ms` in one plan
 - [ ] Model `overlap_policy`: `OVERLAP_POLICY` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-task))
 - [ ] Model `session_parameters[]`: `<session_parameter> = <value>` ([docs](https://docs.snowflake.com/en/sql-reference/parameters#label-session-parameters))
@@ -1943,7 +1972,7 @@ Modeled, without a live sample: `state`, `warehouse`, `owner`
 
 ### USER
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 0 pass, 16 fail, 98 not modeled, 13 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-user) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-user) [show](https://docs.snowflake.com/en/sql-reference/sql/show-users) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-user)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 0 pass, 16 fail, 98 not modeled, 13 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-user) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-user) [show](https://docs.snowflake.com/en/sql-reference/sql/show-users) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-user)
 
 - [ ] `login_name` fails L5: `plan after create: ["update ['type']"]; plan after change: ["update ['type']"]` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-user))
 - [ ] `display_name` fails L5: `plan after create: ["update ['type']"]; plan after change: ["update ['type']"]` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-user))
@@ -2065,7 +2094,7 @@ Modeled, without a live sample: `type`, `password`, `must_change_password`, `min
 
 ### VIEW
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 2 pass, 7 fail, 20 not modeled, 3 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-view) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-view) [show](https://docs.snowflake.com/en/sql-reference/sql/show-views) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-view)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 2 pass, 7 fail, 20 not modeled, 3 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-view) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-view) [show](https://docs.snowflake.com/en/sql-reference/sql/show-views) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-view)
 
 - [ ] `temporary` fails L3, L4, L5: `Snowflake reports is_volatile='true' (declared form True), snowcap fetches None` ([docs](https://docs.snowflake.com/en/sql-reference/sql/create-view#optional-parameters))
   - snowcap sent: `ALTER VIEW <db>.PUBLIC.R00_TEMPORARY SET`
@@ -2106,7 +2135,7 @@ Modeled, without a live sample: `copy_grants`, `columns[]`, `owner`
 
 ### WAREHOUSE
 
-Tested live at snowcap `584e44b` on 2026-11-10, Snowflake 10.40.103. 14 pass, 1 fail, 3 not modeled, 6 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-warehouse) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-warehouse) [show](https://docs.snowflake.com/en/sql-reference/sql/show-warehouses) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-warehouse)
+Tested live at snowcap `6ce5c12` on 2026-11-21, Snowflake 10.42.104. 14 pass, 1 fail, 3 not modeled, 6 without a live sample. Docs: [create](https://docs.snowflake.com/en/sql-reference/sql/create-warehouse) [alter](https://docs.snowflake.com/en/sql-reference/sql/alter-warehouse) [show](https://docs.snowflake.com/en/sql-reference/sql/show-warehouses) [describe](https://docs.snowflake.com/en/sql-reference/sql/desc-warehouse)
 
 - [ ] `tags` fails L3, L5: `declared {'<db>.PUBLIC.COVERAGE_TAG': 'a'}, snowcap fetches None` ([docs](https://docs.snowflake.com/en/sql-reference/sql/alter-warehouse))
 - [x] Combined change of `auto_resume`, `auto_suspend`, `comment`, `enable_query_acceleration`, `generation`, `max_cluster_count`, `max_concurrency_level`, `min_cluster_count`, `query_acceleration_max_scale_factor`, `resource_monitor`, `scaling_policy`, `statement_queued_timeout_in_seconds`, `statement_timeout_in_seconds`, `warehouse_size` in one plan
